@@ -178,7 +178,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
       <div className="row-wrap" style={{ gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="st-stack" style={{ gap: 2 }}>
           <span style={{ fontWeight: 600, fontSize: 16 }}>{formatWeekRange(weekStart)}</span>
-          <span className="xs st-muted">All times {TIMEZONE} · drag a post onto a day to plan it</span>
+          <span className="xs st-muted">{TIMEZONE} time · drag a post onto a day</span>
         </div>
         <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
         <div className="st-chip-row" role="group" aria-label="Accounts shown">
@@ -205,7 +205,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
 
       {changes.map((c) => (
         <div key={c.date} className="cal2-dst st-small">
-          <strong>Daylight-saving change this week.</strong> {describeDstChange(c)} Posts keep their local clock time.
+          <strong>Clock change this week.</strong> {describeDstChange(c)} Posts keep their local time.
         </div>
       ))}
 
@@ -276,7 +276,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           <div className="st-card st-stack" style={{ padding: 16, gap: 10 }}>
             <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
               <span className="label">Not planned yet</span>
-              <span className="xs st-muted">Drag onto a day in the same account’s row</span>
+              <span className="xs st-muted">Drag onto a day</span>
             </div>
             {cal.data.unplanned.length ? (
               <div className="cal2-tray">
@@ -288,7 +288,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
                 ))}
               </div>
             ) : (
-              <span className="st-small st-muted">Everything is planned. Make new posts on the Posts screen.</span>
+              <span className="st-small st-muted">Everything is planned.</span>
             )}
           </div>
 
@@ -388,7 +388,7 @@ function PlanDrawer({ item, handle, onClose, onSaved, onReview }: { item: CalIte
         </span>
         {locked ? (
           <span className="st-small">
-            {item.kind === 'posted' ? `Posted ${formatDateLabel(zonedParts(item.when!).date)} at ${formatTime(item.when)}.` : 'This post is being sent; its time can’t change.'}{' '}
+            {item.kind === 'posted' ? `Posted ${formatDateLabel(zonedParts(item.when!).date)} at ${formatTime(item.when)}.` : 'Being sent; its time can’t change.'}{' '}
             {item.url ? (
               <a className="real-link" href={item.url} target="_blank" rel="noreferrer">
                 View on Instagram
@@ -407,7 +407,7 @@ function PlanDrawer({ item, handle, onClose, onSaved, onReview }: { item: CalIte
                 <input className="st-input" type="time" value={time} step={300} onChange={(e) => setTime(e.target.value)} />
               </label>
             </div>
-            <span className="xs st-muted">Planning doesn’t post. When it’s due, Today reminds you; you still approve and post it on the Posts board.</span>
+            <span className="xs st-muted">Planning doesn’t post: you still approve it on Posts.</span>
             <div className="row-wrap" style={{ gap: 8 }}>
               <button type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy} onClick={() => void save(false)}>
                 {item.when ? 'Save time' : 'Plan'}

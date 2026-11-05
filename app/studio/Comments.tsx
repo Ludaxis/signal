@@ -126,24 +126,24 @@ export function Comments({ say, onManage }: { say: (t: string) => void; onManage
             <>
               <b>@{account.username}</b>
               {account.followers != null ? ` · ${account.followers.toLocaleString()} followers` : ''}
-              {setup.connection ? ' · via Meta Unified Login' : setup.mode === 'instagram-login' ? ' · via Instagram Login token' : ''}
+              {setup.connection ? ' · Meta' : setup.mode === 'instagram-login' ? ' · legacy token' : ''}
             </>
           ) : (
-            <span className="st-muted">{setup.api.reason || 'Instagram is not connected for this project.'}</span>
+            <span className="st-muted">{setup.api.reason || 'Instagram is not connected.'}</span>
           )}
         </span>
         {onManage ? (
           <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={onManage}>
-            Manage connections
+            Connections
           </button>
         ) : null}
       </div>
-      {account && data.handleOk === false ? <p className="real-error st-small">This connection is for @{account.username}, not this project&apos;s account. Posting is blocked until it matches.</p> : null}
+      {account && data.handleOk === false ? <p className="real-error st-small">Connected to @{account.username}, not this project&apos;s account. Posting is blocked.</p> : null}
       {account && !setup.comments.enabled ? <span className="st-small st-muted">{setup.comments.reason}</span> : null}
       {account && setup.comments.enabled ? (
         <div className="st-stack" style={{ gap: 12 }}>
           <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <span className="label">Comments on the latest posts</span>
+            <span className="label">Latest posts</span>
             <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={!!busy} onClick={() => void load()}>
               Refresh
             </button>

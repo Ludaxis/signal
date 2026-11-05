@@ -2,9 +2,11 @@
 // Studio projects: one Instagram account each. Switcher in the sidebar, a projects panel, and the
 // "New project" wizard (name → posting: Meta or an Upload-Post profile → posts folder → limits → check).
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Select } from './Select';
+import { More } from './More';
+import { UploadPostPicker, useUpProfiles } from './UploadPostPicker';
 
 // ---- selected project (per browser) -------------------------------------------------------
 const KEY = 'signal.studio.project';
@@ -96,6 +98,8 @@ export function useProjects() {
   return { rows, hasKey, error, reload: load };
 }
 const announce = () => window.dispatchEvent(new Event(CHANGED));
+/** Tell every project list (switcher, panel) that a project changed on the server. */
+export const announceProjectsChanged = announce;
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -143,7 +147,7 @@ export function CurrentProjectLabel() {
 
 // ---- projects panel -----------------------------------------------------------------------
 function ProjectsPanel({ onClose }: { onClose: () => void }) {
-  const { rows, hasKey, reload } = useProjects();
+  const { rows, reload } = useProjects();
   const [wizard, setWizard] = useState<null | { mode: 'new' } | { mode: 'account'; project: ProjectRow }>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -166,7 +170,6 @@ function ProjectsPanel({ onClose }: { onClose: () => void }) {
         </div>
         {wizard ? (
           <Wizard
-            hasKey={hasKey}
             start={wizard.mode === 'account' ? wizard.project : null}
             onDone={(id) => {
               setWizard(null);
@@ -188,14 +191,18 @@ function ProjectsPanel({ onClose }: { onClose: () => void }) {
                     <span className={`proj-status ${st.cls}`}>{st.label}</span>
                   </div>
                   <span className="st-small st-muted">
-                    {p.uploadPostProfile ? `Upload-Post profile “${p.uploadPostProfile}”` : "Instagram's API (Meta)"} · posts in {p.contentDir}
+                    {p.uploadPostProfile ? `Upload-Post “${p.uploadPostProfile}”` : "Instagram's API (Meta)"}
+                    {p.account ? ` · ${p.account.ends_at ? `${p.account.active ? 'posting until' : 'posting ended'} ${new Date(p.account.ends_at).toLocaleDateString()}` : 'no end date'}` : ''}
                   </span>
-                  {p.account ? (
-                    <span className="st-small st-muted">
-                      {p.account.ends_at ? `${p.account.active ? 'Posting until' : 'Posting ended'} ${new Date(p.account.ends_at).toLocaleDateString()}` : 'No end date'} · {p.account.max_posts} posts, {p.account.max_per_day}/day · Codex images {p.account.codex_images ? 'on' : 'off'}
-                      {p.account.verified ? ` · checked ${p.account.verified.instagram ? '@' + p.account.verified.instagram.replace(/^@/, '') : 'no Instagram'}` : ''}
-                    </span>
-                  ) : null}
+                  <More label="Details">
+                    <span>Posts folder: {p.contentDir}</span>
+                    {p.account ? (
+                      <span>
+                        {p.account.max_posts} posts, {p.account.max_per_day}/day · one-click posting {p.account.posting ? 'on' : 'off'} · Codex images {p.account.codex_images ? 'on' : 'off'}
+                        {p.account.verified ? ` · checked ${p.account.verified.instagram ? '@' + p.account.verified.instagram.replace(/^@/, '') : 'no Instagram'}` : ''}
+                      </span>
+                    ) : null}
+                  </More>
                   <div className="row-wrap" style={{ gap: 8 }}>
                     <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setProjectId(p.id)}>
                       Open
@@ -259,7 +266,7 @@ const STEPS: [Step, string][] = [
   ['verify', 'Check'],
 ];
 
-function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow | null; onDone: (id: string) => void }) {
+function Wizard({ start, onDone }: { start: ProjectRow | null; onDone: (id: string) => void }) {
   const [step, setStep] = useState<Step>(start ? 'account' : 'basics');
   const [via, setVia] = useState<'meta' | 'upload-post'>('meta');
   const [f, setF] = useState({ name: '', id: '', handle: '', uploadPostProfile: '', contentDir: '' });
@@ -308,9 +315,9 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
             {err('id')}
           </label>
           <label className="wiz-field">
-            Instagram account <span className="st-muted" style={{ fontWeight: 400 }}>(you can also pick it from Upload-Post on the next step)</span>
-            <input className="st-input" value={f.handle} onChange={(e) => set('handle', e.target.value)} placeholder="@account or instagram.com/account" />
-            <span className="st-small st-muted">Must be a Professional (Creator or Business) account.</span>
+            Instagram account <span className="st-muted" style={{ fontWeight: 400 }}>(optional here)</span>
+            <input className="st-input" value={f.handle} onChange={(e) => set('handle', e.target.value)} placeholder="@account" />
+            <span className="xs st-muted" style={{ fontWeight: 400 }}>A Professional (Creator or Business) account.</span>
             {err('handle')}
           </label>
           <div>
@@ -325,18 +332,21 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
         <div className="st-stack" style={{ gap: 12 }}>
           <div className="st-stack" role="radiogroup" aria-label="How this project posts" style={{ gap: 6 }}>
             <label className="real-check">
-              <input type="radio" name="via" checked={via === 'meta'} onChange={() => { setVia('meta'); set('uploadPostProfile', ''); }} /> <span><strong>Instagram&apos;s API with Meta</strong> (recommended): connect the account on the Connections screen after creating the project. No Upload-Post needed.</span>
+              <input type="radio" name="via" checked={via === 'meta'} onChange={() => { setVia('meta'); set('uploadPostProfile', ''); }} /> <span><strong>Instagram&apos;s API (Meta)</strong> · recommended</span>
             </label>
             <label className="real-check">
-              <input type="radio" name="via" checked={via === 'upload-post'} onChange={() => setVia('upload-post')} /> <span><strong>Upload-Post</strong>: use a profile on your Upload-Post plan.</span>
+              <input type="radio" name="via" checked={via === 'upload-post'} onChange={() => setVia('upload-post')} /> <span><strong>Upload-Post</strong> · a profile on your plan</span>
             </label>
           </div>
+          <More label="Which one?">
+            <span>Meta posts straight through Instagram&apos;s API; you connect the account on Connections after creating the project. Upload-Post is the fallback and also schedules posts while your machine is off.</span>
+          </More>
           {via === 'meta' ? (
             <div className="st-stack" style={{ gap: 10 }}>
               <label className="wiz-field">
                 Instagram account
                 <input className="st-input" value={f.handle} onChange={(e) => set('handle', e.target.value)} placeholder="@account" />
-                <span className="st-small st-muted">A Professional account that is in the business portfolio Signal&apos;s Meta login can see.</span>
+                <span className="xs st-muted" style={{ fontWeight: 400 }}>A Professional account in the business portfolio your Meta login can see.</span>
                 {err('handle')}
               </label>
               <div className="row-wrap" style={{ gap: 8 }}>
@@ -350,7 +360,6 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
             </div>
           ) : (
         <UploadPostStep
-          hasKey={hasKey}
           slug={f.id || f.name}
           name={f.name}
           handle={f.handle}
@@ -368,12 +377,14 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
 
       {step === 'source' ? (
         <div className="st-stack" style={{ gap: 10 }}>
-          <span className="st-small st-muted">Posts are folders of files (images, video, caption) with a package.json. Signal&apos;s generators write them here; you can also drop in packages made elsewhere.</span>
           <label className="wiz-field">
-            Posts folder (optional)
+            Posts folder <span className="st-muted" style={{ fontWeight: 400 }}>(optional)</span>
             <input className="st-input" value={f.contentDir} onChange={(e) => set('contentDir', e.target.value)} placeholder="Default: <data folder>/projects/<project>/posts" />
             {err('contentDir')}
           </label>
+          <More label="What goes there?">
+            <span>Posts are folders of files (images, video, caption) with a package.json. Signal&apos;s generators write them here; you can also drop in packages made elsewhere.</span>
+          </More>
           <div className="row-wrap" style={{ gap: 8 }}>
             <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setStep('upload')}>
               Back
@@ -423,8 +434,11 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
       {step === 'account' && created ? (
         <div className="st-stack" style={{ gap: 10 }}>
           <span className="st-small">
-            Posting limits for <strong>{created.handle}</strong>. They are saved locally with the time and apply to every way Signal can post. Every post still needs your approval on the Posts board.
+            Posting limits for <strong>{created.handle}</strong>.
           </span>
+          <More label="What this means">
+            <span>The limits are saved locally with the time and apply to every way Signal can post. Every post still needs your OK on the Posts board.</span>
+          </More>
           <div className="row-wrap" style={{ gap: 12 }}>
             <label className="wiz-field wiz-num">
               Days (0 = no end)
@@ -440,10 +454,10 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
             </div>
           </div>
           <label className="real-check">
-            <input type="checkbox" checked={ap.posting} onChange={(e) => setAp({ ...ap, posting: e.target.checked })} /> One-click and scheduled posting{created.upload ? ' through Upload-Post' : " through Instagram's API (Meta)"} (off: post by hand and record the link)
+            <input type="checkbox" checked={ap.posting} onChange={(e) => setAp({ ...ap, posting: e.target.checked })} /> One-click and scheduled posting{created.upload ? ' (Meta first, Upload-Post as fallback)' : " through Instagram's API (Meta)"}
           </label>
           <label className="real-check">
-            <input type="checkbox" checked={ap.codexImages} onChange={(e) => setAp({ ...ap, codexImages: e.target.checked })} /> Codex CLI images with my own Codex account, only when I press Generate
+            <input type="checkbox" checked={ap.codexImages} onChange={(e) => setAp({ ...ap, codexImages: e.target.checked })} /> Codex images with my own Codex account, only when I press Generate
           </label>
           <label className="wiz-field">
             Type {created.handle} to confirm
@@ -481,13 +495,13 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
         <div className="st-stack" style={{ gap: 10 }}>
           {created.upload ? (
             <>
-              <span className="st-small">Saved. Check that Upload-Post has {created.handle} connected to the profile (a read-only check).</span>
+              <span className="st-small">Saved. Check the Upload-Post profile (read-only).</span>
               <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
                 <VerifyButton id={created.id} onDone={announce} />
               </div>
             </>
           ) : (
-            <span className="st-small">Saved. Next, open the project and connect {created.handle} with Meta on the Connections screen. Posting starts working once it is connected.</span>
+            <span className="st-small">Saved. Connect {created.handle} with Meta on Connections to start posting.</span>
           )}
           <div>
             <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => onDone(created.id)}>
@@ -506,11 +520,8 @@ function Wizard({ hasKey, start, onDone }: { hasKey: boolean; start: ProjectRow 
   );
 }
 
-// ---- Upload-Post step (automatic when the "uploadPostProfiles" switch is on) ---------------
-interface UpProfile { username: string; displayName: string | null; instagram: { handle: string | null; name: string | null; reauth: boolean } | null }
-
+// ---- Upload-Post step (the shared picker, with Back / Next) ------------------------------------
 function UploadPostStep(props: {
-  hasKey: boolean;
   slug: string;
   name: string;
   handle: string;
@@ -523,31 +534,7 @@ function UploadPostStep(props: {
   onNext: (handleFromProfile?: string) => void;
 }) {
   const { profile, setProfile, setHandle, handle } = props;
-  const [state, setState] = useState<{ allowed: boolean; reason: string; plan?: string | null; limit?: number | null; profiles: UpProfile[] } | null>(null);
-  const [newName, setNewName] = useState(props.slug.replace(/[^A-Za-z0-9_@-]/g, '-').slice(0, 40));
-  const [work, setWork] = useState(false);
-  const [note, setNote] = useState('');
-  const [link, setLink] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const r = await fetch('/api/studio/upload-post', { cache: 'no-store' });
-    const j = (await r.json().catch(() => null)) as typeof state & { error?: { message: string } };
-    if (!r.ok || !j) {
-      setState({ allowed: false, reason: j?.error?.message ?? 'Could not reach Upload-Post.', profiles: [] });
-      return;
-    }
-    setState(j);
-  }, []);
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      if (alive) await load();
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [load]);
-
+  const { state, reload } = useUpProfiles();
   const chosen = state?.profiles.find((p) => p.username === profile) ?? null;
   // Fill the Instagram handle from the connected account.
   useEffect(() => {
@@ -555,123 +542,14 @@ function UploadPostStep(props: {
     if (h && !handle) setHandle(h);
   }, [chosen, handle, setHandle]);
 
-  const act = async (body: Record<string, unknown>) => {
-    setWork(true);
-    setNote('');
-    try {
-      const j = await post<{ profile?: UpProfile; url?: string; hosted?: boolean; note?: string }>('/api/studio/upload-post', body);
-      return j;
-    } catch (e) {
-      setNote((e as Error).message);
-      return null;
-    } finally {
-      setWork(false);
-    }
-  };
-
   if (!state) return <span className="st-small st-muted">Loading your Upload-Post profiles…</span>;
-
-  if (!state.allowed)
-    return (
-      <div className="st-stack" style={{ gap: 10 }}>
-        <ol className="real-steps st-small">
-          <li>Open Upload-Post → <strong>Manage Users</strong> and create a profile for this project (or reuse one).</li>
-          <li>In that profile, connect the Instagram account.</li>
-          <li>Copy the profile&apos;s <strong>username</strong> (not its display name) and paste it below.</li>
-        </ol>
-        <span className="st-small st-muted">{state.reason}</span>
-        <label className="wiz-field">
-          Upload-Post profile username
-          <input className="st-input" value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="e.g. default" />
-          {props.error ? <span className="real-error st-small">{props.error}</span> : null}
-        </label>
-        <div className="row-wrap" style={{ gap: 8 }}>
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={props.onBack}>
-            Back
-          </button>
-          <button type="button" className="st-btn st-btn-primary st-btn-sm" disabled={props.busy || !profile || !handle} onClick={() => props.onNext()}>
-            Next
-          </button>
-        </div>
-      </div>
-    );
-
-  const free = state.limit != null ? Math.max(0, state.limit - state.profiles.length) : null;
+  const canNext = state.allowed ? Boolean(profile && (chosen?.instagram?.handle || handle)) : Boolean(profile && handle);
   return (
     <div className="st-stack" style={{ gap: 12 }}>
-      <span className="st-small st-muted">
-        Upload-Post plan: {state.plan ?? 'unknown'} · {state.profiles.length}
-        {state.limit != null ? ` of ${state.limit}` : ''} profiles used
-      </span>
-      <div className="st-stack" style={{ gap: 6 }}>
-        {state.profiles.map((p) => (
-          <label key={p.username} className="real-check">
-            <input type="radio" name="upprofile" checked={profile === p.username} onChange={() => setProfile(p.username)} />
-            <span>
-              <strong>{p.username}</strong>
-              {p.displayName ? ` (${p.displayName})` : ''} ·{' '}
-              {p.instagram?.handle ? `Instagram ${p.instagram.handle}${p.instagram.reauth ? ' — needs reconnecting' : ''}` : 'no Instagram connected'}
-            </span>
-          </label>
-        ))}
-      </div>
-      <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-        <input className="st-input" style={{ maxWidth: 220 }} value={newName} onChange={(e) => setNewName(e.target.value)} aria-label="New profile username" />
-        <button
-          type="button"
-          className="st-btn st-btn-ghost st-btn-sm"
-          disabled={work || !newName || free === 0}
-          onClick={async () => {
-            const j = await act({ action: 'create', username: newName, displayName: props.name || newName });
-            if (j?.profile) {
-              await load();
-              setProfile(j.profile.username);
-            }
-          }}
-        >
-          Create new profile
-        </button>
-        {free === 0 ? <span className="st-small real-error">No free profile slot on your plan.</span> : null}
-      </div>
-      {profile ? (
-        <div className="st-card st-stack" style={{ padding: 12, gap: 8 }}>
-          {chosen?.instagram?.handle ? (
-            <span className="st-small proj-ok">
-              “{profile}” is connected to Instagram {chosen.instagram.handle}
-              {handle && handle.toLowerCase() !== chosen.instagram.handle.toLowerCase() ? ` — you typed ${handle}; it will use ${chosen.instagram.handle}.` : '.'}
-            </span>
-          ) : (
-            <span className="st-small">“{profile}” has no Instagram connected yet.</span>
-          )}
-          <div className="row-wrap" style={{ gap: 8 }}>
-            <button
-              type="button"
-              className="st-btn st-btn-dark st-btn-sm"
-              disabled={work}
-              onClick={async () => {
-                const j = await act({ action: 'connect', username: profile });
-                if (j?.url) {
-                  setLink(j.url);
-                  setNote(j.note ?? '');
-                  window.open(j.url, '_blank', 'noopener');
-                }
-              }}
-            >
-              {chosen?.instagram?.handle ? 'Reconnect Instagram' : 'Connect Instagram'}
-            </button>
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={work} onClick={() => void load()}>
-              Check again
-            </button>
-          </div>
-          {link ? (
-            <a className="real-link st-small" href={link} target="_blank" rel="noreferrer">
-              Open the connect page again
-            </a>
-          ) : null}
-        </div>
+      <UploadPostPicker state={state} reload={reload} value={profile} onChange={setProfile} slug={props.slug} displayName={props.name} allowTyping error={props.error} />
+      {chosen?.instagram?.handle && handle && handle.toLowerCase() !== chosen.instagram.handle.toLowerCase() ? (
+        <span className="xs st-muted">You typed {handle}; the project will use {chosen.instagram.handle}.</span>
       ) : null}
-      {note ? <span className="st-small st-muted">{note}</span> : null}
-      {props.error ? <span className="real-error st-small">{props.error}</span> : null}
       <div className="row-wrap" style={{ gap: 8 }}>
         <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={props.onBack}>
           Back
@@ -679,7 +557,7 @@ function UploadPostStep(props: {
         <button
           type="button"
           className="st-btn st-btn-primary st-btn-sm"
-          disabled={props.busy || !profile || !(chosen?.instagram?.handle || handle)}
+          disabled={props.busy || !canNext}
           onClick={() => {
             const h = chosen?.instagram?.handle ?? undefined;
             if (h && handle.toLowerCase() !== h.toLowerCase()) setHandle(h);
@@ -691,6 +569,59 @@ function UploadPostStep(props: {
       </div>
     </div>
   );
+}
+
+/** Open overlays, innermost last: Escape closes only the top one, and focus falls back to the one below. */
+const traps: HTMLElement[] = [];
+
+/** Keeps keyboard focus inside `ref` while mounted, closes on Escape, and gives focus back afterwards. */
+export function useFocusTrap(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    traps.push(el);
+    const before = document.activeElement as HTMLElement | null;
+    const focusables = () => Array.from(el.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), video[controls], [tabindex]:not([tabindex="-1"])')).filter((x) => x.offsetParent !== null || x === el);
+    const first = focusables()[0];
+    (first ?? el).focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (traps[traps.length - 1] !== el) return;
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeRef.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const f = focusables();
+      if (f.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const a = f[0]!;
+      const z = f[f.length - 1]!;
+      const inside = el.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === a || !inside)) {
+        e.preventDefault();
+        z.focus();
+      } else if (!e.shiftKey && (document.activeElement === z || !inside)) {
+        e.preventDefault();
+        a.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      traps.splice(traps.indexOf(el), 1);
+      const under = traps[traps.length - 1];
+      if (before?.isConnected && (!under || under.contains(before))) before.focus({ preventScroll: true });
+      else if (under) under.focus({ preventScroll: true });
+      else if (before?.isConnected) before.focus({ preventScroll: true });
+    };
+  }, [ref]);
 }
 
 /** Stops the page behind a panel from scrolling while the panel is open. */

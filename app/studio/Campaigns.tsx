@@ -9,6 +9,7 @@ import { getProjectId, useProjectId } from './Projects';
 import { Select } from './Select';
 import { Reveal, ScreenSkeleton, TaskProgress } from './loaders';
 import { AutopilotPanel } from './Autopilot';
+import { More } from './More';
 import { TIMEZONE, formatDateLabel, formatDateTime } from '@/lib/time';
 
 type Status = 'draft' | 'active' | 'paused' | 'done';
@@ -58,6 +59,14 @@ export const MAKE_SECONDS: Record<string, number> = { 'codex-post': 150, 'websit
 const STATUS_TEXT: Record<Status, string> = { draft: 'Draft', active: 'Running', paused: 'Paused', done: 'Finished' };
 const PRIORITY_TEXT = { 1: 'High', 2: 'Normal', 3: 'Low' } as const;
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The first sentence of a strategy summary, for the collapsed one-liner. */
+export const firstSentence = (t: string) => {
+  const m = /^(.+?[.!?])(\s|$)/.exec(t.trim());
+  const out = (m?.[1] ?? t.trim()).trim();
+  return out.length > 160 ? `${out.slice(0, 157).trimEnd()}…` : out;
+};
+/** How many planned posts a campaign shows before "Show all". */
+export const PLAN_PREVIEW = 3;
 
 async function call<T>(url: string, body?: unknown): Promise<T> {
   const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
@@ -134,7 +143,7 @@ function NewCampaign({ data, onDone, onCancel }: { data: ListPayload; onDone: (c
           <Select label="Priority" value={priority} onChange={(v) => setPriority(v)} options={([1, 2, 3] as const).map((p) => ({ value: p, label: PRIORITY_TEXT[p] }))} />
         </div>
       </div>
-      <span className="xs st-muted">All campaigns share one post a day on this account. Higher priority campaigns plan first.</span>
+      <span className="xs st-muted">Campaigns share the account&apos;s posting days; higher priority plans first.</span>
       {err ? <p className="real-error st-small" role="alert">{err}</p> : null}
       <div className="row-wrap" style={{ gap: 8 }}>
         <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy} disabled={busy || !name.trim() || !formats.length} onClick={() => void submit()}>
@@ -316,6 +325,18 @@ function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign
   };
   const upcoming = plan.slots.filter((s) => s.status !== 'skipped');
   const agentsOff = !data.agents.enabled;
+  const strategy = c.proposal ?? c.strategy;
+  const notesField = (
+    <label className="wiz-field camp-notes">
+      <span className="xs st-muted" style={{ fontWeight: 400 }}>{strategy ? 'What to change (optional)' : 'Anything the strategist should know (optional)'}</span>
+      <input className="st-input" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={800} />
+    </label>
+  );
+  const makeStrategy = (
+    <button type="button" className={`st-btn st-btn-sm ${strategy ? 'st-btn-ghost' : 'st-btn-primary'}`} aria-busy={busy === 'strategy'} disabled={!!busy || agentsOff} title={agentsOff ? data.agents.reason : ''} onClick={() => void act('strategy', { action: 'strategy', notes }, 'New strategy proposal is ready').then(() => setNotes(''))}>
+      {busy === 'strategy' ? 'Researching' : strategy ? 'New strategy' : 'Make strategy'}
+    </button>
+  );
   return (
     <div className={`st-card st-stack camp-card camp-${c.status}`} style={{ padding: 18, gap: 14 }}>
       <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -350,23 +371,41 @@ function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign
 
           <div className="camp-section st-stack" style={{ gap: 10 }}>
             <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <span className="label">{c.proposal ? 'Strategy proposal' : 'Strategy'}</span>
+              <span className="label">{c.proposal ? 'Strategy proposal · needs your OK' : 'Strategy'}</span>
               {c.strategy && !c.proposal ? <span className="xs st-muted">Approved {formatDateTime(c.strategy.approvedAt)}</span> : null}
-              {c.proposal ? <span className="xs st-muted">From Claude Code ({c.proposal.meta.cli}) in {c.proposal.meta.seconds}s{c.proposal.meta.costUsd != null ? ` · $${c.proposal.meta.costUsd.toFixed(2)} on your API key` : ''}</span> : null}
+              {c.proposal ? <span className="xs st-muted">{c.proposal.meta.seconds}s{c.proposal.meta.costUsd != null ? ` · $${c.proposal.meta.costUsd.toFixed(2)}` : ''}</span> : null}
             </div>
-            {c.proposal ? <StrategyView s={c.proposal} formats={data.formats} /> : c.strategy ? <StrategyView s={c.strategy} formats={data.formats} /> : <span className="st-small st-muted">No strategy yet. The strategist reads the brand, your past posts and results, and researches what works now.</span>}
-            <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-end' }}>
-              {c.proposal ? (
-                <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === 'approve'} disabled={!!busy} onClick={() => void act('approve', { action: 'approve-strategy' }, 'Strategy approved')}>Approve strategy</button>
-              ) : null}
-              <label className="wiz-field camp-notes">
-                <span className="xs st-muted" style={{ fontWeight: 400 }}>{c.strategy || c.proposal ? 'What to change (optional)' : 'Anything the strategist should know (optional)'}</span>
-                <input className="st-input" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={800} />
-              </label>
-              <button type="button" className={`st-btn st-btn-sm ${c.proposal || c.strategy ? 'st-btn-ghost' : 'st-btn-primary'}`} aria-busy={busy === 'strategy'} disabled={!!busy || agentsOff} title={agentsOff ? data.agents.reason : ''} onClick={() => void act('strategy', { action: 'strategy', notes }, 'New strategy proposal is ready').then(() => setNotes(''))}>
-                {busy === 'strategy' ? 'Researching' : c.proposal || c.strategy ? 'Make a new strategy' : 'Make strategy'}
-              </button>
-            </div>
+            {strategy ? (
+              <>
+                <p className="st-small camp-summary" style={{ margin: 0 }}>
+                  {firstSentence(strategy.summary)} <span className="st-muted">· {strategy.pillars.map((p) => p.name).join(' · ')}</span>
+                </p>
+                <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
+                  {c.proposal ? (
+                    <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === 'approve'} disabled={!!busy} onClick={() => void act('approve', { action: 'approve-strategy' }, 'Strategy approved')}>Approve strategy</button>
+                  ) : null}
+                  {/* A proposal starts open (keyed so it reopens when a new one arrives): you see what you approve. */}
+                  <More key={c.proposal ? `proposal-${c.proposal.meta.at}` : 'strategy'} label={c.proposal ? 'Show details' : 'Show strategy'} defaultOpen={Boolean(c.proposal)} tone="button" className="camp-more">
+                    <StrategyView s={strategy} formats={data.formats} />
+                    <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-end' }}>
+                      {notesField}
+                      {makeStrategy}
+                    </div>
+                  </More>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="st-small st-muted">No strategy yet.</span>
+                <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-end' }}>
+                  {notesField}
+                  {makeStrategy}
+                </div>
+                <More label="What happens?">
+                  <span>The strategist reads your brand, past posts and results, researches what works now, and proposes pillars and post types for your OK.</span>
+                </More>
+              </>
+            )}
             <Activity campaignId={c.id} what="strategy" active={busy === 'strategy'} />
           </div>
 
@@ -374,12 +413,26 @@ function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign
             <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <span className="label">Plan</span>
               <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'plan'} disabled={!!busy || agentsOff || c.status !== 'active'} title={c.status !== 'active' ? 'Start the campaign first' : agentsOff ? data.agents.reason : ''} onClick={() => void act('plan', { action: 'plan' }, 'Next two weeks planned')}>
-                {busy === 'plan' ? 'Planning' : upcoming.length ? 'Plan the next two weeks again' : 'Plan the next two weeks'}
+                {busy === 'plan' ? 'Planning' : upcoming.length ? 'Plan again' : 'Plan two weeks'}
               </button>
             </div>
             <Activity campaignId={c.id} what="plan" active={busy === 'plan'} />
             {upcoming.length === 0 ? <span className="st-small st-muted">No posts planned yet.</span> : null}
-            {upcoming.map((s, i) => (
+            {upcoming.slice(0, PLAN_PREVIEW).map((s, i) => slotRow(s, i))}
+            {upcoming.length > PLAN_PREVIEW ? (
+              <More label={`Show all ${upcoming.length}`} openLabel="Show fewer" className="camp-more-slots">
+                {upcoming.slice(PLAN_PREVIEW).map((s, i) => slotRow(s, i + PLAN_PREVIEW))}
+              </More>
+            ) : null}
+          </div>
+
+          <AutopilotPanel campaign={{ id: c.id, name: c.name, formats: c.formats, status: c.status }} formatNames={formatNames} say={say} />
+        </>
+      ) : null}
+    </div>
+  );
+  function slotRow(s: Slot, i: number) {
+    return (
               <Reveal key={s.id} index={i}>
               <div className={`camp-slot ${busy === s.id ? 'is-working' : ''}`}>
                 <div className="camp-when">
@@ -391,7 +444,7 @@ function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign
                   <span className="xs st-muted">{fname(s.format)} · {s.pillar}{s.angle ? ` · ${s.angle}` : ''}</span>
                 </div>
                 {s.status === 'made' ? (
-                  <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={openPosts}>Post {s.packageId} in Posts</button>
+                  <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={openPosts}>Open post {s.packageId}</button>
                 ) : (
                   <div className="row-wrap" style={{ gap: 6 }}>
                     <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === s.id} disabled={!!busy} onClick={() => void act(s.id, { action: 'make-post', slotId: s.id }, 'Post made: it is in Planned on the Posts board')}>
@@ -403,14 +456,8 @@ function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign
               </div>
               {busy === s.id ? <TaskProgress active title={`Making the ${fname(s.format).toLowerCase()} for ${formatDateLabel(s.date)}`} steps={MAKE_STEPS[s.format] ?? MAKE_STEPS.default!} expectedSeconds={MAKE_SECONDS[s.format] ?? 15} /> : null}
               </Reveal>
-            ))}
-          </div>
-
-          <AutopilotPanel campaign={{ id: c.id, name: c.name, formats: c.formats, status: c.status }} formatNames={formatNames} say={say} />
-        </>
-      ) : null}
-    </div>
-  );
+    );
+  }
 }
 
 export function Campaigns({ say, openPosts }: { say: (t: string) => void; openPosts: () => void }) {
@@ -441,7 +488,7 @@ export function Campaigns({ say, openPosts }: { say: (t: string) => void; openPo
     <section className="screen st-stack" style={{ gap: 16 }} aria-label="Campaigns">
       <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <span className="st-small st-muted">
-          {running} running · {data.campaigns.length} in total · {data.agents.enabled ? 'Agents use your Claude Code on this machine, when you press a button.' : data.agents.reason}
+          {running} running · {data.campaigns.length} total{data.agents.enabled ? '' : ` · ${data.agents.reason}`}
         </span>
         {!creating ? (
           <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => setCreating(true)}>New campaign</button>
@@ -458,7 +505,7 @@ export function Campaigns({ say, openPosts }: { say: (t: string) => void; openPo
           }}
         />
       ) : null}
-      {data.campaigns.length === 0 && !creating ? <span className="st-small st-muted">No campaigns yet. Make one per goal; they run side by side and share the posting days.</span> : null}
+      {data.campaigns.length === 0 && !creating ? <span className="st-small st-muted">No campaigns yet. Make one per goal.</span> : null}
       {data.campaigns.map((c) => (
         <CampaignCard key={c.id} c={c} plan={data.plans[c.id] ?? { madeAt: null, slots: [] }} data={data} say={say} onChange={load} openPosts={openPosts} />
       ))}

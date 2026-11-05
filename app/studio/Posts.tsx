@@ -6,15 +6,16 @@
 // confirmed first and runs the same server actions as the buttons; posts-rules.ts decides what a
 // move means and what is refused. The other tabs show each column as a list. Clicking a card opens
 // the side drawer (like the Calendar's) with the full preview and every action valid right now.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AutopilotMarkView } from './Autopilot';
 import { MAKE_SECONDS, MAKE_STEPS } from './Campaigns';
 import { LazyImage, ScreenSkeleton, TaskProgress } from './loaders';
-import { getProjectId, useProjectId, useScrollLock } from './Projects';
+import { getProjectId, useFocusTrap, useProjectId, useScrollLock } from './Projects';
 import { COLUMNS, COLUMN_TITLE, columnOf, planMove, sortForColumn, type Column, type MoveCapabilities, type MovePlan, type MoveStep } from './posts-rules';
 import { GenerateBar, PackageActions, PackageMedia, STATUS_LABEL, quickAction, thumbUrl, usePackageAct, useRealPosts, type Live, type RealPackage } from './RealPosts';
 import { notifyChanged, useOnChanged } from './sync';
+import { More } from './More';
 import { formatDateLabel, formatDateTime } from '@/lib/time';
 
 export type PostsTab = 'board' | Column;
@@ -31,59 +32,6 @@ function useCoarsePointer(): boolean {
     return () => mq?.removeEventListener('change', cb);
   }, []);
   return useSyncExternalStore(subscribe, () => window.matchMedia?.('(pointer: coarse)').matches ?? false, () => false);
-}
-
-/** Open overlays, innermost last: Escape closes only the top one, and focus falls back to the one below. */
-const traps: HTMLElement[] = [];
-
-/** Keeps keyboard focus inside `ref` while mounted, closes on Escape, and gives focus back afterwards. */
-function useFocusTrap(ref: RefObject<HTMLElement | null>, onClose: () => void) {
-  const closeRef = useRef(onClose);
-  useEffect(() => {
-    closeRef.current = onClose;
-  }, [onClose]);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    traps.push(el);
-    const before = document.activeElement as HTMLElement | null;
-    const focusables = () => Array.from(el.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), video[controls], [tabindex]:not([tabindex="-1"])')).filter((x) => x.offsetParent !== null || x === el);
-    const first = focusables()[0];
-    (first ?? el).focus({ preventScroll: true });
-    const onKey = (e: KeyboardEvent) => {
-      if (traps[traps.length - 1] !== el) return;
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        closeRef.current();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const f = focusables();
-      if (f.length === 0) {
-        e.preventDefault();
-        return;
-      }
-      const a = f[0]!;
-      const z = f[f.length - 1]!;
-      const inside = el.contains(document.activeElement);
-      if (e.shiftKey && (document.activeElement === a || !inside)) {
-        e.preventDefault();
-        z.focus();
-      } else if (!e.shiftKey && (document.activeElement === z || !inside)) {
-        e.preventDefault();
-        a.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      traps.splice(traps.indexOf(el), 1);
-      const under = traps[traps.length - 1];
-      if (before?.isConnected && (!under || under.contains(before))) before.focus({ preventScroll: true });
-      else if (under) under.focus({ preventScroll: true });
-      else if (before?.isConnected) before.focus({ preventScroll: true });
-    };
-  }, [ref]);
 }
 
 /** Campaign slots that are planned but not made yet: they appear in Planned with a Make button. */
@@ -188,14 +136,17 @@ export function Posts({ say, initialTab = 'board' }: { say: (t: string) => void;
       <details className="pb-make" open={data.packages.length === 0}>
         <summary>
           <span className="st-btn st-btn-primary st-btn-sm">Make a post</span>
-          <span className="st-small st-muted">Signal makes the next post for you; it lands in Planned, waiting for your OK.</span>
+          <span className="st-small st-muted">Lands in Planned for your OK.</span>
         </summary>
         <GenerateBar key={data.project?.id ?? 'p'} codex={data.codex} higgsfield={data.higgsfield} say={say} onMade={replace} />
       </details>
       <div className={`real-live st-small ${live.enabled ? 'on' : ''}`}>
-        <strong>{live.enabled ? `Automatic posting is on (${live.provider === 'meta' ? 'Instagram API' : 'Upload-Post'}).` : 'Posting by hand.'}</strong> {live.reason}
-        {' · '}
-        {data.account.posted}/{data.account.maxPosts} posted on {data.account.destination}
+        <strong>{live.enabled ? `One-click posting on (${live.provider === 'meta' ? 'Meta' : 'Upload-Post'})` : 'Posting by hand'}</strong> · {data.account.posted}/{data.account.maxPosts} posted on {data.account.destination}
+        {live.reason ? (
+          <More label="Why?">
+            <span>{live.reason}</span>
+          </More>
+        ) : null}
       </div>
 
       <Tabs tab={tab} counts={counts} onChange={setTab} />
@@ -325,8 +276,8 @@ function Board({ byColumn, slots, coarse, draggingId, setDraggingId, caps, ...h 
   );
 }
 const EMPTY: Record<Column, string> = {
-  planned: 'Nothing waiting. Make a post above, or plan a campaign.',
-  review: 'Nothing is OK to post yet. Move a post here from Planned.',
+  planned: 'Nothing waiting. Make a post above.',
+  review: 'Nothing OK to post yet.',
   posted: 'Nothing posted yet.',
   rejected: 'Nothing rejected.',
 };
@@ -350,14 +301,14 @@ function ColumnList({ col, items, slots, ...h }: { col: Column; items: RealPacka
 function whenText(pkg: RealPackage, live: Live, variant: 'board' | 'list'): { text: string; tone?: 'warn' | 'bad' | 'good' | 'busy' } {
   switch (pkg.status) {
     case 'ready':
-      return pkg.plannedFor ? { text: `Planned for ${formatDateTime(pkg.plannedFor)}` } : { text: 'No day yet. Plan it in the Calendar, or post it when you like.' };
+      return pkg.plannedFor ? { text: `Planned for ${formatDateTime(pkg.plannedFor)}` } : { text: 'No day yet.' };
     case 'changed':
-      return { text: 'Files changed since it was made. Make a new one.', tone: 'bad' };
+      return { text: 'Files changed. Make a new one.', tone: 'bad' };
     case 'invalid':
       return { text: pkg.problems[0] ?? 'Something is wrong with this package.', tone: 'bad' };
     case 'approved':
-      if (pkg.missedAt) return { text: `Missed its time (${formatDateTime(pkg.plannedFor)}). Post it now or re-plan it.`, tone: 'warn' };
-      if (pkg.plannedFor) return { text: `Planned for ${formatDateTime(pkg.plannedFor)} · not scheduled yet`, tone: 'warn' };
+      if (pkg.missedAt) return { text: `Missed ${formatDateTime(pkg.plannedFor)}. Post now or re-plan.`, tone: 'warn' };
+      if (pkg.plannedFor) return { text: `Planned for ${formatDateTime(pkg.plannedFor)} · not scheduled`, tone: 'warn' };
       return { text: variant === 'board' ? `Not scheduled — move to Posted to ${live.enabled ? 'post now' : 'record it'}` : `Not scheduled. Move it to Posted to ${live.enabled ? 'post now' : 'record it'}.`, tone: 'warn' };
     case 'scheduled':
       return { text: `Goes out ${formatDateTime(pkg.scheduled?.scheduled_for ?? pkg.plannedFor)}${pkg.scheduled?.provider === 'signal' ? ' from Signal' : ' via Upload-Post'}`, tone: 'good' };
@@ -365,13 +316,13 @@ function whenText(pkg: RealPackage, live: Live, variant: 'board' | 'list'): { te
     case 'submitted':
       return { text: 'On its way to Instagram…', tone: 'busy' };
     case 'uncertain':
-      return { text: 'Unclear: Instagram did not say if it went out. Check it.', tone: 'warn' };
+      return { text: 'Unclear if it went out. Check it.', tone: 'warn' };
     case 'failed':
       return { text: pkg.outcome?.message ? `Did not go through: ${pkg.outcome.message}` : 'Did not go through.', tone: 'bad' };
     case 'posted':
       return { text: `Posted ${formatDateTime(pkg.posted?.posted_at)}`, tone: 'good' };
     case 'discarded':
-      return { text: 'Rejected. Files stay on disk.' };
+      return { text: 'Rejected.' };
   }
 }
 
@@ -401,6 +352,7 @@ function PostCard({ pkg, variant, draggable, dragging, onDragStart, onDragEnd, l
           <span className="xs st-muted">
             #{pkg.id} · {FORMAT_TEXT[pkg.format]}
             {pkg.campaign ? ` · ${pkg.campaign.name}` : ''}
+            {pkg.pipeline ? ` · ${pkg.pipeline.name}` : ''}
             {pkg.autopilot ? ' · autopilot' : ''}
           </span>
           <span className={`pb-when ${w.tone ? `t-${w.tone}` : ''}`}>{w.text}</span>
@@ -850,14 +802,14 @@ function PostDrawer({ pkg, live, scheduling, handle, say, onClose, onChange, rel
           <PackageActions pkg={pkg} live={live} scheduling={scheduling} say={say} onChange={onChange} reload={reload} confirm={confirm} />
           {col === 'planned' || col === 'review' ? (
             <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-              <span className="xs st-muted">Or move it on the board:</span>
+              <span className="xs st-muted">Or move it:</span>
               <MoveMenu pkg={pkg} onMove={(p, to) => { onClose(); onMove(p, to); }} />
             </div>
           ) : null}
         </div>
 
         <details>
-          <summary className="st-small st-muted">Fingerprints (SHA-256), checked on every approve</summary>
+          <summary className="st-small st-muted">Fingerprints</summary>
           <ul className="real-hashes">
             {pkg.files.map((f) => (
               <li key={f.name}>

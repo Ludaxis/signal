@@ -6,6 +6,7 @@ import { getProjectId } from './Projects';
 import type { Payload, RealPackage } from './RealPosts';
 import { TIMEZONE, formatDateTime } from '@/lib/time';
 import { LazyImage, Reveal, ScreenSkeleton } from './loaders';
+import { More } from './More';
 
 const FORMAT_NAMES: Record<string, string> = {
   'codex-post': 'Codex image post',
@@ -47,7 +48,7 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
     <section className="screen st-stack" style={{ gap: 20 }} aria-label="Results">
       <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <span className="st-small st-muted">
-          {data.analytics?.enabled ? `Numbers from ${data.analytics.source === 'instagram' ? "Instagram's API" : 'Instagram via Upload-Post'} · ${ins?.measured ?? 0} of ${ins?.posts ?? 0} posts measured` : data.analytics?.reason}
+          {data.analytics?.enabled ? `From ${data.analytics.source === 'instagram' ? 'Meta' : 'Upload-Post'} · ${ins?.measured ?? 0} of ${ins?.posts ?? 0} posts measured` : data.analytics?.reason}
         </span>
         <button type="button" className="st-btn st-btn-dark st-btn-sm" aria-busy={busy} disabled={busy || !data.analytics?.enabled} onClick={() => void refresh()}>
           {busy ? 'Updating' : 'Update numbers'}
@@ -58,7 +59,7 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
         <div className="st-card stat">
           <span className="label">Views</span>
           <span className="stat-num">{n(ins?.totals.views)}</span>
-          <span className="st-small st-muted">all measured posts</span>
+          <span className="st-small st-muted">measured posts</span>
         </div>
         <div className="st-card stat">
           <span className="label">Reach</span>
@@ -75,7 +76,7 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
           <span className="stat-num" style={{ fontSize: 26 }}>
             {ins?.bestWeekday ?? '—'}
           </span>
-          <span className="st-small st-muted">{ins?.bestHour != null ? `around ${String(ins.bestHour).padStart(2, '0')}:00 ${TIMEZONE}` : 'needs 3+ measured posts'}</span>
+          <span className="st-small st-muted">{ins?.bestHour != null ? `around ${String(ins.bestHour).padStart(2, '0')}:00 ${TIMEZONE}` : 'needs 3+ posts'}</span>
         </div>
       </div>
 
@@ -106,8 +107,11 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
             </tbody>
           </table>
         ) : (
-          <span className="st-small st-muted">No numbers yet. They appear a few hours after a post goes out; press Update numbers.</span>
+          <span className="st-small st-muted">No numbers yet.</span>
         )}
+        <More label="How this works">
+          <span>Numbers arrive a few hours after a post goes out; press Update numbers to fetch them.</span>
+        </More>
       </div>
 
       <div className="st-stack" style={{ gap: 10 }}>

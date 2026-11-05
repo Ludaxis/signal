@@ -104,6 +104,8 @@ export interface PackageView {
   campaign: { id: string; name: string; slot: string } | null;
   /** Set when autopilot made the post: <package>/autopilot.json. */
   autopilot: AutopilotMark | null;
+  /** Set when a pipeline made the post: <package>/pipeline.json. */
+  pipeline: { id: string; name: string; slotAt: string; article: string | null } | null;
 }
 
 export function contentDir(): string {
@@ -202,6 +204,7 @@ export async function loadPackage(id: string): Promise<PackageView> {
   const camp = await readJson<{ campaign: string; campaign_name?: string; slot: string }>(path.join(dir, 'campaign.json'));
   const scheduled = await readJson<{ job_id: string; scheduled_for: string; provider?: 'upload-post' | 'signal' }>(path.join(dir, 'scheduled.json'));
   const autopilot = await readJson<AutopilotMark>(path.join(dir, 'autopilot.json')).catch(() => null);
+  const pipe = await readJson<{ pipeline: string; name?: string; slotAt: string; idea?: { articleUrl?: string } }>(path.join(dir, 'pipeline.json')).catch(() => null);
   if (approval && spec) {
     for (const f of spec.files) if (approval.hashes?.[f.name] !== f.sha256) problems.push(`Approval does not cover the current ${f.name}.`);
   }
@@ -237,6 +240,7 @@ export async function loadPackage(id: string): Promise<PackageView> {
     missedReason: plan?.missed_reason ?? null,
     campaign: camp ? { id: camp.campaign, name: camp.campaign_name ?? camp.campaign, slot: camp.slot } : null,
     autopilot: autopilot && typeof autopilot === 'object' && typeof autopilot.run === 'string' ? autopilot : null,
+    pipeline: pipe && typeof pipe === 'object' && typeof pipe.pipeline === 'string' && typeof pipe.slotAt === 'string' ? { id: pipe.pipeline, name: typeof pipe.name === 'string' ? pipe.name : pipe.pipeline, slotAt: pipe.slotAt, article: typeof pipe.idea?.articleUrl === 'string' ? pipe.idea.articleUrl : null } : null,
   };
 }
 

@@ -54,8 +54,10 @@ export interface RealPackage {
   dispatch: { request_id: string; provider?: "upload-post" | "meta" } | null;
   source?: { format?: string; category?: string } | null;
   campaign?: { id: string; name: string; slot: string } | null;
+  /** Set when a pipeline made the post: its name shows on the card. */
+  pipeline?: { id: string; name: string; slotAt: string } | null;
   /** Set when autopilot made the post. */
-  autopilot?: { run: string; campaign: string; slot: string; madeAt: string; autoApproved: null | { at: string; trustInARow: number; scheduledFor: string | null; via: "meta" | "upload-post" | null } } | null;
+  autopilot?: { run: string; campaign: string | null; slot: string; pipeline?: string; madeAt: string; autoApproved: null | { at: string; trustInARow: number; scheduledFor: string | null; via: "meta" | "upload-post" | null } } | null;
 }
 interface Account {
   destination: string;
@@ -322,7 +324,7 @@ export function PackageActions({
             </button>
           </div>
           <span className="st-small st-muted">
-            Approved {formatDateTime(pkg.approval!.approved_at)} by {pkg.approval!.approved_by} · sent once through {live.provider === "meta" ? "Instagram's API" : "Upload-Post"}, never retried automatically
+            Approved {formatDateTime(pkg.approval!.approved_at)} by {pkg.approval!.approved_by} · sent once via {live.provider === "meta" ? "Meta" : "Upload-Post"}, never retried
           </span>
           {pkg.plannedFor && Date.parse(pkg.plannedFor) > openedAt + 10 * 60_000 ? (
             scheduling?.enabled ? (
@@ -350,7 +352,7 @@ export function PackageActions({
               <span className="xs st-muted">{scheduling?.reason}</span>
             )
           ) : (
-            <span className="xs st-muted">Plan a day and time in the Calendar to schedule it instead.</span>
+            <span className="xs st-muted">Plan a time in the Calendar to schedule it.</span>
           )}
         </div>
       ) : null}
@@ -358,7 +360,7 @@ export function PackageActions({
       {pkg.status === "scheduled" && pkg.scheduled ? (
         <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
           <span className="st-small">
-            Goes out <strong>{formatDateTime(pkg.scheduled.scheduled_for)}</strong> {pkg.scheduled.provider === "signal" ? "from Signal (keep Signal running on your machine)" : "via Upload-Post"}. Move it in the Calendar.
+            Goes out <strong>{formatDateTime(pkg.scheduled.scheduled_for)}</strong> {pkg.scheduled.provider === "signal" ? "from Signal (keep it running)" : "via Upload-Post"}.
           </span>
           <button
             aria-busy={busy && doing === "cancel-schedule"}
@@ -384,7 +386,7 @@ export function PackageActions({
 
       {needsResolve(pkg) ? (
         <div className="st-stack" style={{ gap: 8 }}>
-          <span className="st-small">Open Instagram and look at {pkg.destination}. If the post is there, paste its link. If it is not there, mark it as not posted.</span>
+          <span className="st-small">Check {pkg.destination} on Instagram: paste the link if it is there, or mark it not posted.</span>
           <input className="st-input" type="url" inputMode="url" placeholder="https://www.instagram.com/p/…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Instagram post link" />
           <div className="row-wrap" style={{ gap: 8 }}>
             <button aria-busy={busy && doing === "resolve"} type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy || !url} onClick={() => void act({ action: "resolve", posted: true, url }, `Post ${pkg.id} recorded`)}>
@@ -416,7 +418,7 @@ export function PackageActions({
             ) : (
               `Open ${pkg.destination} on Instagram`
             )}{" "}
-            and check it shows the “AI info” label and the post looks right. The next post unlocks after this check.
+            and check the “AI info” label is shown. The next post unlocks after this check.
           </span>
           <div>
             <button aria-busy={busy && doing === "label"} type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy} onClick={() => void act({ action: "label" }, "AI label confirmed")}>
@@ -438,7 +440,7 @@ export function PackageActions({
                   {i < media.length - 1 ? ", " : ""}
                 </a>
               ))}
-              . AirDrop them to your phone, or post from instagram.com.
+              . Send them to your phone or post from instagram.com.
             </li>
             <li>In Instagram: New post → select {media.length > 1 ? "the slides in order" : "the file"} → paste the caption.</li>
             <li>
@@ -525,15 +527,15 @@ export function GenerateBar({ say, onMade, codex, higgsfield }: { say: (t: strin
   return (
     <div className="st-card real-gen row-wrap" style={{ gap: 10, alignItems: "center" }}>
       <div className="st-stack" style={{ gap: 2, flex: "1 1 240px" }}>
-        <span style={{ fontWeight: 600 }}>Make the next post automatically</span>
+        <span style={{ fontWeight: 600 }}>Make the next post</span>
         <span className="st-small st-muted">
           {format === "codex-post"
-            ? "Describe the image; your Codex CLI draws it and Signal adds the headline and labels. Lands here for your approval."
+            ? "Describe the image; Codex draws it, Signal adds the headline and labels."
             : format === "website-card"
-              ? "Picks the next page on your website (articles, open calls, news) and makes a 2-slide post in your brand. Import the website on the Brand screen first."
+              ? "A 2-slide post from the next page on your website (import it on Brand first)."
               : format === "higgsfield-reel"
-                ? "Describe the opening frame; Higgsfield makes a still and animates it into a 5-second Reel (paid per request). Lands here for your approval."
-                : "Describe the image; Higgsfield makes it (paid per request) and Signal adds the headline and labels. Lands here for your approval."}
+                ? "Describe the opening frame; Higgsfield makes a still and animates a 5-second Reel (paid per request)."
+                : "Describe the image; Higgsfield makes it (paid per request), Signal adds the headline and labels."}
         </span>
       </div>
       <Select

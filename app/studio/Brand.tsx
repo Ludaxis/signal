@@ -5,6 +5,7 @@ import { notifyChanged } from './sync';
 import { useCallback, useEffect, useState } from 'react';
 import { getProjectId, useProjectId } from './Projects';
 import { ScreenSkeleton, TaskProgress } from './loaders';
+import { More } from './More';
 
 interface Kit {
   name: string;
@@ -125,14 +126,16 @@ export function Brand({ say, onMade }: { say: (t: string) => void; onMade: () =>
         </div>
         <div className="brand-import">
           <label className="wiz-field">
-            Project folder or repo on this machine <span className="st-muted" style={{ fontWeight: 400 }}>(optional: fonts, logo, colour tokens)</span>
+            Folder on this machine <span className="st-muted" style={{ fontWeight: 400 }}>(optional)</span>
             <input className="st-input" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="~/projects/my-website" />
           </label>
           <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'folder'} disabled={!!busy || !folder.trim()} onClick={() => void importFolder()}>
             {busy === 'folder' ? 'Reading the folder' : 'Import folder'}
           </button>
         </div>
-        <span className="xs st-muted">Only public pages are read. Nothing is posted. You can edit everything below.</span>
+        <More label="What is read?">
+          <span>Public pages of the website; from a folder, fonts, logo and colour tokens. Nothing is posted. You can edit everything below.</span>
+        </More>
       </div>
 
       {err ? (
@@ -143,7 +146,7 @@ export function Brand({ say, onMade }: { say: (t: string) => void; onMade: () =>
 
       {busy === 'website' || busy === 'folder' ? <TaskProgress active title={busy === 'website' ? 'Reading the website' : 'Reading the folder'} steps={busy === 'website' ? ['Fetching the page', 'Reading styles and colours', 'Saving logo and images', 'Building the brand kit'] : ['Scanning files', 'Reading colour tokens', 'Copying fonts and logo', 'Building the brand kit']} expectedSeconds={busy === 'website' ? 12 : 6} /> : null}
       {!loaded ? <ScreenSkeleton variant="form" count={2} label="Loading the brand" /> : null}
-      {loaded && !kit ? <span className="st-small st-muted">No brand kit yet. Import the website to start.</span> : null}
+      {loaded && !kit ? <span className="st-small st-muted">No brand kit yet.</span> : null}
 
       {kit && edit ? (
         <>
@@ -204,7 +207,7 @@ export function Brand({ say, onMade }: { say: (t: string) => void; onMade: () =>
               <span className="label">Typography</span>
               <span className="st-small">{kit.fonts.length ? kit.fonts.join(' · ') : 'No fonts found'}</span>
               <span className="xs st-muted">
-                {kit.fontFile ? `Templates use the font file found in your folder (${kit.fontFile}).` : 'Templates use Instrument Sans. Import a folder with your font files to use your own.'}
+                {kit.fontFile ? `Templates use ${kit.fontFile}.` : 'Templates use Instrument Sans; import a folder with your fonts to change it.'}
               </span>
             </div>
             <div className="st-card st-stack" style={{ padding: 18, gap: 10 }}>
@@ -219,8 +222,11 @@ export function Brand({ say, onMade }: { say: (t: string) => void; onMade: () =>
               {busy === 'save' ? 'Saving' : 'Save brand'}
             </button>
             <span className="xs st-muted">
-              Sources: {kit.sources.map((s) => `${s.type} ${s.value}`).join(' · ') || 'none'} · updated {new Date(kit.updatedAt).toLocaleString()}
+              Updated {new Date(kit.updatedAt).toLocaleString()}
             </span>
+            <More label="Sources">
+              <span>{kit.sources.map((s) => `${s.type} ${s.value}`).join(' · ') || 'none'}</span>
+            </More>
           </div>
 
           {kit.website ? (
@@ -231,7 +237,7 @@ export function Brand({ say, onMade }: { say: (t: string) => void; onMade: () =>
                   {busy === 'pages' ? 'Looking' : pages ? 'Look again' : 'Find pages to post'}
                 </button>
               </div>
-              {pages && pages.length === 0 ? <span className="st-small st-muted">No sitemap or feed found on the website.</span> : null}
+              {pages && pages.length === 0 ? <span className="st-small st-muted">No sitemap or feed found.</span> : null}
               {pages?.slice(0, 20).map((p) => (
                 <div key={p.url} className="row-wrap brand-page" style={{ gap: 8, alignItems: 'center' }}>
                   <a className="real-link st-small" href={p.url} target="_blank" rel="noreferrer">

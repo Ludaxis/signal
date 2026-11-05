@@ -243,6 +243,19 @@ export async function runAgent<T>(agent: AgentId, o: { task: string; input: unkn
   if (!allowed.enabled) throw new AgentError(403, allowed.reason);
   const prompt = await buildPrompt(agent, o);
   const r = await runner(prompt, { web: o.web === true, onEvent: o.onEvent as ((e: { at: string; kind: string; text: string }) => void) | undefined });
-  const value = o.validate(extractJson(r.text));
+  let value: T;
+  try {
+    value = o.validate(extractJson(r.text));
+  } catch (e) {
+    // The call was billed even though its answer is unusable: carry the cost so the caller can count it.
+    if (e instanceof Error && typeof r.costUsd === 'number') (e as Error & { costUsd?: number }).costUsd = r.costUsd;
+    throw e;
+  }
   return { value, meta: { agent, cli: r.cli, seconds: r.seconds, at: new Date().toISOString(), billing: r.billing ?? 'subscription', costUsd: r.costUsd ?? null } };
+}
+
+/** The cost a failed runAgent call carries (an answer that did not validate), or null when unknown. */
+export function agentCostOf(e: unknown): number | null {
+  const c = (e as { costUsd?: unknown } | null)?.costUsd;
+  return typeof c === 'number' && Number.isFinite(c) ? c : null;
 }

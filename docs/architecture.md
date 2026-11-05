@@ -15,7 +15,8 @@ lib/server/      auth.ts (owner login, HMAC sessions) · session.ts (cookie) · 
 lib/studio/      projects · content (packages) · generate · render · reel · brand · campaigns ·
                  claude-agent (CLI runs) · team/ (Agent SDK roles, tools, reviewer, analyst) ·
                  memory/ (timeline, decision map, learnings, judge, router, packs) ·
-                 autopilot/ (settings, trust, runner, pull) · meta · ig-unified · publish-meta ·
+                 autopilot/ (settings, trust, runner, steps, pull) · pipelines/ (types, store, runner, payload) ·
+                 meta · ig-unified · publish-meta ·
                  dispatch (Upload-Post) · uploadpost · analytics · r2 · higgsfield · codex · safety
 ```
 
@@ -27,7 +28,7 @@ Per-account posting settings (`accounts.json`): the one-click posting switch, po
 
 ## Packages (posts)
 
-A post is a folder `<contentDir>/<NN>/` with `package.json` (title, format, destination handle, file list with SHA-256), the media files, `caption.txt` and `manifest.md`. State is added as small write-once JSON files next to it: `approval.json` (hashes of the approved bytes), `plan.json`, `scheduled.json`, `dispatch.json` (the single-use claim), `outcome.json`, `posted.json`, `label.json`, `discarded.json`, `metrics.json`, `review.json`, `campaign.json`, `autopilot.json`. `loadPackage()` derives the status from which files exist and whether the fingerprints still match; nothing is ever deleted, superseded files are renamed with a timestamp.
+A post is a folder `<contentDir>/<NN>/` with `package.json` (title, format, destination handle, file list with SHA-256), the media files, `caption.txt` and `manifest.md`. State is added as small write-once JSON files next to it: `approval.json` (hashes of the approved bytes), `plan.json`, `scheduled.json`, `dispatch.json` (the single-use claim), `outcome.json`, `posted.json`, `label.json`, `discarded.json`, `metrics.json`, `review.json`, `campaign.json`, `autopilot.json`, `pipeline.json`. `loadPackage()` derives the status from which files exist and whether the fingerprints still match; nothing is ever deleted, superseded files are renamed with a timestamp.
 
 ## Generators
 

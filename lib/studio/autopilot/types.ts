@@ -43,18 +43,23 @@ export interface FormatTrust {
 export interface TrustFile { version: 1; project: string; threshold: number; formats: FormatTrust[]; updatedAt: string }
 export const DEFAULT_TRUST_THRESHOLD = 5;
 
-/** One daily run (memory/autopilot/runs.jsonl, one line per run; last line per id wins). */
+/** One daily run (memory/autopilot/runs.jsonl, one line per run; last line per id wins).
+ *  Steps of pipeline work carry `pipeline` (the pipeline id); campaign steps carry `campaign`. Older runs have
+ *  neither on review/approve steps and no 'ideas' steps, and still read fine. */
 export type RunStep =
   | { kind: 'plan'; campaign: string; slots: number; costUsd: number | null }
-  | { kind: 'make'; campaign: string; slot: string; package: string | null; format: Format; costUsd: number | null; error?: string }
-  | { kind: 'review'; package: string; verdict: string | null; costUsd: number | null; error?: string }
-  | { kind: 'auto-approve'; package: string; format: Format; scheduledFor: string | null; via: 'meta' | 'upload-post' | null; error?: string }
-  | { kind: 'skip'; campaign: string | null; reason: string };
+  | { kind: 'ideas'; pipeline: string; ideas: number; costUsd: number | null; error?: string }
+  | { kind: 'make'; campaign: string | null; slot: string; package: string | null; format: Format; costUsd: number | null; error?: string; pipeline?: string }
+  | { kind: 'review'; package: string; verdict: string | null; costUsd: number | null; error?: string; pipeline?: string }
+  | { kind: 'auto-approve'; package: string; format: Format; scheduledFor: string | null; via: 'meta' | 'upload-post' | null; error?: string; pipeline?: string }
+  | { kind: 'skip'; campaign: string | null; reason: string; pipeline?: string };
 export interface AutopilotRun {
   id: string; // 'ap_' + time-sortable id
   project: string;
   day: string; // calendar date (Studio time zone) YYYY-MM-DD the run belongs to
-  trigger: 'daily' | 'manual'; // manual = you pressed "Run autopilot now"
+  trigger: 'daily' | 'manual'; // manual = you pressed "Run autopilot now" (or "Run now" on one pipeline)
+  /** Set when you pressed Run now on one pipeline: only that pipeline runs (Codex allowed, the button was pressed). */
+  pipeline?: string | null;
   startedAt: string;
   endedAt: string | null;
   status: 'running' | 'done' | 'stopped' | 'failed';
@@ -82,4 +87,4 @@ export type AutopilotAction =
   | { action: 'pull'; package: string }; // you pull an auto-approved post before it goes out (cancels its schedule, discards it)
 
 /** Marker file written into a package made by autopilot (<package>/autopilot.json). */
-export interface AutopilotMark { run: string; campaign: string; slot: string; madeAt: string; autoApproved: null | { at: string; trustInARow: number; scheduledFor: string | null; via: 'meta' | 'upload-post' | null } }
+export interface AutopilotMark { run: string; campaign: string | null; slot: string; pipeline?: string; madeAt: string; autoApproved: null | { at: string; trustInARow: number; scheduledFor: string | null; via: 'meta' | 'upload-post' | null } }

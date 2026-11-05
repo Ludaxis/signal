@@ -6,6 +6,7 @@
 // a clearly marked example.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useOnChanged } from './sync';
+import { More } from './More';
 import { useProjectId } from './Projects';
 import { ScreenSkeleton } from './loaders';
 import { MemoryMindmap, type FocusRequest } from './MemoryMindmap';
@@ -241,7 +242,9 @@ function Learnings({ data, now }: { data: MemoryPayload; now: string }) {
   if (sorted.length === 0) return <p className="st-small st-muted">No learnings yet. They appear after the first results come in.</p>;
   return (
     <div className="st-stack" style={{ gap: 12 }}>
-      <p className="st-small st-muted" style={{ margin: 0 }}>Beliefs the agents read, with numbers instead of opinions. Sorted by confidence × recency (half-life {sorted[0]?.halfLifeDays ?? 14} days); below nEff 3 a learning is shown but never used to pivot.</p>
+      <More label="How these are ranked">
+        <span>Beliefs the agents read, with numbers instead of opinions. Sorted by confidence × recency (half-life {sorted[0]?.halfLifeDays ?? 14} days); below nEff 3 a learning is shown but never used to pivot.</span>
+      </More>
       <div className="mem-learnings">
         {sorted.map((l) => (
           <LearningCard key={l.id} l={l} now={now} nodeLabel={nodeLabel} />
@@ -345,7 +348,7 @@ function Decisions({ data }: { data: MemoryPayload }) {
 }
 
 function Runs({ data }: { data: MemoryPayload }) {
-  if (data.runs.length === 0) return <p className="st-small st-muted">No agent runs yet. Every run shows its role, model, cost and what it produced.</p>;
+  if (data.runs.length === 0) return <p className="st-small st-muted">No agent runs yet.</p>;
   return (
     <div className="st-stack" style={{ gap: 10 }}>
       <div className="row-wrap" style={{ gap: 14, alignItems: 'baseline' }}>
@@ -501,7 +504,9 @@ function EmptyState({ reason, demo, onDemo }: { reason: string; demo: boolean; o
       <div className="st-stack" style={{ gap: 6 }}>
         <span className="label">Nothing recorded yet</span>
         <h3 className="mem-empty-title">Memory starts with the first campaign.</h3>
-        <p className="st-small st-muted">Once posts, results and decisions are recorded, this tab shows where the project started, how the map grew and why: a decision map from goal to strategy to pillars and tested ideas, a timeline of every event, learnings with their confidence, and every routing decision with its cost.</p>
+        <More label="What will show here?">
+          <span>A decision map from goal to strategy to pillars and tested ideas, a timeline of every event, learnings with their confidence, and every routing decision with its cost.</span>
+        </More>
         {reason ? <p className="st-small notice">{reason}</p> : null}
       </div>
       <button type="button" className="st-chip" aria-pressed={demo} onClick={() => onDemo(!demo)}>
@@ -594,7 +599,7 @@ export function Memory({ say }: { say: (t: string) => void }) {
         <EmptyState reason={d.enabled ? '' : d.reason} demo={demo} onDemo={(on) => { setDemo(on); setSelected(null); }} />
       ) : (
         <>
-          {!d.enabled && demo ? <p className="notice st-small" style={{ margin: 0 }}>{d.reason} The example below shows what the tab looks like once it is on.</p> : null}
+          {!d.enabled && demo ? <p className="notice st-small" style={{ margin: 0 }}>{d.reason} Example data below.</p> : null}
           <div className="seg mem-tabs" role="tablist" aria-label="Memory views">
             {TABS.map((t, i) => (
               <button

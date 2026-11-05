@@ -19,6 +19,7 @@ import { publishingPaused } from '@/lib/studio/safety';
 import { currentLimits } from '@/lib/studio/content';
 import { loadBrand } from '@/lib/studio/brand';
 import { UploadPostError, getUpProfile, profileManagementAllowed } from '@/lib/studio/uploadpost';
+import { accountSettings, markVerified } from '@/lib/studio/projects';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const ctx = await igContext(project);
     const lim = await currentLimits();
     const brand = await loadBrand(project);
+    const account = await accountSettings(project.id);
     const body = {
       project: { id: project.id, name: project.name, handle: project.handle },
       account: { ready: lim.open, reason: lim.reason, expiresAt: Number.isFinite(lim.expiresAt) && lim.expiresAt ? lim.expiresAt : null, maxPerDay: lim.maxPerDay, automaticPosting: lim.dispatch },
@@ -70,6 +72,9 @@ export async function GET(req: NextRequest): Promise<Response> {
       },
       uploadPost: {
         profile: project.uploadPostProfile || null,
+        // The Instagram handle seen at the last link or check (never a live call here).
+        instagram: project.uploadPostProfile && account?.verified?.instagram ? `@${account.verified.instagram.replace(/^@/, '')}` : null,
+        verifiedAt: project.uploadPostProfile && account?.verified ? account.verified.at : null,
         keySet: Boolean(process.env.UPLOAD_POST_API_KEY),
         posting: await liveState(),
         scheduling: await schedulingAllowed(),
@@ -109,6 +114,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         if (!p) return jsonError(404, 'not_found', `Upload-Post has no profile named “${project.uploadPostProfile}”.`);
         const ig = p.instagram?.handle ?? null;
         const match = ig && ig.toLowerCase() === project.handle.toLowerCase();
+        await markVerified(project.id, ig ? ig.replace(/^@/, '') : null);
         return NextResponse.json({ ok: Boolean(match), message: ig ? `Profile “${p.username}” is connected to ${ig}${match ? '' : `, not ${project.handle}`}${p.instagram?.reauth ? ' (needs to reconnect in Upload-Post)' : ''}.` : `Profile “${p.username}” has no Instagram connected.` });
       } catch (e) {
         return jsonError(e instanceof UploadPostError ? Math.min(Math.max(e.status, 400), 599) : 502, 'upstream', (e as Error).message);

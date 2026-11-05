@@ -12,6 +12,7 @@ import { getProjectId, useProjectId } from './Projects';
 import { Select } from './Select';
 import { ProgressBar, Spinner, clock } from './loaders';
 import { notifyChanged, useOnChanged } from './sync';
+import { More } from './More';
 
 /** Plain names for post types when the caller has none (the Campaigns payload carries the real list). */
 const FORMAT_NAMES: Record<string, string> = {
@@ -41,6 +42,9 @@ export function describeStep(s: RunStep, campaignName: (id: string | null) => st
   switch (s.kind) {
     case 'plan':
       return `Planned ${s.slots} more ${s.slots === 1 ? 'post' : 'posts'} for ${campaignName(s.campaign)}${s.costUsd ? ` (${money(s.costUsd)})` : ''}.`;
+    case 'ideas':
+      if (s.error) return `The ideas agent failed for pipeline ${s.pipeline}: ${s.error}.`;
+      return `Wrote ${s.ideas} ${s.ideas === 1 ? 'idea' : 'ideas'} for pipeline ${s.pipeline}${s.costUsd ? ` (${money(s.costUsd)})` : ''}.`;
     case 'make':
       if (s.error) return `Could not make the ${nameOf(s.format, names).toLowerCase()} for ${slotLabel(s.slot)} (${campaignName(s.campaign)}): ${s.error}.`;
       return `Made post ${s.package ?? '?'} (${nameOf(s.format, names)}) for ${slotLabel(s.slot)}, ${campaignName(s.campaign)}${s.costUsd ? ` (${money(s.costUsd)})` : ''}.`;
@@ -113,7 +117,7 @@ export function useAutopilot() {
 }
 
 // ---- small pieces ---------------------------------------------------------------------------
-function Switch({ id, checked, onChange, disabled, busy, label, hint, reason }: { id?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; busy?: boolean; label: ReactNode; hint?: ReactNode; reason?: string }) {
+export function Switch({ id, checked, onChange, disabled, busy, label, hint, reason }: { id?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; busy?: boolean; label: ReactNode; hint?: ReactNode; reason?: string }) {
   const auto = useId();
   const sid = id ?? `sw-${auto}`;
   return (
@@ -140,7 +144,7 @@ function Notice({ tone, children }: { tone: 'warn' | 'off' | 'info'; children: R
 }
 
 function ExampleNote() {
-  return <Notice tone="info">Example only: the autopilot service is not connected yet, so these are sample numbers and nothing you change here is saved.</Notice>;
+  return <Notice tone="info">Example only: sample numbers, nothing is saved.</Notice>;
 }
 
 /** Live view of the run that is going on now: its steps so far, in plain words, polled every 3 s. */
@@ -167,7 +171,7 @@ function LiveRun({ run, campaignName, names }: { run: AutopilotRun; campaignName
           </li>
         ))}
       </ol>
-      <span className="xs st-muted">Usually a few minutes per post. You can leave this screen; it keeps going on your machine.</span>
+      <span className="xs st-muted">A few minutes per post. You can leave this screen.</span>
     </div>
   );
 }
@@ -205,9 +209,9 @@ function RunNowButton({ d, act, say, example }: { d: AutopilotPayload; act: (a: 
 function ScheduleLine({ d }: { d: AutopilotPayload }) {
   return (
     <span className="st-small st-muted">
-      Runs every day at {d.schedule.time} ({d.schedule.timeZone}) while Signal is running
+      Daily at {d.schedule.time} ({d.schedule.timeZone})
       {d.schedule.nextRunAt ? <> · next {formatDateTime(d.schedule.nextRunAt)}</> : null}
-      {!d.schedule.schedulerRunning ? <> · <span className="ap-reason">Signal’s scheduler is not running right now, so the daily run waits.</span></> : null}
+      {!d.schedule.schedulerRunning ? <> · <span className="ap-reason">waits until Signal’s scheduler runs</span></> : null}
     </span>
   );
 }
@@ -272,23 +276,24 @@ export function AutopilotPanel({ campaign, formatNames, say }: { campaign: { id:
       </div>
       {example ? <ExampleNote /> : null}
       {save.kind === 'error' ? <p className="real-error st-small" role="alert" style={{ margin: 0 }}>Not saved: {save.message}</p> : null}
-      {!d.switches.autopilot.enabled ? <Notice tone="off">Autopilot can’t run yet. {d.switches.autopilot.reason || 'It needs the feature switch first.'} You can set it up now; it starts once the switch is on.</Notice> : null}
+      {!d.switches.autopilot.enabled ? <Notice tone="off">Switched off: {d.switches.autopilot.reason || 'turn on "autopilot" in signal.config.json.'} Set it up now; it starts once the switch is on.</Notice> : null}
       {d.paused.paused ? <Notice tone="warn">Paused: {d.paused.reason || 'automatic runs and approvals are stopped.'}</Notice> : null}
-      {s.enabled && campaign.status && campaign.status !== 'active' ? <Notice tone="off">{campaign.status === 'done' ? 'This campaign is finished, so autopilot makes nothing for it.' : 'This campaign is not running yet, so autopilot waits. Press Start above when the plan is ready.'}</Notice> : null}
+      {s.enabled && campaign.status && campaign.status !== 'active' ? <Notice tone="off">{campaign.status === 'done' ? 'Campaign finished: autopilot makes nothing for it.' : 'Campaign not running yet: autopilot waits for Start.'}</Notice> : null}
 
       <Switch
         checked={s.enabled}
         busy={busy}
         onChange={(v) => void patch({ enabled: v })}
         label={<b>Make this campaign’s posts automatically</b>}
-        hint={s.enabled ? `Each day Signal makes the posts planned for the next ${s.makeAheadDays} ${s.makeAheadDays === 1 ? 'day' : 'days'} and puts them in Planned on the Posts board.` : 'Signal makes the planned posts by itself, once a day. You still approve each one unless you trust its post type.'}
+        hint={s.enabled ? `Once a day, ${s.makeAheadDays} ${s.makeAheadDays === 1 ? 'day' : 'days'} ahead, into Planned.` : 'Once a day, into Planned. You still approve each one.'}
       />
 
+      <More label="Settings" openLabel="Hide settings" className="ap-settings">
       <div className="ap-grid">
         <div className="wiz-field">
           <span id={`${uid}-ahead`}>Make posts ahead</span>
           <Select label="Make posts ahead" value={s.makeAheadDays} disabled={busy} onChange={(v) => void patch({ makeAheadDays: v })} options={[1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: `${n} ${n === 1 ? 'day' : 'days'}` }))} />
-          <span className="xs st-muted" style={{ fontWeight: 400 }}>How far ahead the posts are made.</span>
+          <span className="xs st-muted" style={{ fontWeight: 400 }}>How far ahead.</span>
         </div>
         <label className="wiz-field" htmlFor={`${uid}-budget`}>
           Daily budget
@@ -316,19 +321,19 @@ export function AutopilotPanel({ campaign, formatNames, say }: { campaign: { id:
               }}
             />
           </span>
-          <span className="xs st-muted" style={{ fontWeight: 400 }}>Most Signal may spend on this campaign per day (Claude and images). It stops when the budget is used up.</span>
+          <span className="xs st-muted" style={{ fontWeight: 400 }}>Per day, for Claude and images. Stops when used up.</span>
         </label>
       </div>
 
-      <Switch checked={s.autoPlan} busy={busy} onChange={(v) => void patch({ autoPlan: v })} label="Extend the plan when it runs low" hint="When fewer days are planned than you make ahead, the planner adds the next posts. Costs a little." />
-      <Switch checked={s.review} busy={busy} onChange={(v) => void patch({ review: v })} label="Review each post with the AI reviewer" hint="The reviewer checks every made post for claims, the AI label and the brand before you see it." />
+      <Switch checked={s.autoPlan} busy={busy} onChange={(v) => void patch({ autoPlan: v })} label="Extend the plan when it runs low" hint="The planner adds the next posts. Costs a little." />
+      <Switch checked={s.review} busy={busy} onChange={(v) => void patch({ review: v })} label="AI reviewer checks each post" hint="Claims, AI label and brand, before you see it." />
 
       <fieldset className="ap-fieldset">
         <legend className="ap-legend">Publishing</legend>
         <label className="real-check ap-check">
           <input type="radio" name={`${uid}-pub`} checked={s.autoPublish === 'never'} disabled={busy} onChange={() => void patch({ autoPublish: 'never' })} />
           <b>Always ask me</b>
-          <span className="xs st-muted ap-check-hint">Every post waits in Planned on the Posts board for your approval.</span>
+          <span className="xs st-muted ap-check-hint">Every post waits in Planned for your OK.</span>
         </label>
         <label className={`real-check ap-check ${!d.switches.trustedPublish.enabled ? 'is-off' : ''}`}>
           <input type="radio" name={`${uid}-pub`} checked={s.autoPublish === 'trusted'} disabled={busy || !d.switches.trustedPublish.enabled} onChange={() => void patch({ autoPublish: 'trusted' })} />
@@ -336,9 +341,9 @@ export function AutopilotPanel({ campaign, formatNames, say }: { campaign: { id:
           <span className="xs st-muted ap-check-hint">
             {d.switches.trustedPublish.enabled
               ? trustedIds.size
-                ? `Trusted now: ${[...trustedIds].map((f) => nameOf(f, formatNames)).join(', ')}. Other types still wait for you.`
-                : 'No post type is trusted yet. Trust comes from approving 5 posts of a type in a row.'
-              : `Not available: ${d.switches.trustedPublish.reason || 'needs the feature switch.'}`}
+                ? `Trusted: ${[...trustedIds].map((f) => nameOf(f, formatNames)).join(', ')}. Others still wait for you.`
+                : 'None trusted yet: approve 5 posts of a type in a row.'
+              : `Not available: ${d.switches.trustedPublish.reason || 'turn on "trustedPublish" in signal.config.json.'}`}
           </span>
         </label>
       </fieldset>
@@ -368,8 +373,9 @@ export function AutopilotPanel({ campaign, formatNames, say }: { campaign: { id:
             );
           })}
         </div>
-        <span className="xs st-muted">{s.formats ? 'Only the ticked types.' : 'All of this campaign’s post types.'} At least one stays ticked.</span>
+        <span className="xs st-muted">{s.formats ? 'Only the ticked types.' : 'All of this campaign’s post types.'}</span>
       </fieldset>
+      </More>
 
       <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <ScheduleLine d={d} />
@@ -426,11 +432,13 @@ function TrustRow({ t, threshold, act, names }: { t: FormatTrust; threshold: num
 export function TrustView({ d, act, names }: { d: AutopilotPayload; act: (a: AutopilotAction) => Promise<void>; names?: Names }) {
   return (
     <div className="st-stack" style={{ gap: 8 }}>
-      <p className="st-small st-muted" style={{ margin: 0 }}>
-        Trust is earned only from your own decisions: approve {d.trust.threshold} posts of a type that autopilot made, in a row, and that type becomes trusted. One rejection sets it back to zero. You can switch trust off (and on again) here at any time.
-        {d.switches.trustedPublish.enabled ? '' : ` Trusted types publish by themselves only once that switch is on: ${d.switches.trustedPublish.reason || 'see signal.config.json.'}`}
-      </p>
-      {d.trust.formats.length === 0 ? <span className="st-small st-muted">No decisions yet. Trust builds as you approve posts autopilot made.</span> : null}
+      <More label="How trust works">
+        <span>
+          Approve {d.trust.threshold} autopilot posts of a type in a row and that type becomes trusted. One rejection resets it. You can switch trust off (and on) here.
+          {d.switches.trustedPublish.enabled ? '' : ` Trusted types publish by themselves only once that switch is on: ${d.switches.trustedPublish.reason || 'see signal.config.json.'}`}
+        </span>
+      </More>
+      {d.trust.formats.length === 0 ? <span className="st-small st-muted">No decisions yet.</span> : null}
       {d.trust.formats.map((t) => (
         <TrustRow key={t.format} t={t} threshold={d.trust.threshold} act={act} names={names} />
       ))}
@@ -442,7 +450,7 @@ export function TrustView({ d, act, names }: { d: AutopilotPayload; act: (a: Aut
 export function RunsLog({ d, names, limit = 8 }: { d: AutopilotPayload; names?: Names; limit?: number }) {
   const campaignName = (id: string | null) => d.campaigns.find((c) => c.id === id)?.name ?? (id ?? 'a campaign');
   const runs = d.runs.slice(0, limit);
-  if (runs.length === 0) return <span className="st-small st-muted">No runs yet. The first one happens at {d.schedule.time} tomorrow, or press Run now.</span>;
+  if (runs.length === 0) return <span className="st-small st-muted">No runs yet. First one at {d.schedule.time} tomorrow, or press Run now.</span>;
   return (
     <ol className="ap-runs">
       {runs.map((r) => {
@@ -502,26 +510,26 @@ export function AutopilotSummary({ say, openCampaigns }: { say: (t: string) => v
         </span>
         <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
           <RunNowButton d={d} act={act} say={say} example={example} />
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={openCampaigns}>Set up in Campaigns</button>
+          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={openCampaigns}>Set up</button>
         </div>
       </div>
       {example ? <ExampleNote /> : null}
       {d.paused.paused ? <Notice tone="warn">Paused: {d.paused.reason || 'automatic runs and approvals are stopped.'}</Notice> : null}
-      {!d.switches.autopilot.enabled ? <Notice tone="off">Autopilot can’t run yet. {d.switches.autopilot.reason || 'It needs the feature switch first.'}</Notice> : null}
+      {!d.switches.autopilot.enabled ? <Notice tone="off">Switched off: {d.switches.autopilot.reason || 'turn on "autopilot" in signal.config.json.'}</Notice> : null}
       <div className="ap-facts">
         <span className="st-small">
           {on.length === 0 ? (
-            <>No campaign is on autopilot. {d.campaigns.length ? 'Switch it on inside a campaign.' : 'Make a campaign first.'}</>
+            <>No campaign on autopilot. {d.campaigns.length ? 'Switch it on inside a campaign.' : 'Make a campaign first.'}</>
           ) : (
             <>
               <b>{on.map((c) => c.name).join(', ')}</b> {on.length === 1 ? 'makes its posts' : 'make their posts'} automatically
-              {on.some((c) => c.settings.autoPublish === 'trusted' && d.switches.trustedPublish.enabled) ? ' and may publish trusted post types.' : '. Every post still waits for you on the Posts board.'}
+              {on.some((c) => c.settings.autoPublish === 'trusted' && d.switches.trustedPublish.enabled) ? ' and may publish trusted post types.' : '. Every post still waits for your OK.'}
             </>
           )}
         </span>
         <ScheduleLine d={d} />
         <span className="st-small st-muted">
-          Spent today: <b className="ap-ink">{money(d.spendToday)}</b>{budget ? ` of ${money(budget)} budgeted` : ''}
+          Spent today <b className="ap-ink">{money(d.spendToday)}</b>{budget ? ` of ${money(budget)}` : ''}
           {last ? <> · last run {formatDateLabel(last.day)}: {STATUS_WORD[last.status].toLowerCase()}{last.note ? ` — ${last.note}` : ''}</> : null}
         </span>
       </div>
@@ -563,8 +571,8 @@ export function AutopilotMarkView({ packageId, mark, live, say, onPulled }: { pa
       {a && live ? (
         <div className="row-wrap" style={{ gap: 10, alignItems: 'center' }}>
           <span className="st-small">
-            Approved automatically ({a.trustInARow} approvals of this type in a row).{' '}
-            <b>{a.scheduledFor ? `Will publish ${formatDateTime(a.scheduledFor)} unless you pull it.` : 'Approved by autopilot but not scheduled yet: it will not go out until it is scheduled.'}</b>
+            Auto-approved ({a.trustInARow} in a row).{' '}
+            <b>{a.scheduledFor ? `Publishes ${formatDateTime(a.scheduledFor)} unless you pull it.` : 'Not scheduled yet: it will not go out until it is.'}</b>
           </span>
           <button
             type="button"

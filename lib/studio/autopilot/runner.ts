@@ -7,65 +7,27 @@
 // the same approvePackage / scheduleInSignal / dispatchPackage functions and limit checks the owner uses.
 // Stop rules: an unclear (uncertain) post stops the whole run; a campaign stops at its daily budget; one
 // 'daily' run per project per calendar day; missed days are skipped, never caught up; one run at a time.
+// Pipelines (../pipelines) run inside the same run after the campaigns, under the same rules and lock.
 // Runs are kept in memory/autopilot/runs.jsonl (written at start and at the end; last line per id wins).
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { addDays, zonedInstant, zonedParts, todayInZone } from '@/lib/time';
 import { getPlan, listCampaigns, makePlan, makeSlotPost, type Campaign, type CampaignPlan, type Slot } from '../campaigns';
-import { ContentError, approvePackage, assertDayCapacity, currentLimits, listPackages, loadPackage, pkgPath, writeJsonReplace, type PackageView } from '../content';
-import { dispatchPackage, schedulingAllowed } from '../dispatch';
-import { schedulerAllowed } from '../meta';
-import { notePackageChange } from '../memory/hooks';
+import { ContentError, listPackages, loadPackage, pkgPath, writeJsonReplace } from '../content';
 import { newId, recordEvent } from '../memory/store';
-import type { AgentRunRecord } from '../memory/types';
 import { currentProject, listProjects, withProject } from '../projects';
-import { metaLive, scheduleInSignal } from '../publish-meta';
-import { reviewPackage } from '../team/reviewer';
-import { teamAllowed } from '../team/runtime';
-import type { StoredReview } from '../team/schemas';
-import { autoApprovePaused, autopilotAllowed, autopilotPaused, readSettings, trustedPublishAllowed } from './settings';
-import { MARK_FILE, autopilotDir, ensureAutopilotDir, formatTrust } from './trust';
-import type { AutopilotMark, AutopilotRun, AutopilotSettings } from './types';
-import { estimateImageCostUsd, estimateVideoCostUsd, higgsfieldAllowed } from '../higgsfield';
-import type { Format } from '../generate';
+import { autopilotAllowed, autopilotPaused, readSettings } from './settings';
+import { MARK_FILE, autopilotDir, ensureAutopilotDir } from './trust';
+import type { AutopilotMark, AutopilotRun } from './types';
+import { higgsfieldAllowed } from '../higgsfield';
+import { ATTENDED_ONLY, AUTOPILOT_BY, BACKLOG_LIMIT, HIGGSFIELD_FORMATS, PLAN_CAP_USD, REVIEW_CAP_USD, iso, makeCostEstimate, maybeAutoApprove, msg, reviewStep, spendOf, waitingInReview, type RunnerDeps } from './steps';
+import { listPipelines } from '../pipelines/store';
+import { runPipelines } from '../pipelines/runner';
 
-export const AUTOPILOT_BY = 'signal-autopilot';
-export const TRUSTED_APPROVER = 'signal-autopilot (trusted format)';
+// The job steps (review, trusted approval), cost helpers and deps live in ./steps.ts and are shared with pipelines.
+export { AUTOPILOT_BY, BACKLOG_LIMIT, TRUSTED_APPROVER, makeCostEstimate, spendOf, spendOfPipeline, type RunnerDeps } from './steps';
 /** The daily window (Studio time zone wall clock): the first tick inside it runs, missed days are never caught up. */
 export const RUN_WINDOW = { from: '08:00', to: '12:00', fromHour: 8, toHour: 12 } as const;
-/** A slot must be at least this far ahead for an automatic approval (Upload-Post needs 10 minutes). */
-const MIN_LEAD_MS = 15 * 60_000;
-/** Codex runs on your own sign-in only when you press a button: never in an automatic run. */
-const ATTENDED_ONLY: Format[] = ['codex-post'];
-/** Higher than the generator's own estimate on purpose, so the budget stops before an overrun, not after. */
-const HIGGSFIELD_FORMATS: Format[] = ['higgsfield-image', 'higgsfield-reel'];
-export function makeCostEstimate(format: Format): number {
-  if (format === 'higgsfield-image') return estimateImageCostUsd(1);
-  if (format === 'higgsfield-reel') return Math.round((estimateImageCostUsd(1) + estimateVideoCostUsd(5)) * 10_000) / 10_000;
-  return 0;
-}
-/** Reviewer and planner caps: the most one step can cost. */
-const REVIEW_CAP_USD = 0.3;
-const PLAN_CAP_USD = 0.8;
-/** Annex: never pile up posts the owner has not looked at. Making stops while this many autopilot posts wait in Review. */
-export const BACKLOG_LIMIT = 7;
-
-const iso = (ms: number) => new Date(ms).toISOString();
-const msg = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
-
-export interface RunnerDeps {
-  now?: number;
-  makeSlotPost?: (campaign: string, slotId: string, by: string, now: number) => Promise<{ plan: CampaignPlan; packageId: string }>;
-  makePlan?: (campaign: string, by: string, deps: { now?: number }) => Promise<CampaignPlan>;
-  reviewPackage?: (id: string, deps: { now?: number }) => Promise<{ review: StoredReview; run: AgentRunRecord }>;
-  teamAllowed?: () => Promise<{ enabled: boolean; reason: string }>;
-  approvePackage?: (id: string, by: string, now: number) => Promise<PackageView>;
-  scheduleInSignal?: (id: string, when: string, by: string, now: number) => Promise<PackageView>;
-  dispatchPackage?: (id: string, by: string, deps: { now?: number; scheduleFor?: string }) => Promise<PackageView>;
-  schedulerAllowed?: () => Promise<{ enabled: boolean; reason: string }>;
-  metaLive?: (now: number) => Promise<{ enabled: boolean; reason: string }>;
-  schedulingAllowed?: () => Promise<{ enabled: boolean; reason: string }>;
-}
 
 // ---- runs on disk ----------------------------------------------------------------------------------
 const runsFile = () => path.join(autopilotDir(), 'runs.jsonl');
@@ -103,19 +65,6 @@ export async function listAutopilotRuns(limit = 20): Promise<AutopilotRun[]> {
 }
 export async function runsForDay(day: string): Promise<AutopilotRun[]> {
   return (await readRuns()).filter((r) => r.day === day);
-}
-
-/** Sum of the steps' costs, for one campaign (review steps are attributed through the package → campaign map) or for all. */
-export function spendOf(runs: AutopilotRun[], campaign: string | null, pkgCampaign: Map<string, string> = new Map()): number {
-  let total = 0;
-  for (const r of runs)
-    for (const s of r.steps) {
-      const cost = 'costUsd' in s && typeof s.costUsd === 'number' && Number.isFinite(s.costUsd) ? s.costUsd : 0;
-      if (!cost) continue;
-      const owner = s.kind === 'plan' || s.kind === 'make' ? s.campaign : s.kind === 'review' ? (pkgCampaign.get(s.package) ?? null) : null;
-      if (campaign === null || owner === campaign) total += cost;
-    }
-  return Math.round(total * 10000) / 10000;
 }
 
 export async function spendToday(now = Date.now()): Promise<number> {
@@ -156,8 +105,9 @@ export const runInProgress = (project = currentProject().id) => locks().has(proj
 // ---- one run ------------------------------------------------------------------------------------------
 /** One run for the current project. Throws (and writes nothing) when the gate is off, autopilot is paused,
  *  today's daily run already happened (trigger 'daily') or a run is in progress. `onStarted` fires once the
- *  run record exists, so a caller can answer with the id while the run continues. */
-export async function runProject(trigger: AutopilotRun['trigger'], deps: RunnerDeps = {}, onStarted?: (run: AutopilotRun) => void): Promise<AutopilotRun> {
+ *  run record exists, so a caller can answer with the id while the run continues.
+ *  `scope.pipeline` limits a manual run to one pipeline (its Run now button): campaigns are left alone. */
+export async function runProject(trigger: AutopilotRun['trigger'], deps: RunnerDeps = {}, onStarted?: (run: AutopilotRun) => void, scope: { pipeline?: string } = {}): Promise<AutopilotRun> {
   const now = deps.now ?? Date.now();
   const project = currentProject();
   const gate = await autopilotAllowed();
@@ -169,11 +119,11 @@ export async function runProject(trigger: AutopilotRun['trigger'], deps: RunnerD
   if (trigger === 'daily' && todays.some((r) => r.trigger === 'daily')) throw new ContentError(409, `Autopilot already ran today (${day}).`);
   if (locks().has(project.id)) throw new ContentError(409, 'An autopilot run is already in progress for this project.');
   locks().add(project.id);
-  const run: AutopilotRun = { id: newId('ap', now), project: project.id, day, trigger, startedAt: iso(now), endedAt: null, status: 'running', steps: [], costUsd: 0, note: null };
+  const run: AutopilotRun = { id: newId('ap', now), project: project.id, day, trigger, ...(scope.pipeline ? { pipeline: scope.pipeline } : {}), startedAt: iso(now), endedAt: null, status: 'running', steps: [], costUsd: 0, note: null };
   try {
     await appendRun(run);
     onStarted?.(run);
-    await execute(run, todays, deps, now);
+    await execute(run, todays, deps, now, scope);
     if (run.status === 'running') run.status = 'done';
   } catch (e) {
     run.status = 'failed';
@@ -189,13 +139,13 @@ export async function runProject(trigger: AutopilotRun['trigger'], deps: RunnerD
 
 /** Starts a run and resolves with its id as soon as the run record exists; the run continues in the background.
  *  Rejects when the run is refused before it starts. */
-export function startRun(trigger: AutopilotRun['trigger'], deps: RunnerDeps = {}): Promise<{ id: string; done: Promise<AutopilotRun> }> {
+export function startRun(trigger: AutopilotRun['trigger'], deps: RunnerDeps = {}, scope: { pipeline?: string } = {}): Promise<{ id: string; done: Promise<AutopilotRun> }> {
   return new Promise((resolve, reject) => {
     let started = false;
     const done = runProject(trigger, deps, (r) => {
       started = true;
       resolve({ id: r.id, done });
-    });
+    }, scope);
     done.catch((e) => {
       if (!started) reject(e);
     });
@@ -211,7 +161,7 @@ export function needsPlan(c: Pick<Campaign, 'endDate'>, plan: CampaignPlan, toda
   return !last || last <= horizon;
 }
 
-async function execute(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDeps, now: number): Promise<void> {
+async function execute(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDeps, now: number, scope: { pipeline?: string }): Promise<void> {
   const all = await listPackages();
   const unclear = all.find((p) => p.status === 'uncertain');
   if (unclear) {
@@ -220,13 +170,18 @@ async function execute(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDe
     run.note = `Stopped: post ${unclear.id} has an unclear result.`;
     return;
   }
-  const pkgCampaign = new Map<string, string>(all.filter((p) => p.campaign).map((p) => [p.id, p.campaign!.id]));
+  if (!scope.pipeline) await executeCampaigns(run, todays, all.filter((p) => p.campaign).map((p) => [p.id, p.campaign!.id] as const), deps, now);
+  // Pipelines share the run, its rules and the run-wide lock; a scoped run does only its one pipeline.
+  await runPipelines(run, todays, deps, now, scope);
+  if (!run.steps.length) run.note = scope.pipeline ? 'Nothing to do: every upcoming slot of this pipeline has a post already.' : 'Nothing to do: no planned slot inside the horizon of a campaign with autopilot on, and no pipeline slot to make.';
+}
+
+async function executeCampaigns(run: AutopilotRun, todays: AutopilotRun[], owners: (readonly [string, string])[], deps: RunnerDeps, now: number): Promise<void> {
+  const pkgCampaign = new Map<string, string>(owners);
   const spent = (campaign: string) => spendOf([...todays, run], campaign, pkgCampaign);
   const today = run.day;
   const mp = deps.makePlan ?? ((id, by, d) => makePlan(id, by, d));
   const msp = deps.makeSlotPost ?? ((id, slot, by, n) => makeSlotPost(id, slot, by, n));
-  const rp = deps.reviewPackage ?? ((id, d) => reviewPackage(id, d));
-  const team = deps.teamAllowed ?? teamAllowed;
 
   for (const c of await listCampaigns()) {
     if (c.status !== 'active') continue;
@@ -266,7 +221,7 @@ async function execute(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDe
         run.steps.push({ kind: 'skip', campaign: c.id, reason: `Slot ${sl.id} (${sl.format}): ${hf.reason}` });
         continue;
       }
-      const waiting = (await listPackages()).filter((p) => p.autopilot && !p.autopilot.autoApproved && (p.status === 'ready' || p.status === 'changed')).length;
+      const waiting = await waitingInReview();
       if (waiting >= BACKLOG_LIMIT) {
         run.steps.push({ kind: 'skip', campaign: c.id, reason: `${waiting} autopilot posts are waiting for you in Review. Making pauses until you go through them.` });
         run.note = run.note ?? `Paused making: ${waiting} posts wait in Review.`;
@@ -294,88 +249,19 @@ async function execute(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDe
         continue; // one failed slot never stops the others
       }
 
-      // (c) review
-      let verdict: string | null = null;
-      if (s.review) {
-        const t = await team();
-        if (!t.enabled) run.steps.push({ kind: 'skip', campaign: c.id, reason: `Post ${packageId} was not reviewed: ${t.reason}` });
-        else if (overBudget(REVIEW_CAP_USD)) {
-          budgetStop();
-          break;
-        } else {
-          try {
-            const r = await rp(packageId, { now });
-            verdict = r.review.verdict;
-            run.steps.push({ kind: 'review', package: packageId, verdict, costUsd: r.run.costUsd });
-          } catch (e) {
-            run.steps.push({ kind: 'review', package: packageId, verdict: null, costUsd: null, error: msg(e) });
-          }
-        }
-      }
-
-      // (d) trusted auto-approval
-      if (s.autoPublish === 'trusted') await maybeAutoApprove(run, c, s, sl, packageId, verdict, mark, deps, now);
+      // (c) review, (d) trusted auto-approval: the shared job steps
+      const job = { campaign: c.id, format: sl.format, at: sl.at, review: s.review, autoPublish: s.autoPublish };
+      const verdict = await reviewStep(run, job, packageId, overBudget, budgetStop, deps, now);
+      if (verdict === 'budget') break;
+      await maybeAutoApprove(run, job, packageId, verdict, mark, deps, now);
     }
   }
-  if (!run.steps.length) run.note = 'Nothing to do: no planned slot inside the horizon of a campaign with autopilot on.';
-}
-
-async function maybeAutoApprove(run: AutopilotRun, c: Campaign, s: AutopilotSettings, sl: Slot, packageId: string, verdict: string | null, mark: AutopilotMark, deps: RunnerDeps, now: number): Promise<void> {
-  const skip = (reason: string) => {
-    run.steps.push({ kind: 'skip', campaign: c.id, reason: `Post ${packageId} stays in Review: ${reason}` });
-  };
-  // A run can take long (Reels); judge the lead time and approve with the current clock, not the run's start.
-  now = deps.now ?? Date.now();
-  const tp = await trustedPublishAllowed();
-  if (!tp.enabled) return skip(tp.reason);
-  const pause = autoApprovePaused();
-  if (pause.paused) return skip(pause.reason);
-  const trust = await formatTrust(sl.format);
-  if (!trust.trusted) return skip(`${sl.format} is not a trusted format (${trust.approvedInARow} owner approvals in a row${trust.revoked ? ', trust revoked' : ''}).`);
-  if (!s.review) return skip('automatic approval needs the reviewer, and review is off for this campaign.');
-  if (verdict !== 'ready') return skip(verdict ? `the reviewer said "${verdict}".` : 'there is no reviewer verdict.');
-  const lim = await currentLimits(now);
-  if (!lim.open) return skip(lim.reason);
-  if (!lim.dispatch) return skip(`automatic posting is off for ${currentProject().handle}.`);
-  const at = Date.parse(sl.at);
-  if (!(at > now + MIN_LEAD_MS)) return skip('the slot time is past or too close.');
-  const sched = await (deps.schedulerAllowed ?? schedulerAllowed)();
-  const live = sched.enabled ? await (deps.metaLive ?? metaLive)(now) : { enabled: false, reason: sched.reason };
-  const via: 'meta' | 'upload-post' | null = live.enabled ? 'meta' : (await (deps.schedulingAllowed ?? schedulingAllowed)()).enabled ? 'upload-post' : null;
-  if (!via) return skip('no scheduling path is approved (neither Signal’s scheduler nor Upload-Post scheduling).');
-  try {
-    assertDayCapacity(await listPackages(), at, lim, packageId);
-  } catch (e) {
-    return skip(msg(e));
-  }
-
-  const before = await loadPackage(packageId);
-  let approved: PackageView;
-  try {
-    approved = await (deps.approvePackage ?? ((id, by, n) => approvePackage(id, by, n)))(packageId, TRUSTED_APPROVER, now);
-  } catch (e) {
-    run.steps.push({ kind: 'auto-approve', package: packageId, format: sl.format, scheduledFor: null, via: null, error: `approval refused: ${msg(e)}` });
-    return;
-  }
-  await notePackageChange(before, approved, AUTOPILOT_BY);
-  let scheduledFor: string | null = null;
-  let error: string | undefined;
-  try {
-    const after = via === 'meta' ? await (deps.scheduleInSignal ?? ((id, when, by, n) => scheduleInSignal(id, when, by, n)))(packageId, sl.at, AUTOPILOT_BY, now) : await (deps.dispatchPackage ?? ((id, by, d) => dispatchPackage(id, by, d)))(packageId, AUTOPILOT_BY, { now, scheduleFor: sl.at });
-    scheduledFor = iso(at);
-    await notePackageChange(approved, after, AUTOPILOT_BY);
-  } catch (e) {
-    error = `approved but not scheduled: ${msg(e)}`;
-  }
-  mark.autoApproved = { at: iso(now), trustInARow: trust.approvedInARow, scheduledFor, via: scheduledFor ? via : null };
-  await writeJsonReplace(pkgPath(packageId, MARK_FILE), mark).catch(() => undefined);
-  run.steps.push({ kind: 'auto-approve', package: packageId, format: sl.format, scheduledFor, via: scheduledFor ? via : null, ...(error ? { error } : {}) });
 }
 
 // ---- every project (the instrumentation tick) ---------------------------------------------------------
-async function anyCampaignOn(): Promise<boolean> {
+async function anythingOn(): Promise<boolean> {
   for (const c of await listCampaigns()) if (c.status === 'active' && (await readSettings(c.id)).enabled) return true;
-  return false;
+  return (await listPipelines()).some((p) => p.enabled);
 }
 
 /** One pass over every project: runs the daily run where it is due. Safe to call every minute; overlapping calls are skipped. */
@@ -389,7 +275,7 @@ export async function runAll(deps: RunnerDeps = {}): Promise<void> {
     const now = deps.now ?? Date.now();
     for (const p of await listProjects())
       await withProject(p, async () => {
-        if (!(await shouldRunNow(now)) || !(await anyCampaignOn())) return;
+        if (!(await shouldRunNow(now)) || !(await anythingOn())) return;
         await runProject('daily', deps);
       }).catch(() => undefined);
   } finally {

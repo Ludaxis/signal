@@ -34,6 +34,7 @@ export interface AccountSettings {
   posting: boolean; // one-click / scheduled posting through Instagram's API or Upload-Post
   codex_images: boolean; // Codex CLI images when you press Generate
   verified?: { at: string; instagram: string | null };
+  posting_changed?: { at: string; by: string }; // last time the posting switch was flipped from Connections
 }
 
 export class ProjectError extends Error {
@@ -208,6 +209,62 @@ export async function setAccountSettings(project: Project, input: AccountInput, 
   file.accounts = [...file.accounts.filter((a) => a.project !== project.id), settings];
   await writeJson(accountsFile(), file);
   return settings;
+}
+
+/** What the link action needs to know about a profile on your Upload-Post plan (a read-only lookup). */
+export type ProfileLookup = (username: string) => Promise<{ username: string; instagram: { handle: string | null } | null } | null>;
+
+/** The same Instagram account, whatever the case and with or without the @. */
+export const sameHandle = (a: string, b: string) => a.trim().replace(/^@/, '').toLowerCase() === b.trim().replace(/^@/, '').toLowerCase();
+
+/**
+ * Links an Upload-Post profile to a project ('' unlinks it). A non-empty profile must exist on your
+ * plan (checked with `lookup`, never created here) and, when its Instagram is connected, that
+ * Instagram must be the project's own account (409 otherwise: a profile is never linked to, or marked
+ * verified for, a different account). The account's `profile` field in accounts.json follows, its
+ * stale verification is dropped, and nothing secret is written. The profile itself is never deleted at Upload-Post.
+ */
+export async function setUploadPostProfile(projectId: string, profile: string, lookup: ProfileLookup, now = Date.now()): Promise<{ project: Project; instagram: string | null }> {
+  const p = (profile ?? '').trim();
+  if (p && !PROFILE_RE.test(p)) throw new ProjectError(400, 'Enter the profile username from Upload-Post → Manage Users.');
+  const all = await listProjects();
+  const i = all.findIndex((x) => x.id === projectId);
+  if (i < 0) throw new ProjectError(404, 'Unknown project.');
+  let instagram: string | null = null;
+  if (p) {
+    const found = await lookup(p);
+    if (!found) throw new ProjectError(404, `Upload-Post has no profile named “${p}”.`);
+    instagram = found.instagram?.handle ?? null;
+    if (instagram && !sameHandle(instagram, all[i]!.handle)) throw new ProjectError(409, `“${p}” is connected to ${instagram}, not ${all[i]!.handle}. Pick a profile connected to ${all[i]!.handle}, or connect this one to it first.`);
+  }
+  const project: Project = { ...all[i]!, uploadPostProfile: p };
+  all[i] = project;
+  await writeJson(projectsFile(), { projects: all });
+  const file = await readAccounts();
+  const a = file.accounts.find((x) => x.project === projectId);
+  if (a && a.profile !== p) {
+    a.profile = p;
+    if (p && instagram) a.verified = { at: new Date(now).toISOString(), instagram: instagram.replace(/^@/, '') }; // stored like the verify check: no @
+    else delete a.verified;
+    await writeJson(accountsFile(), file);
+  }
+  return { project, instagram };
+}
+
+/**
+ * The account's one-click posting switch (Instagram's API first, Upload-Post as fallback). Switching
+ * it off is always allowed; switching it on needs posting limits that are still active. The change is
+ * stamped on the account settings.
+ */
+export async function setAutomaticPosting(projectId: string, on: boolean, by: string, now = Date.now()): Promise<AccountSettings> {
+  const file = await readAccounts();
+  const a = file.accounts.find((x) => x.project === projectId);
+  if (!a) throw new ProjectError(409, 'Set the posting limits first (Manage projects).');
+  if (on && !postingActive(a, now)) throw new ProjectError(409, 'The posting period has ended. Set the posting limits again.');
+  a.posting = on;
+  a.posting_changed = { at: new Date(now).toISOString(), by };
+  await writeJson(accountsFile(), file);
+  return a;
 }
 
 export async function markVerified(projectId: string, instagram: string | null, now = Date.now()): Promise<void> {

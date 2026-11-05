@@ -1,5 +1,5 @@
 'use client';
-// Signal Content Studio: Today, Campaigns, Calendar, Posts, Library, Results, Comments, Brand, Memory and Connections for the selected project.
+// Signal Content Studio: Today, Campaigns, Pipelines, Calendar, Posts, Library, Results, Comments, Brand, Memory and Connections for the selected project.
 // Everything shown here is real: packages on disk, approvals, posts and plans. No sample data.
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -7,6 +7,7 @@ import { Calendar, useCalendarRange } from './Calendar';
 import { CurrentProjectLabel, ProjectSwitcher, useProjectId } from './Projects';
 import { Brand } from './Brand';
 import { Campaigns } from './Campaigns';
+import { Pipelines } from './Pipelines';
 import { Comments } from './Comments';
 import { Connections } from './Connections';
 import { Memory } from './Memory';
@@ -17,8 +18,8 @@ import { AutopilotSummary } from './Autopilot';
 import { LazyImage, LoadMoreSentinel, Reveal, ScreenSkeleton, useProgressiveList } from './loaders';
 import { addDays, formatDateTime, todayInZone } from '@/lib/time';
 
-type View = 'today' | 'campaigns' | 'calendar' | 'posts' | 'library' | 'results' | 'comments' | 'brand' | 'memory' | 'connections';
-const TITLES: Record<View, string> = { today: 'Today', campaigns: 'Campaigns', calendar: 'Calendar', posts: 'Posts', library: 'Library', results: 'Results', comments: 'Comments', brand: 'Brand', memory: 'Memory', connections: 'Connections' };
+type View = 'today' | 'campaigns' | 'pipelines' | 'calendar' | 'posts' | 'library' | 'results' | 'comments' | 'brand' | 'memory' | 'connections';
+const TITLES: Record<View, string> = { today: 'Today', campaigns: 'Campaigns', pipelines: 'Pipelines', calendar: 'Calendar', posts: 'Posts', library: 'Library', results: 'Results', comments: 'Comments', brand: 'Brand', memory: 'Memory', connections: 'Connections' };
 
 function Icon({ d, size = 18 }: { d: ReactNode; size?: number }) {
   return (
@@ -39,6 +40,14 @@ const ICONS: Record<View, ReactNode> = {
       <path d="M4 10v4l12 5V5L4 10z" />
       <path d="M8 15v4" />
       <path d="M19 9v6" />
+    </>
+  ),
+  pipelines: (
+    <>
+      <rect x="2" y="9" width="5" height="6" rx="1.5" />
+      <rect x="9.5" y="9" width="5" height="6" rx="1.5" />
+      <rect x="17" y="9" width="5" height="6" rx="1.5" />
+      <path d="M7 12h2.5M14.5 12H17" />
     </>
   ),
   calendar: (
@@ -166,6 +175,7 @@ export function Studio() {
         <nav aria-label="Studio" className="st-stack" style={{ gap: 4 }}>
           {nav('today')}
           {nav('campaigns')}
+          {nav('pipelines')}
           {nav('calendar')}
           {nav(
             'posts',
@@ -223,6 +233,7 @@ export function Studio() {
         {view === 'library' ? <Library data={posts.data} /> : null}
         {view === 'results' ? <Results data={posts.data} reload={posts.reload} say={say} /> : null}
         {view === 'campaigns' ? <Campaigns key={pid ?? 'none'} say={say} openPosts={() => go('posts')} /> : null}
+        {view === 'pipelines' ? <Pipelines key={pid ?? 'none'} say={say} /> : null}
         {view === 'comments' ? <Comments key={pid ?? 'none'} say={say} onManage={() => go('connections')} /> : null}
         {view === 'memory' ? <Memory key={pid ?? 'none'} say={say} /> : null}
         {view === 'connections' ? <Connections key={pid ?? 'none'} say={say} openBrand={() => go('brand')} /> : null}
@@ -274,7 +285,7 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
           <span style={{ fontSize: 15, fontWeight: 600 }}>
             {due.length === 1 ? `Post ${due[0]!.id} is planned for ${formatDateTime(due[0]!.plannedFor)}` : `${due.length} planned posts are due`}
           </span>
-          <span className="st-small st-muted">Open Posts to approve and post →</span>
+          <span className="st-small st-muted">Open Posts →</span>
         </button>
       ) : null}
       <div className="grid4">
@@ -291,19 +302,19 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
             {exp.posted}
             <span className="stat-of">/{exp.maxPosts || '—'}</span>
           </span>
-          <span className="st-small st-muted">{exp.open ? `${Math.max(0, exp.maxPosts - exp.posted)} left within the limit` : 'Limits not set'}</span>
+          <span className="st-small st-muted">{exp.open ? `${Math.max(0, exp.maxPosts - exp.posted)} left` : 'Limits not set'}</span>
         </div>
         <div className="st-card stat">
           <span className="label">Posting period</span>
           <span className="stat-num" style={{ color: exp.open ? (!noEnd && daysLeft <= 3 ? '#a05e00' : '#017a50') : '#b4261c' }}>
             {exp.open ? (noEnd ? 'On' : `${daysLeft}d`) : 'Off'}
           </span>
-          <span className="st-small st-muted">{exp.open ? `${noEnd ? 'no end date' : `until ${new Date(exp.expiresAt).toLocaleDateString()}`} · ${exp.maxPerDay}/day` : 'Set limits in Manage projects'}</span>
+          <span className="st-small st-muted">{exp.open ? `${noEnd ? 'no end date' : `until ${new Date(exp.expiresAt).toLocaleDateString()}`} · ${exp.maxPerDay}/day` : 'Manage projects → Set posting limits'}</span>
         </div>
         <div className="st-card stat">
-          <span className="label">Uploads this month</span>
+          <span className="label">Posted this month</span>
           <span className="stat-num">{month.data ? thisMonth : '…'}</span>
-          <span className="st-small st-muted">All accounts · Upload-Post Free allows 10</span>
+          <span className="st-small st-muted">All accounts · Upload-Post’s free plan allows 10</span>
         </div>
       </div>
 
@@ -324,7 +335,7 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
               </div>
             </div>
           ) : (
-            <span className="st-small st-muted">Nothing planned. Drag a post onto a day in the Calendar.</span>
+            <span className="st-small st-muted">Nothing planned yet.</span>
           )}
           <div>
             <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => go('calendar')}>
@@ -347,7 +358,7 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
               ))}
             </div>
           ) : (
-            <span className="st-small st-muted">No posts yet on {data.account.destination}.</span>
+            <span className="st-small st-muted">No posts yet.</span>
           )}
         </div>
       </div>
@@ -377,7 +388,7 @@ function Library({ data }: { data: Data }) {
           </button>
         ))}
       </div>
-      {items.length === 0 ? <span className="st-small st-muted">Nothing here yet.</span> : null}
+      {items.length === 0 ? <span className="st-small st-muted">Nothing yet.</span> : null}
       <div className="lib-grid">
         {list.visible.map((p, i) => (
           <Reveal key={p.id} index={i}>

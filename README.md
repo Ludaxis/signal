@@ -11,6 +11,8 @@
 - **Memory and mind map**: a decision map of goals → strategies → pillars → hypotheses → posts, with learnings computed from your results, and a routing "judge" that answers small questions cheaply.
 - **Agent team**: nine roles (lead, researcher, strategist, planner, creative producer, motion designer, reviewer, analyst, community manager) on the Claude Agent SDK with hard tool allow-lists and budgets. Nothing in the team can publish.
 - **Autopilot with trust**: once a day, make the planned posts; a format earns trust after five of your approvals in a row and only then may autopilot approve and schedule it, with a daily budget, a backlog limit and a one-click "pull".
+- **Pipelines**: one chain per pipeline (Source → Make → Review → Approve → Schedule, with a budget) that runs inside the daily autopilot run without a campaign: new website pages, your own topic list, AI-written ideas or a campaign's plan, on the days and times you pick.
+- **Connections**: every service a project uses on one screen; link or change its Upload-Post profile and flip one-click posting there, without re-entering the posting limits.
 
 ## Screenshots
 
@@ -35,6 +37,12 @@ npm run dev                                # http://localhost:3000
 ```
 
 Sign in with the owner password, create a project (name + Instagram handle), set its posting limits, and you have a Posts board. Import your website on the Brand screen to make the first website post. Posting itself needs a connection (see below).
+
+### Pipelines
+
+A pipeline makes posts by itself, on a schedule, without a campaign plan. On the **Pipelines** screen, answer three questions (where ideas come from, what kind of post, how often) and the rest has a working default. Each card shows its chain as chips: **Source** (new website pages, your own topic list, AI-written ideas, or a campaign's planned slots) → **Make** (a post type, with an optional prompt template using `{topic}`, `{brand}`, `{tone}`) → **Review** (the AI reviewer) → **Approve** (ask you, or trusted post types publish by themselves) → **Schedule** (posts per week, days, times in the Studio time zone, make-ahead days), plus a daily budget behind **More**.
+
+Pipelines run inside the daily autopilot run under exactly the same rules: the `autopilot` switch, the pause switches, the budget checked before each step, the backlog limit, trust, and never Codex without a button press (**Run now** on the card runs that one pipeline, Codex included). Every post lands in Review with "Made by autopilot" and the pipeline's name on its card. Pipelines live in `<project folder>/pipelines/<id>.json`; the runner's state (next topic, queued ideas, last result) in `<id>.state.json`. Removing a pipeline archives the file; its posts stay.
 
 For a production build: `npm run build && npm start`.
 
@@ -113,6 +121,8 @@ Step by step: [docs/instagram-unified-login.md](docs/instagram-unified-login.md)
 
 Create an account at upload-post.com, make a profile per Instagram account and connect Instagram inside it, copy the API key into `UPLOAD_POST_API_KEY` and the profile username into the project. Turn on `uploadPostScheduling` and/or `uploadPostResults` as needed. The free plan allows a couple of profiles.
 
+With `uploadPostProfiles` on, the **Connections** screen manages the profile per project: **Connect** / **Change profile** lists the profiles on your plan (or creates one and opens Upload-Post's own Instagram connect page), links the chosen username to the project (it must exist on the plan; nothing is created or deleted at Upload-Post by linking) and remembers the Instagram handle it saw; **Check** re-reads the profile; **Remove** unlinks it from the project only. The **Use for posting** switch on the same card is the account's one-click posting switch in `data/accounts.json` (Instagram's API first, Upload-Post as fallback): switching it on needs active posting limits, switching it off always works. The project wizard uses the same picker.
+
 ### Cloudflare R2
 
 Instagram's API downloads media from a public URL. Create a bucket, enable public access (the public development subdomain or a custom domain) and an API token with object read/write. Fill the five `R2_*` variables. Signal uploads the approved files under unguessable keys just before publishing and deletes them afterwards.
@@ -158,7 +168,7 @@ npm test           # vitest (no network; every provider is faked)
 npm run build      # next build (webpack)
 ```
 
-Docs: [architecture](docs/architecture.md) · [memory and agent team](docs/memory-and-agent-team.md) · [autopilot](docs/autopilot.md) · [loading states](docs/loading-states.md) · [Instagram Unified Login runbook](docs/instagram-unified-login.md).
+Docs: [architecture](docs/architecture.md) · [memory and agent team](docs/memory-and-agent-team.md) · [autopilot and pipelines](docs/autopilot.md) · [loading states](docs/loading-states.md) · [Instagram Unified Login runbook](docs/instagram-unified-login.md).
 
 ## Not affiliated
 

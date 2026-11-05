@@ -1,11 +1,13 @@
 // POST /api/studio/projects/:pid
 //   {action:'account', confirmHandle, days, maxPosts, maxPerDay, posting, codexImages}  account posting settings (typed handle)
 //   {action:'verify'}  read-only Upload-Post profile check (only once the account settings exist)
+//   {action:'upload-post-profile', profile}  link an Upload-Post profile that exists on your plan ('' unlinks)
+//   {action:'upload-post-dispatch', on}      the account's one-click posting switch in accounts.json (Meta first, Upload-Post as fallback)
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
-import { ProjectError, accountSettings, postingActive, setAccountSettings, getProject, markVerified } from '@/lib/studio/projects';
-import { upProfileUrl } from '@/lib/studio/uploadpost';
+import { ProjectError, accountSettings, postingActive, setAccountSettings, getProject, markVerified, setAutomaticPosting, setUploadPostProfile } from '@/lib/studio/projects';
+import { UploadPostError, getUpProfile, upProfileUrl } from '@/lib/studio/uploadpost';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -71,9 +73,18 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
       const match = handle.toLowerCase() === want;
       return NextResponse.json({ ok: match, instagram: handle, message: match ? `Connected: Instagram @${want}.` : `Profile is connected to Instagram @${handle}, not ${project.handle}.` });
     }
+    if (b.action === 'upload-post-profile') {
+      const r = await setUploadPostProfile(project.id, typeof b.profile === 'string' ? b.profile.slice(0, 64) : '', getUpProfile);
+      return NextResponse.json({ project: { id: r.project.id, uploadPostProfile: r.project.uploadPostProfile }, instagram: r.instagram });
+    }
+    if (b.action === 'upload-post-dispatch') {
+      const a = await setAutomaticPosting(project.id, b.on === true, user.email);
+      return NextResponse.json({ posting: a.posting });
+    }
     return jsonError(400, 'validation', 'Unknown action.');
   } catch (e) {
-    if (e instanceof ProjectError) return jsonError(e.status, e.status === 409 ? 'conflict' : 'validation', e.message);
+    if (e instanceof ProjectError) return jsonError(e.status, e.status === 409 ? 'conflict' : e.status === 404 ? 'not_found' : 'validation', e.message);
+    if (e instanceof UploadPostError) return jsonError(e.status >= 400 && e.status < 600 ? e.status : 502, 'upstream', e.message);
     return jsonError(500, 'internal', 'Could not update the project.');
   }
 }
