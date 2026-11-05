@@ -1,0 +1,25 @@
+# dependencies and build output
+node_modules
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# local configuration and secrets (never commit)
+.env
+.env.*
+!.env.example
+signal.config.json
+certs/
+*.pem
+
+# local data: projects, account settings, posts, memory
+data/*
+!data/README.md
+
+# test output
+coverage/
+test-results/
+
+# OS / editor
+.DS_Store

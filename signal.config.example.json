@@ -1,0 +1,17 @@
+{
+  "$comment": "Copy to signal.config.json (git-ignored). Every switch is off until you set it to true. SIGNAL_FEATURE_<NAME>=1 in the environment overrides a switch. The kill switches SIGNAL_PUBLISH_PAUSED=1 and SIGNAL_AUTOPILOT_PAUSED=1 always win.",
+  "features": {
+    "instagramApi": false,
+    "unifiedLogin": false,
+    "scheduler": false,
+    "agents": false,
+    "agentsApiKey": false,
+    "memory": false,
+    "autopilot": false,
+    "trustedPublish": false,
+    "higgsfield": false,
+    "uploadPostResults": false,
+    "uploadPostScheduling": false,
+    "uploadPostProfiles": false
+  }
+}
