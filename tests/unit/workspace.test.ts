@@ -149,6 +149,6 @@ describe('CLI lookup', () => {
     process.env.CODEX_BIN = '/env/codex';
     expect(await cliBin('codex')).toBe('/env/codex');
     await expect(saveCliPath('claude', 'claude')).rejects.toThrow(/full path/);
-    await expect(saveCliPath('claude', path.join(tmp, 'missing'))).rejects.toThrow(/not a program/);
+    await expect(saveCliPath('claude', path.join(tmp, 'missing', 'claude'))).rejects.toThrow(/not a program/);
   });
 });

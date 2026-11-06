@@ -2,10 +2,33 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useState, type KeyboardEvent } from 'react';
 
-function safeNext(next: string | null): string {
-  // Only same-site relative paths; never protocol-relative or absolute URLs.
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/studio';
-  return next;
+const HOME = '/studio';
+
+/**
+ * Where to go after signing in: only a path on this app's own origin, else the Studio.
+ * Control characters (TAB, CR, LF are dropped by URL parsers, so "/<TAB>/evil.com" would become
+ * "//evil.com"), backslashes (read as "/"), protocol-relative and absolute URLs are refused; what is
+ * left is parsed against the app origin and must stay on it. Exported for tests.
+ */
+export function safeNext(next: string | null, appOrigin?: string): string {
+  if (!next || next.length > 2048) return HOME;
+  if (/[\u0000-\u001f\u007f-\u009f\\]/.test(next)) return HOME;
+  if (!next.startsWith('/') || next.startsWith('//')) return HOME;
+  let origin: string;
+  try {
+    origin = new URL(appOrigin ?? window.location.origin).origin;
+  } catch {
+    return HOME;
+  }
+  if (origin === 'null') return HOME;
+  let u: URL;
+  try {
+    u = new URL(next, origin);
+  } catch {
+    return HOME;
+  }
+  if (u.origin !== origin) return HOME;
+  return `${u.pathname}${u.search}${u.hash}`;
 }
 
 type Mode = 'password' | 'open' | 'unset' | 'unknown';

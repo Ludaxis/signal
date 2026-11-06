@@ -23,6 +23,9 @@ desktop/dist
 desktop/app-server
 desktop/app-config.json
 
+# Local screenshots (may show real posts): never commit.
+.studio-shots/
+
 # test output
 coverage/
 test-results/

@@ -65,6 +65,50 @@ describe('app settings', () => {
     await expect(setSwitch('publishing', true)).rejects.toThrow(/SIGNAL_TOKEN_KEY/);
     expect((await settingsStatus()).ready).toBe(false);
   });
+
+  it('concurrent saves and switch flips all reach the file (no lost update, no temp-file clash)', async () => {
+    await Promise.all([
+      saveGroup('r2', { R2_BUCKET: 'bucket-one' }),
+      setSwitch('publishing', false),
+      saveGroup('upload-post', { UPLOAD_POST_API_KEY: 'up_live_key_abcdefgh123456' }),
+      saveGroup('meta', { META_APP_ID: '1234567' }),
+      setSwitch('autopilot', false),
+    ]);
+    const names = Object.keys((JSON.parse(readFileSync(path.join(tmp, 'settings.json'), 'utf8')) as { items: Record<string, unknown> }).items).sort();
+    expect(names).toEqual(['META_APP_ID', 'R2_BUCKET', 'SIGNAL_AUTOPILOT_PAUSED', 'SIGNAL_PUBLISH_PAUSED', 'UPLOAD_POST_API_KEY']);
+    // After a restart the saved pause still applies.
+    for (const n of names) delete process.env[n];
+    delete g.__signalEnvOriginal;
+    delete g.__signalSettingsApplied;
+    expect(await applySavedSettings()).toBe(5);
+    expect(publishingPaused().paused).toBe(true);
+  });
+
+  it('does not report a saved value as saved when this SIGNAL_TOKEN_KEY cannot read it', async () => {
+    await saveGroup('upload-post', { UPLOAD_POST_API_KEY: 'up_live_key_abcdefgh123456' });
+    await setSwitch('publishing', false);
+    process.env.SIGNAL_TOKEN_KEY = Buffer.alloc(32, 4).toString('base64'); // another key (e.g. the Mac app vs. a dev server)
+    delete process.env.UPLOAD_POST_API_KEY;
+    delete process.env.SIGNAL_PUBLISH_PAUSED;
+    delete g.__signalEnvOriginal;
+    delete g.__signalSettingsApplied;
+    const st = await settingsStatus();
+    const up = st.groups.find((x) => x.id === 'upload-post')!;
+    expect(up.fields[0]).toMatchObject({ source: 'missing', hint: null });
+    expect(up.complete).toBe(false);
+    expect(up.saved).toBe(false);
+    expect(st.switches.publishing).toEqual({ on: true, source: 'default' });
+  });
+
+  it('accepts only a plain https host (and path) as the R2 public address', async () => {
+    for (const ok of ['https://pub-0123456789abcdef.r2.dev', 'https://media.example.com/signal/', 'https://media.example.com:8443']) {
+      await expect(saveGroup('r2', { R2_PUBLIC_BASE: ok })).resolves.toEqual(['Public address']);
+    }
+    expect(process.env.R2_PUBLIC_BASE).toBe('https://media.example.com:8443');
+    for (const bad of ['https://user:pass@media.example.com', 'https://media.example.com/?x=1', 'https://media.example.com/#x', 'https://[::1]/', 'https://media.example.com/a b', 'https://media.example.com/\u0000', 'https://']) {
+      await expect(saveGroup('r2', { R2_PUBLIC_BASE: bad })).rejects.toThrow(/does not look right/);
+    }
+  });
 });
 
 describe('feature switches from the app', () => {
