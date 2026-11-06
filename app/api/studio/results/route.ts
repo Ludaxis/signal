@@ -5,7 +5,8 @@ import { inProject } from '@/lib/server/studioProject';
 import { jsonError } from '@/lib/server/security';
 import { refreshMetrics } from '@/lib/studio/analytics';
 import { rebuildMemory } from '@/lib/studio/memory/graph';
-import { memoryAllowed, recordEvent } from '@/lib/studio/memory/store';
+import { noteMetricsSnapshot } from '@/lib/studio/memory/hooks';
+import { memoryAllowed } from '@/lib/studio/memory/store';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -20,10 +21,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     return jsonError(400, 'validation', 'Bad request.');
   }
   return inProject(req, b.project, async () => {
-    const r = await refreshMetrics({ force: b.force === true });
+    const snaps: Promise<void>[] = [];
+    const r = await refreshMetrics({ force: b.force === true, onSnapshot: (id, f) => void snaps.push(noteMetricsSnapshot(id, f, user.email)) });
+    await Promise.all(snaps);
     // Project memory: new results update the decision map and learnings. Best effort.
     if (r.refreshed > 0 && (await memoryAllowed()).enabled) {
-      await recordEvent({ type: 'metrics.snapshot', by: user.email, data: { refreshed: r.refreshed } });
       await rebuildMemory().catch(() => undefined);
     }
     return NextResponse.json(r);

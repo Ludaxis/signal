@@ -80,6 +80,10 @@ export interface Insights {
   byFormat: { format: string; posts: number; avgViews: number | null; avgRate: number | null }[];
   bestWeekday: string | null;
   bestHour: number | null;
+  /** Why bestWeekday/bestHour are empty (null when they are set). */
+  bestTimeReason: string | null;
+  /** Posts that went into bestWeekday/bestHour. */
+  bestTimeSample: number;
   top: { id: string; title: string; views: number | null; rate: number | null }[];
 }
 export interface Payload {

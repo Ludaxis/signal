@@ -39,3 +39,20 @@ async function note(before: PackageView | null, after: PackageView, by: string):
   if (type === 'post.failed' && after.outcome) data.reason = String(after.outcome.message ?? '').slice(0, 200) || null;
   await recordEvent({ type, by, campaign: after.campaign && CAMPAIGN_ID.test(after.campaign.id) ? after.campaign.id : null, refs: { package: after.id, ...(after.campaign && CAMPAIGN_ID.test(after.campaign.id) ? { slot: after.campaign.slot } : {}) }, data });
 }
+
+/** Timeline payload for one metrics snapshot: the numbers, the source and the post's age at fetch. */
+export function metricsSnapshotData(file: { metrics: object | null; source?: string; age_hours?: number | null; complete?: boolean }): Record<string, unknown> {
+  const m = (file.metrics ?? {}) as Record<string, unknown>;
+  const k = (x: string) => (typeof m[x] === 'number' ? m[x] : null);
+  return { views: k('views'), reach: k('reach'), likes: k('likes'), comments: k('comments'), saves: k('saves'), shares: k('shares'), source: file.source ?? null, ageHours: file.age_hours ?? null, complete: file.complete ?? null };
+}
+
+/** Records one metrics.snapshot per refreshed package (best effort, gated like every event). */
+export async function noteMetricsSnapshot(packageId: string, file: Parameters<typeof metricsSnapshotData>[0] & { error?: string }, by: string): Promise<void> {
+  try {
+    if (!file.metrics || file.error) return; // a failed fetch carries old numbers: not a new snapshot
+    await recordEvent({ type: 'metrics.snapshot', by, refs: { package: packageId }, data: metricsSnapshotData(file) });
+  } catch {
+    /* best effort */
+  }
+}

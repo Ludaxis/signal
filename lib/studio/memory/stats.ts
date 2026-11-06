@@ -23,6 +23,8 @@ export interface PostObservation {
   postedAt: string; // ISO instant
   metricsAt: string | null; // ISO instant the metrics were fetched (maturity uses it)
   metrics: MetricsLike | null;
+  /** Set when the metrics rely on the views fallback (reach null or 0). Derived from metrics when absent. */
+  incomplete?: boolean;
   format: string | null;
   campaign: string | null;
   pillar: string | null; // pillar name from the plan slot
@@ -85,10 +87,24 @@ export const METRIC_LABEL: Record<MetricKey, string> = {
 
 const num = (v: number | null | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-/** Per-reach ratios divide by reach, or views when reach is missing; null when anything needed is missing. */
+/** What per-reach ratios divide by: reach, or views when reach is null or 0 but views > 0 (flagged incomplete). */
+export function perReachBase(m: MetricsLike | null): { base: number | null; incomplete: boolean } {
+  if (!m) return { base: null, incomplete: false };
+  const reach = num(m.reach);
+  const views = num(m.views);
+  if (reach != null && reach > 0) return { base: reach, incomplete: false };
+  if (views != null && views > 0) return { base: views, incomplete: true };
+  return { base: reach, incomplete: reach == null };
+}
+/** True when the metrics are usable only through the views fallback (reach null or 0). */
+export const metricsIncomplete = (m: MetricsLike | null): boolean => perReachBase(m).incomplete;
+/** An observation is incomplete when its metrics rely on the views fallback; an explicit flag wins. */
+export const observationIncomplete = (o: Pick<PostObservation, 'metrics'> & { incomplete?: boolean }): boolean => o.incomplete ?? metricsIncomplete(o.metrics);
+
+/** Per-reach ratios divide by reach, or views when reach is null or 0; null when anything needed is missing. */
 export function metricValue(m: MetricsLike | null, key: MetricKey): number | null {
   if (!m) return null;
-  const base = num(m.reach) ?? num(m.views);
+  const base = perReachBase(m).base;
   const perReach = (x: number | null | undefined) => {
     const v = num(x);
     return v == null || base == null || base <= 0 ? null : v / base;
@@ -323,7 +339,8 @@ export function learningText(subject: string, metric: MetricKey, est: { effect: 
   const label = METRIC_LABEL[metric];
   const s = titleCase(subject);
   let text: string;
-  if (est.effect == null || est.n === 0) text = `${s}: no measured results yet.`;
+  if (est.n === 0) text = `${s}: no measured results yet.`;
+  else if (est.effect == null) text = `${s}: no baseline yet (n ${est.n}).`;
   else if (est.effect >= 1.05) text = `${s} get ${fmtEffect(est.effect)}× more ${label} than average (n ${est.n}).`;
   else if (est.effect <= 0.95) text = `${s} get ${Math.round((1 - est.effect) * 100)}% less ${label} than average (n ${est.n}).`;
   else text = `${s} get about the same ${label} as average (n ${est.n}).`;
