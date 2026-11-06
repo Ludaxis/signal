@@ -100,7 +100,7 @@ async function waitForHealth(url, ms = 90_000) {
   while (Date.now() < end) {
     if (!server && !DEV_URL) throw new Error('The Signal server stopped while starting. See the log.');
     try {
-      const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(`${url}/api/health?probe=liveness`, { signal: AbortSignal.timeout(3000) });
       if (r.ok) return;
     } catch {
       /* not up yet */
