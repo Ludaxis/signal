@@ -244,4 +244,12 @@ describe('run records', () => {
     expect(await systemPromptFor('creative-producer')).toBe('# Repo shared\n\n# Repo producer');
     expect(await systemPromptFor('reviewer')).toMatch(/^# Repo shared\n\n# Reviewer/);
   });
+  it('built-in prompts carry the claims and measurement rules the code enforces', async () => {
+    root = setupTeamRoot();
+    const strategist = await systemPromptFor('strategist');
+    expect(strategist).toMatch(/no "most people…"/);
+    expect(strategist).toMatch(/no watch time, hold rate, retention/);
+    expect(strategist).toMatch(/Signal drops hooks that break it/);
+    expect(await systemPromptFor('planner')).toMatch(/Stay inside the dates and post types you are given/);
+  });
 });

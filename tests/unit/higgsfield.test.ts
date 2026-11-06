@@ -345,6 +345,11 @@ describe('Higgsfield formats in campaigns', () => {
     writeFileSync(path.join(root, 'agents', '_shared.md'), '# Shared rules');
     writeFileSync(path.join(root, 'agents', 'strategist', 'prompt.md'), '# Strategist');
     writeFileSync(path.join(root, 'agents', 'content-planner', 'prompt.md'), '# Planner');
+    // Planning needs active posting settings for the project (the plan horizon ends at its end date).
+    const accountsPath = path.join(root, 'accounts.json');
+    const a = JSON.parse(readFileSync(accountsPath, 'utf8')) as { accounts: Record<string, unknown>[] };
+    a.accounts.push({ ...a.accounts[0]!, project: 'example', handle: '@example.photo', profile: '' });
+    writeFileSync(accountsPath, JSON.stringify(a));
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW);
     try {
