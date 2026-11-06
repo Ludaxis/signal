@@ -54,7 +54,7 @@ export function unifiedConfig(): { ok: true; cfg: UnifiedConfig } | { ok: false;
   const redirectUri = (process.env.META_REDIRECT_URI ?? '').trim();
   const keyRaw = (process.env.SIGNAL_TOKEN_KEY ?? '').trim();
   const missing = [!appId && 'META_APP_ID', !appSecret && 'META_APP_SECRET', !configId && 'META_LOGIN_CONFIG_ID', !redirectUri && 'META_REDIRECT_URI', !keyRaw && 'SIGNAL_TOKEN_KEY'].filter(Boolean);
-  if (missing.length) return { ok: false, reason: missing.length === 1 && missing[0] === 'SIGNAL_TOKEN_KEY' ? 'Set SIGNAL_TOKEN_KEY in .env.local (see docs/instagram-unified-login.md). The Mac app sets it for you.' : 'Add the Meta app settings in Connections → Keys.' };
+  if (missing.length) return { ok: false, reason: missing.length === 1 && missing[0] === 'SIGNAL_TOKEN_KEY' ? 'Set SIGNAL_TOKEN_KEY in .env.local (see docs/instagram-unified-login.md). The Mac app sets it for you.' : 'Add the Meta app settings in Connections (Instagram (Meta) → Set up).' };
   if (!/^\d{5,20}$/.test(appId)) return { ok: false, reason: 'META_APP_ID must be the numeric Meta app ID.' };
   if (!/^\d{5,25}$/.test(configId)) return { ok: false, reason: 'META_LOGIN_CONFIG_ID must be the numeric configuration ID from the Unified Login setup.' };
   if (/^[0-9]{5,20}$/.test(appSecret) || appSecret.length < 16) return { ok: false, reason: 'META_APP_SECRET does not look like an App Secret.' };

@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
       if (!postingActive(await accountSettings(project.id))) return jsonError(403, 'forbidden', 'Set the account limits first; the check runs only for set-up accounts.');
       if (!project.uploadPostProfile) return NextResponse.json({ ok: false, message: `${project.handle} posts through Instagram's API: connect it with Meta on the Connections screen.` });
       const key = process.env.UPLOAD_POST_API_KEY;
-      if (!key) return jsonError(400, 'validation', 'Add your Upload-Post API key in Connections → Keys.');
+      if (!key) return jsonError(400, 'validation', 'Add your Upload-Post API key in Connections (Upload-Post → Manage).');
       let r: Response;
       try {
         r = await fetch(upProfileUrl(project.uploadPostProfile), {

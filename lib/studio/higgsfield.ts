@@ -79,7 +79,7 @@ export function redactHiggsfield(text: string, extra: readonly string[] = []): s
 export async function higgsfieldAllowed(): Promise<{ enabled: boolean; reason: string }> {
   if (!(await featureEnabled('higgsfield'))) return { enabled: false, reason: featureOffReason('higgsfield') };
   const k = keys();
-  if (!k.id || !k.secret) return { enabled: false, reason: 'Higgsfield API keys are missing. Add them in Connections → Keys.' };
+  if (!k.id || !k.secret) return { enabled: false, reason: 'Higgsfield API keys are missing. Add them in Connections (Higgsfield → Set up).' };
   return { enabled: true, reason: 'Paid per request on your Higgsfield account; used only when you press Generate.' };
 }
 

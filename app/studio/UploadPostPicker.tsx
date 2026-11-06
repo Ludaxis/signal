@@ -46,7 +46,7 @@ export const profileLine = (p: UpProfile) => (p.instagram?.handle ? `Instagram $
 export function KeyHowTo() {
   return (
     <More label="How?">
-      <span>Add it under Connections → Keys → Upload-Post. The key is in Upload-Post → Settings → API keys. It stays on this machine, encrypted.</span>
+      <span>Add it in Connections → Upload-Post. The key is in Upload-Post → Settings → API keys. It stays on this machine, encrypted.</span>
     </More>
   );
 }

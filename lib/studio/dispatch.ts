@@ -42,7 +42,7 @@ export async function liveState(now = Date.now()): Promise<LiveState> {
   if (!lim.dispatch) return off(`Automatic posting is off for ${currentProject().handle}. Post by hand.`);
   const pause = publishingPaused();
   if (pause.paused) return off(pause.reason);
-  if (!process.env.UPLOAD_POST_API_KEY) return off('Add your Upload-Post API key in Connections → Keys.');
+  if (!process.env.UPLOAD_POST_API_KEY) return off('Add your Upload-Post API key in Connections (Upload-Post → Manage).');
   if (!currentProject().uploadPostProfile) return off('This project has no Upload-Post profile.');
   return { enabled: true, reason: `Approve posts here; the dashboard sends each approved package once to ${currentProject().handle}.`, provider: 'upload-post' };
 }
@@ -185,7 +185,7 @@ export async function checkDispatch(id: string, by: string, deps: { fetch?: Fetc
   const pkg = await loadPackage(id);
   if (!pkg.dispatch || !['sending', 'submitted', 'uncertain', 'failed', 'scheduled'].includes(pkg.status)) throw new ContentError(409, `Post ${id} has nothing to check.`);
   const wasFailed = pkg.status === 'failed';
-  if (!process.env.UPLOAD_POST_API_KEY) throw new ContentError(403, 'UPLOAD_POST_API_KEY is not set.');
+  if (!process.env.UPLOAD_POST_API_KEY) throw new ContentError(403, 'Add your Upload-Post API key in Connections (Upload-Post → Manage).');
   const rid = encodeURIComponent(pkg.dispatch.request_id);
   let st: { status: number; body: unknown };
   try {

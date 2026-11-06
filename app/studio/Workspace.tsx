@@ -1,7 +1,7 @@
 'use client';
-// Workspace (on Connections): what this Mac gives Signal — project folders (read-only), Figma
-// (your personal access token, read-only) and the Claude Code / Codex CLIs. One line per card;
-// the work happens in a side panel. Tokens and file contents never leave this machine.
+// Workspace pieces used by Connections: project folders (read-only), Figma (your personal access
+// token, read-only) and the Claude Code / Codex CLIs. Panels and a data hook; Connections lays them out.
+// Tokens and file contents never leave this machine.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { notifyChanged, useOnChanged } from './sync';
@@ -14,8 +14,8 @@ interface Folder { id: string; path: string; label: string; addedAt: string }
 interface FFile { rel: string; kind: 'image' | 'video' | 'design' | 'doc' | 'font'; size: number; mtime: string }
 interface FigFile { key: string; name: string; url: string; addedAt: string }
 interface Frame { id: string; name: string; page: string; type: string }
-interface Tool { cli: 'claude' | 'codex'; label: string; found: boolean; path: string | null; version: string | null; source: 'env' | 'saved' | 'path'; signedIn: boolean | null }
-interface Payload {
+export interface Tool { cli: 'claude' | 'codex'; label: string; found: boolean; path: string | null; version: string | null; source: 'env' | 'saved' | 'path'; signedIn: boolean | null }
+export interface WorkspaceData {
   folders: Folder[];
   figma: { ready: boolean; reason: string; connected: boolean; user: string | null; files: FigFile[]; imports: { name: string; size: number; at: string }[] };
   tools: { claude: Tool; codex: Tool };
@@ -30,23 +30,6 @@ async function call<T>(url: string, body?: unknown): Promise<T> {
 const act = <T,>(action: string, extra: Record<string, unknown> = {}) => call<T & { message?: string }>('/api/studio/workspace', { project: getProjectId(), action, ...extra });
 const fileUrl = (q: Record<string, string>) => `/api/studio/workspace/file?${new URLSearchParams({ project: getProjectId() ?? '', ...q }).toString()}`;
 const size = (n: number) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
-
-type Tone = 'on' | 'off' | 'warn';
-function Card({ title, tone, status, children, actions }: { title: string; tone: Tone; status: string; children?: ReactNode; actions?: ReactNode }) {
-  return (
-    <div className={`st-card conn-card conn-${tone}`}>
-      <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <span className="conn-title">
-          <span className="conn-dot" aria-hidden="true" />
-          {title}
-        </span>
-        <span className="conn-status">{status}</span>
-      </div>
-      {children ? <div className="st-stack conn-body">{children}</div> : null}
-      {actions ? <div className="row-wrap" style={{ gap: 8 }}>{actions}</div> : null}
-    </div>
-  );
-}
 
 export function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -67,19 +50,17 @@ export function Panel({ title, onClose, children }: { title: string; onClose: ()
   return host ? createPortal(node, host) : node;
 }
 
-export function Workspace({ say }: { say: (t: string) => void }) {
+/** Linked folders, Figma and the CLIs for the selected project (GET /api/studio/workspace). */
+export function useWorkspace(say: (t: string) => void) {
   const pid = useProjectId();
-  const [d, setD] = useState<Payload | null>(null);
-  const [err, setErr] = useState('');
+  const [d, setD] = useState<WorkspaceData | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [open, setOpen] = useState<'folders' | 'figma' | 'tools' | null>(null);
   const load = useCallback(async () => {
     if (!pid) return;
     try {
-      setD(await call<Payload>(`/api/studio/workspace?project=${encodeURIComponent(pid)}`));
-      setErr('');
-    } catch (e) {
-      setErr((e as Error).message);
+      setD(await call<WorkspaceData>(`/api/studio/workspace?project=${encodeURIComponent(pid)}`));
+    } catch {
+      /* the Connections screen shows the main error */
     }
   }, [pid]);
   useEffect(() => {
@@ -88,7 +69,7 @@ export function Workspace({ say }: { say: (t: string) => void }) {
     })();
   }, [load]);
   useOnChanged(['connections', 'workspace'], load);
-  const run = async (key: string, fn: () => Promise<string | void>) => {
+  const run: Run = async (key, fn) => {
     setBusy(key);
     try {
       const m = await fn();
@@ -101,40 +82,12 @@ export function Workspace({ say }: { say: (t: string) => void }) {
       setBusy(null);
     }
   };
-
-  if (err) return <p className="real-error st-small" role="alert">{err}</p>;
-  if (!d) return <p className="st-small st-muted">Loading workspace…</p>;
-  const t = d.tools;
-  const toolsOk = t.claude.found && t.codex.found;
-  return (
-    <>
-      <span className="label">Workspace</span>
-      <div className="conn-grid">
-        <Card title="Project folders" tone={d.folders.length ? 'on' : 'off'} status={d.folders.length ? `${d.folders.length} linked` : 'None'} actions={<button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setOpen('folders')}>{d.folders.length ? 'Open' : 'Link a folder'}</button>}>
-          <span className="xs st-muted">{d.folders.length ? d.folders.map((f) => f.label).join(' · ') : 'Art, screenshots and notes from your machine. Read-only.'}</span>
-        </Card>
-        <Card title="Figma" tone={!d.figma.ready ? 'off' : d.figma.connected ? 'on' : 'off'} status={d.figma.connected ? (d.figma.user ?? 'Connected') : 'Not connected'} actions={<button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={!d.figma.ready} title={d.figma.ready ? '' : d.figma.reason} onClick={() => setOpen('figma')}>{d.figma.connected ? 'Open' : 'Connect'}</button>}>
-          <span className="xs st-muted">{!d.figma.ready ? d.figma.reason : d.figma.connected ? `${d.figma.files.length} file${d.figma.files.length === 1 ? '' : 's'} · ${d.figma.imports.length} exported` : 'Export frames into this project with your own token.'}</span>
-        </Card>
-        <Card title="Claude Code & Codex" tone={toolsOk ? 'on' : t.claude.found || t.codex.found ? 'warn' : 'off'} status={toolsOk ? 'Found' : t.claude.found || t.codex.found ? 'One found' : 'Not found'} actions={<button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setOpen('tools')}>Details</button>}>
-          {[t.claude, t.codex].map((x) => (
-            <span key={x.cli} className="xs">
-              <span className={x.found ? 'conn-ok' : 'conn-no'}>{x.found ? '✓' : '–'}</span> {x.label}
-              <span className="st-muted"> · {x.found ? `${x.version}${x.signedIn === false ? ' · not signed in' : ''}` : 'not found'}</span>
-            </span>
-          ))}
-        </Card>
-      </div>
-      {open === 'folders' ? <FoldersPanel folders={d.folders} busy={busy} run={run} onClose={() => setOpen(null)} /> : null}
-      {open === 'figma' ? <FigmaPanel figma={d.figma} busy={busy} run={run} say={say} onClose={() => setOpen(null)} /> : null}
-      {open === 'tools' ? <ToolsPanel tools={[t.claude, t.codex]} busy={busy} run={run} onClose={() => setOpen(null)} /> : null}
-    </>
-  );
+  return { d, busy, run, load };
 }
 
-type Run = (key: string, fn: () => Promise<string | void>) => Promise<void>;
+export type Run = (key: string, fn: () => Promise<string | void>) => Promise<void>;
 
-function FoldersPanel({ folders, busy, run, onClose }: { folders: Folder[]; busy: string | null; run: Run; onClose: () => void }) {
+export function FoldersPanel({ folders, busy, run, onClose }: { folders: Folder[]; busy: string | null; run: Run; onClose: () => void }) {
   const dk = desktop();
   const [typed, setTyped] = useState('');
   const [sel, setSel] = useState<string | null>(folders[0]?.id ?? null);
@@ -269,7 +222,7 @@ function FoldersPanel({ folders, busy, run, onClose }: { folders: Folder[]; busy
   );
 }
 
-function FigmaPanel({ figma, busy, run, say, onClose }: { figma: Payload['figma']; busy: string | null; run: Run; say: (t: string) => void; onClose: () => void }) {
+export function FigmaPanel({ figma, busy, run, say, onClose }: { figma: WorkspaceData['figma']; busy: string | null; run: Run; say: (t: string) => void; onClose: () => void }) {
   const [token, setToken] = useState('');
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<string | null>(figma.files[0]?.key ?? null);
@@ -438,26 +391,19 @@ function FigmaPanel({ figma, busy, run, say, onClose }: { figma: Payload['figma'
   );
 }
 
-function ToolsPanel({ tools, busy, run, onClose }: { tools: Tool[]; busy: string | null; run: Run; onClose: () => void }) {
-  const [paths, setPaths] = useState<Record<string, string>>({});
+/** One CLI: where it was found, its version, and a path you can set if it lives somewhere else. */
+export function ToolBlock({ tool: t, busy, run }: { tool: Tool; busy: string | null; run: Run }) {
+  const [path, setPath] = useState('');
   return (
-    <Panel title="Claude Code & Codex" onClose={onClose}>
-      <span className="st-small st-muted">Signal runs these CLIs with your own sign-in, only when you press a button (or Autopilot, if you turn it on).</span>
-      {tools.map((t) => (
-        <div key={t.cli} className="st-card st-stack" style={{ padding: 14, gap: 8 }}>
-          <div className="row-wrap" style={{ justifyContent: 'space-between', gap: 8 }}>
-            <b>{t.label}</b>
-            <span className="xs">{t.found ? `${t.version}${t.signedIn === false ? ' · not signed in' : t.signedIn ? ' · signed in' : ''}` : 'Not found'}</span>
-          </div>
-          <span className="xs st-muted" style={{ overflowWrap: 'anywhere' }}>{t.path ? `${t.path}${t.source === 'env' ? ' (from .env)' : t.source === 'saved' ? ' (saved here)' : ''}` : t.cli === 'claude' ? 'Install: npm install -g @anthropic-ai/claude-code, then run claude to sign in.' : 'Install: npm install -g @openai/codex, then run codex login.'}</span>
-          <div className="row-wrap" style={{ gap: 8 }}>
-            <input className="st-input" style={{ flex: '1 1 220px' }} placeholder={t.cli === 'claude' ? '/opt/homebrew/bin/claude' : '/opt/homebrew/bin/codex'} value={paths[t.cli] ?? ''} onChange={(e) => setPaths({ ...paths, [t.cli]: e.target.value })} aria-label={`${t.label} path`} disabled={t.source === 'env'} />
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === `path-${t.cli}`} disabled={!!busy || t.source === 'env' || !(paths[t.cli] ?? '').trim()} onClick={() => void run(`path-${t.cli}`, async () => (await act('tool-path', { cli: t.cli, path: paths[t.cli] })).message)}>Use path</button>
-            {t.source === 'saved' ? <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={!!busy} onClick={() => void run(`path-${t.cli}`, async () => (await act('tool-path', { cli: t.cli, path: '' })).message)}>Reset</button> : null}
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === `check-${t.cli}`} disabled={!!busy} onClick={() => void run(`check-${t.cli}`, async () => (await act('tool-check', { cli: t.cli })).message)}>Check</button>
-          </div>
-        </div>
-      ))}
-    </Panel>
+    <div className="st-stack" style={{ gap: 8 }}>
+      <span className="xs st-muted" style={{ overflowWrap: 'anywhere' }}>
+        {t.path ? `${t.path}${t.source === 'env' ? ' (from .env.local)' : t.source === 'saved' ? ' (set here)' : ''}` : t.cli === 'claude' ? 'Not found. Install: npm install -g @anthropic-ai/claude-code, then run claude once to sign in.' : 'Not found. Install: npm install -g @openai/codex, then run codex login.'}
+      </span>
+      <div className="row-wrap" style={{ gap: 8 }}>
+        <input className="st-input" style={{ flex: '1 1 220px' }} placeholder={t.cli === 'claude' ? '/opt/homebrew/bin/claude' : '/opt/homebrew/bin/codex'} value={path} onChange={(e) => setPath(e.target.value)} aria-label={`${t.label} path`} disabled={t.source === 'env'} />
+        <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === `path-${t.cli}`} disabled={!!busy || t.source === 'env' || !path.trim()} onClick={() => void run(`path-${t.cli}`, async () => (await act('tool-path', { cli: t.cli, path })).message)}>Use this path</button>
+        {t.source === 'saved' ? <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={!!busy} onClick={() => void run(`path-${t.cli}`, async () => (await act('tool-path', { cli: t.cli, path: '' })).message)}>Reset</button> : null}
+      </div>
+    </div>
   );
 }

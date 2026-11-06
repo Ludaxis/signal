@@ -106,7 +106,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (b.service === 'claude' || b.service === 'codex') {
       const bin = await cliBin(b.service);
       const v = await version(bin);
-      return v ? NextResponse.json({ ok: true, message: `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} found: ${v}` }) : jsonError(503, 'unavailable', `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} was not found on this machine. Install it, or set its path under Workspace → Tools.`);
+      return v ? NextResponse.json({ ok: true, message: `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} found: ${v}` }) : jsonError(503, 'unavailable', `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} was not found on this machine. Install it, or set its path in Connections.`);
     }
     if (b.service === 'upload-post') {
       if (!project.uploadPostProfile) return jsonError(409, 'conflict', 'This project has no Upload-Post profile.');

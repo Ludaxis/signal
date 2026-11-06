@@ -113,7 +113,7 @@ describe('Higgsfield switch', () => {
     writeTestConfig(path.join(root, 'signal.config.json'), { higgsfield: false });
     let a = await higgsfieldAllowed();
     expect(a.enabled).toBe(false);
-    expect(a.reason).toMatch(/"higgsfield".*signal\.config\.json/);
+    expect(a.reason).toMatch(/"higgsfield".*Connections/);
     writeTestConfig(path.join(root, 'signal.config.json'), { higgsfield: true });
     delete process.env.HF_API_KEY_SECRET;
     a = await higgsfieldAllowed();
@@ -125,7 +125,7 @@ describe('Higgsfield switch', () => {
     expect(a.enabled).toBe(true);
     expect(a.reason).not.toContain(KEY_SECRET);
     rmSync(path.join(root, 'signal.config.json'));
-    expect((await higgsfieldAllowed()).reason).toMatch(/signal\.config\.json/);
+    expect((await higgsfieldAllowed()).reason).toMatch(/Connections/);
   });
 
   it('exports the cost constants used for estimates', () => {
@@ -254,7 +254,7 @@ describe('Higgsfield formats', () => {
     const hf = fakeHiggsfield();
     const client = higgsfieldClient({ fetch: hf.f, sleep: noSleep });
     writeTestConfig(path.join(root, 'signal.config.json'), { higgsfield: false });
-    await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-image', brief: { prompt: 'A harbour at dawn, soft light' }, higgsfield: client }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/higgsfield.*signal\.config\.json/) });
+    await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-image', brief: { prompt: 'A harbour at dawn, soft light' }, higgsfield: client }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/higgsfield.*Connections/) });
     writeTestConfig(path.join(root, 'signal.config.json'), { higgsfield: true });
     delete process.env.HF_API_KEY_ID;
     await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-reel', brief: { prompt: 'A harbour at dawn, soft light' }, higgsfield: client }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/Higgsfield API keys/) });

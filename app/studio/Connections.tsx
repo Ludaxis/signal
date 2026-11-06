@@ -1,7 +1,15 @@
 'use client';
-// Connections: every service the selected project uses, in one place — status, read-only checks,
-// connect and disconnect. One short line per card; details sit behind "More". Status only: values
-// and secrets never reach the browser.
+// Connections: everything Signal is connected to, for the selected project.
+//
+// Layout (from integration-settings practice: status first, one clear action per service, details
+// on demand):
+//   1. "Ready to post": the three things that decide whether dragging a post to Posted publishes it,
+//      as a checklist with the switch or button for each step. Done steps collapse to a tick.
+//   2. Lists by job: Publishing, Creating, Sources. One row per service: name, one line of state,
+//      a status pill (Connected / Needs attention / Not set up / Off) and one button. Grey means
+//      "not set up", amber means "set up but needs you", green means "working"; red is not used.
+//   3. Everything else (keys, tests, disconnect, permissions) in the service's side panel.
+// Secrets never reach the browser: keys are written once and shown only as "Saved · …1234".
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { notifyChanged, useOnChanged } from './sync';
@@ -9,10 +17,9 @@ import { announceProjectsChanged, getProjectId, useFocusTrap, useProjectId, useS
 import { formatDateTime } from '@/lib/time';
 import { ScreenSkeleton } from './loaders';
 import { More } from './More';
-import { Switch } from './Autopilot';
-import { KeyHowTo, UploadPostPicker, useUpProfiles } from './UploadPostPicker';
-import { Workspace } from './Workspace';
-import { FeaturesSection, KeysSection, PostingSwitches } from './Keys';
+import { UploadPostPicker, useUpProfiles } from './UploadPostPicker';
+import { FigmaPanel, FoldersPanel, Panel, ToolBlock, useWorkspace, type Tool } from './Workspace';
+import { FeaturesSection, KeyForm, settingsCall, useSettings, type GroupStatus, type SwitchId } from './Keys';
 
 interface Gate { enabled: boolean; reason: string }
 interface Conn { username: string; scopes: string[]; expiresAt: string | null; expired: boolean; daysLeft: number | null; connectedAt: string; features: { publish: boolean; comments: boolean; insights: boolean } }
@@ -36,35 +43,78 @@ async function call<T>(url: string, body?: unknown): Promise<T> {
   return j;
 }
 
-type Tone = 'on' | 'off' | 'warn' | 'soon';
-function Card({ title, tone, status, children, actions }: { title: string; tone: Tone; status: string; children?: ReactNode; actions?: ReactNode }) {
+// ---- small building blocks -------------------------------------------------------------------------
+type Tone = 'ok' | 'warn' | 'idle' | 'off';
+const Pill = ({ tone, children }: { tone: Tone; children: ReactNode }) => <span className={`cx-pill cx-pill-${tone}`}>{children}</span>;
+
+function Row({ mark, name, tone, status, detail, action }: { mark: string; name: string; tone: Tone; status: string; detail: ReactNode; action: ReactNode }) {
   return (
-    <div className={`st-card conn-card conn-${tone}`}>
-      <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <span className="conn-title">
-          <span className="conn-dot" aria-hidden="true" />
-          {title}
-        </span>
-        <span className="conn-status">{status}</span>
+    <li className="cx-row">
+      <span className={`cx-mark cx-mark-${tone}`} aria-hidden="true">{mark}</span>
+      <div className="cx-row-main">
+        <div className="cx-row-top">
+          <span className="cx-name">{name}</span>
+          <Pill tone={tone}>{status}</Pill>
+        </div>
+        <span className="cx-detail">{detail}</span>
       </div>
-      {children ? <div className="st-stack conn-body">{children}</div> : null}
-      {actions ? <div className="row-wrap" style={{ gap: 8 }}>{actions}</div> : null}
-    </div>
+      <div className="cx-row-action" role="group" aria-label={name}>
+        {action}
+      </div>
+    </li>
   );
 }
-const Line = ({ g, label }: { g: Gate; label: string }) => (
-  <span className="xs">
-    <span className={g.enabled ? 'conn-ok' : 'conn-no'}>{g.enabled ? '✓' : '–'}</span> {label}
-    {!g.enabled && g.reason ? <span className="st-muted"> · {g.reason}</span> : null}
-  </span>
+
+function Section({ id, title, sub, children }: { id: string; title: string; sub: string; children: ReactNode }) {
+  return (
+    <section className="cx-section" aria-labelledby={`cx-${id}`}>
+      <div className="cx-section-head">
+        <h2 id={`cx-${id}`} className="cx-h2">{title}</h2>
+        <p className="cx-sub">{sub}</p>
+      </div>
+      <ul className="cx-list st-card">{children}</ul>
+    </section>
+  );
+}
+
+function Toggle({ on, label, busy, disabled, title, onChange }: { on: boolean; label: string; busy?: boolean; disabled?: boolean; title?: string; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} className="ap-switch" disabled={disabled} aria-busy={busy || undefined} title={title} onClick={() => onChange(!on)}>
+      <span className="ap-knob" aria-hidden="true" />
+    </button>
+  );
+}
+
+const Check = ({ g, label }: { g: Gate; label: string }) => (
+  <li className={g.enabled ? 'cx-check is-ok' : 'cx-check'}>
+    <span aria-hidden="true">{g.enabled ? '✓' : '–'}</span>
+    <span>
+      {label}
+      {!g.enabled && g.reason ? <span className="st-muted"> · {g.reason}</span> : null}
+    </span>
+  </li>
 );
 
+function Btn({ primary, children, ...rest }: { primary?: boolean; children: ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button type="button" className={`st-btn ${primary ? 'st-btn-primary' : 'st-btn-ghost'} st-btn-sm`} {...rest}>
+      {children}
+    </button>
+  );
+}
+
+type Open = 'meta' | 'r2' | 'upload-post' | 'claude' | 'codex' | 'higgsfield' | 'folders' | 'figma' | null;
+
+// ---- the screen --------------------------------------------------------------------------------------
 export function Connections({ say, openBrand }: { say: (t: string) => void; openBrand: () => void }) {
   const pid = useProjectId();
   const [d, setD] = useState<Payload | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState<Open>(null);
   const [pick, setPick] = useState(false);
+  const settings = useSettings();
+  const ws = useWorkspace(say);
   const load = useCallback(async () => {
     if (!pid) return;
     try {
@@ -87,7 +137,7 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
       const m = await fn();
       if (m) say(m);
       notifyChanged('connections', 'content');
-      await load();
+      await Promise.all([load(), settings.load()]);
     } catch (e) {
       say((e as Error).message);
     } finally {
@@ -95,50 +145,168 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
     }
   };
   const check = (service: string) => run(service, async () => (await call<{ message: string }>('/api/studio/connections', { project: getProjectId(), action: 'check', service })).message);
-  const project = (body: Record<string, unknown>) => call<{ instagram?: string | null; posting?: boolean }>(`/api/studio/projects/${encodeURIComponent(getProjectId() ?? '')}`, body);
+  const project = (body: Record<string, unknown>) => call<{ instagram?: string | null; dispatch?: boolean }>(`/api/studio/projects/${encodeURIComponent(getProjectId() ?? '')}`, body);
+  const flip = (id: SwitchId, on: boolean) => run(id, async () => (await settingsCall({ action: 'switch', id, on })).message);
+  const reloadAll = async () => {
+    notifyChanged('connections', 'content');
+    await Promise.all([load(), settings.load()]);
+  };
 
   if (err) return <section className="screen"><p className="real-error st-small" role="alert">{err}</p></section>;
-  if (!d) return <ScreenSkeleton variant="connections" count={6} label="Loading connections" />;
+  if (!d || !settings.d) return <ScreenSkeleton variant="connections" count={6} label="Loading connections" />;
+  const s = settings.d;
+  const group = (id: string) => s.groups.find((g) => g.id === id) as GroupStatus;
+
+  // ---- derived state ----
   const ig = d.instagram;
   const c = ig.connection;
-  const igTone: Tone = ig.api.enabled ? (c?.daysLeft != null && c.daysLeft <= 10 ? 'warn' : 'on') : c?.expired ? 'warn' : 'off';
   const up = d.uploadPost;
-  const upTone: Tone = !up.profile ? 'off' : up.posting.enabled ? 'on' : 'warn';
-  const metaOn = ig.api.enabled && ig.publish.enabled;
   const auto = d.account.automaticPosting;
+  const publishingOn = s.switches.publishing.on;
+  const igConnected = Boolean(c && !c.expired) || ig.mode === 'instagram-login';
+  const metaRoute = ig.api.enabled && ig.publish.enabled && d.mediaHost.enabled;
+  const upRoute = up.keySet && Boolean(up.profile);
+  const route = metaRoute && upRoute ? 'Meta first, Upload-Post as backup' : metaRoute ? 'Through Meta (Instagram API)' : upRoute ? 'Through Upload-Post' : null;
+  const steps = [Boolean(route), auto, publishingOn];
+  const left = steps.filter((x) => !x).length;
+  const tools = ws.d?.tools;
+  const higgs = group('higgsfield');
+
+  const igRow = (() => {
+    if (c?.expired) return { tone: 'warn' as Tone, status: 'Reconnect', detail: `@${c.username} · the sign-in expired` };
+    if (c) return { tone: (c.daysLeft != null && c.daysLeft <= 10 ? 'warn' : 'ok') as Tone, status: c.daysLeft != null && c.daysLeft <= 10 ? 'Expires soon' : 'Connected', detail: `@${c.username} · ${c.expiresAt ? `sign-in valid for ${c.daysLeft} more days` : 'no expiry'}` };
+    if (ig.mode === 'instagram-login') return { tone: 'ok' as Tone, status: 'Connected', detail: 'Legacy token from .env.local' };
+    return { tone: 'idle' as Tone, status: 'Not set up', detail: ig.unifiedLogin.enabled ? 'Connect the Instagram account through Meta.' : 'Add your Meta app, then connect the Instagram account.' };
+  })();
+  const r2Row = d.mediaHost.enabled
+    ? { tone: 'ok' as Tone, status: 'Ready', detail: `${d.mediaHost.publicHost} · temporary links for Meta` }
+    : { tone: (igConnected ? 'warn' : 'idle') as Tone, status: igConnected ? 'Needed for Meta' : 'Not set up', detail: 'Instagram’s API downloads each file from a public link. Needed to post through Meta.' };
+  const upRow = up.profile
+    ? up.keySet
+      ? { tone: 'ok' as Tone, status: 'Connected', detail: `Profile “${up.profile}”${up.instagram ? ` · ${up.instagram}` : ''}` }
+      : { tone: 'warn' as Tone, status: 'Key missing', detail: `Profile “${up.profile}” · add the API key to post` }
+    : { tone: 'idle' as Tone, status: up.keySet ? 'Pick a profile' : 'Not set up', detail: 'Posts and schedules, also while this machine is off.' };
+  const toolRow = (t: Tool | undefined, gate: Gate, what: string) =>
+    !t ? { tone: 'idle' as Tone, status: 'Checking…', detail: what } : !t.found ? { tone: 'idle' as Tone, status: 'Not found', detail: `Not installed on this machine. ${what}` } : !gate.enabled ? { tone: 'off' as Tone, status: 'Off', detail: `${t.version} · ${gate.reason}` } : t.signedIn === false ? { tone: 'warn' as Tone, status: 'Sign in', detail: `${t.version} · not signed in` } : { tone: 'ok' as Tone, status: 'Ready', detail: `${t.version} · ${what}` };
+  const claudeRow = toolRow(tools?.claude, d.agents, 'Strategy, planning and the agent team.');
+  const codexRow = toolRow(tools?.codex, d.codex, 'Draws images when you press Make.');
+  const higgsRow = higgs.complete ? { tone: 'ok' as Tone, status: 'Ready', detail: 'Images and Reels, paid per request.' } : { tone: 'idle' as Tone, status: 'Not set up', detail: 'Images and Reels, paid per request.' };
+  const folders = ws.d?.folders ?? [];
+  const figma = ws.d?.figma;
 
   return (
-    <section className="screen st-stack" style={{ gap: 18 }} aria-label="Connections">
-      <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <span className="st-small st-muted">
-          <b>{d.project.name}</b> ({d.project.handle}) · {d.account.ready ? `limits set${d.account.expiresAt && Number.isFinite(d.account.expiresAt) ? ` until ${formatDateTime(new Date(d.account.expiresAt).toISOString())}` : ''} · ${d.account.maxPerDay}/day` : `limits not set: ${d.account.reason}`}
-        </span>
-        <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'refresh'} disabled={!!busy} onClick={() => void run('refresh', async () => undefined)}>Refresh</button>
-      </div>
-      <PostingSwitches
-        say={say}
-        status={
-          !auto
-            ? `Active · posting is off for ${d.project.handle}: turn on “Use for posting” on the Upload-Post card.`
-            : metaOn && d.mediaHost.enabled
-              ? 'Active · drag a post to Posted and it goes out through Meta.'
-              : up.posting.enabled
-                ? 'Active · drag a post to Posted and it goes out through Upload-Post.'
-                : `Active, but blocked: ${up.posting.reason}`
-        }
-      />
+    <section className="screen cx" aria-label="Connections">
+      {/* 1. Ready to post */}
+      <section className={`cx-ready st-card ${left ? '' : 'is-ready'}`} aria-labelledby="cx-ready-title">
+        <div className="cx-ready-head">
+          <span className={`cx-ready-badge ${left ? '' : 'is-ok'}`} aria-hidden="true">{left ? left : '✓'}</span>
+          <div className="cx-ready-text">
+            <h2 id="cx-ready-title" className="cx-h1">{left ? `${left} step${left === 1 ? '' : 's'} before Signal can post for you` : 'Ready to post'}</h2>
+            <p className="cx-sub">{left ? `Then dragging a post to Posted publishes it to ${d.project.handle}.` : `Drag a post to Posted and it goes out to ${d.project.handle} · ${route}.`}</p>
+          </div>
+          <Btn aria-busy={busy === 'refresh'} disabled={!!busy} onClick={() => void run('refresh', async () => undefined)}>Refresh</Btn>
+        </div>
+        <ol className="cx-steps">
+          <li className={`cx-step ${route ? 'is-done' : ''}`}>
+            <span className="cx-step-mark" aria-hidden="true">{route ? '✓' : '1'}</span>
+            <div className="cx-step-text">
+              <span className="cx-step-title">A way to post</span>
+              <span className="cx-step-sub">{route ?? 'Connect Instagram through Meta (with a media bucket), or Upload-Post.'}</span>
+            </div>
+            {route ? null : (
+              <div className="row-wrap cx-step-act">
+                {up.profile || up.keySet ? (
+                  <>
+                    <Btn primary onClick={() => setOpen('upload-post')}>{up.keySet ? 'Choose Upload-Post profile' : 'Add Upload-Post key'}</Btn>
+                    <Btn onClick={() => setOpen(igConnected ? 'r2' : 'meta')}>{igConnected ? 'Add media bucket' : 'Use Meta instead'}</Btn>
+                  </>
+                ) : (
+                  <>
+                    <Btn primary onClick={() => setOpen(igConnected ? 'r2' : 'meta')}>{igConnected ? 'Add media bucket' : 'Set up Meta'}</Btn>
+                    <Btn onClick={() => setOpen('upload-post')}>Use Upload-Post</Btn>
+                  </>
+                )}
+              </div>
+            )}
+          </li>
+          <li className={`cx-step ${auto ? 'is-done' : ''}`}>
+            <span className="cx-step-mark" aria-hidden="true">{auto ? '✓' : '2'}</span>
+            <div className="cx-step-text">
+              <span className="cx-step-title">Posting for {d.project.handle}</span>
+              <span className="cx-step-sub">{!d.account.ready ? d.account.reason || 'Set the posting limits first (Manage projects).' : auto ? `On · up to ${d.account.maxPerDay} a day${d.account.expiresAt && Number.isFinite(d.account.expiresAt) ? `, until ${formatDateTime(new Date(d.account.expiresAt).toISOString())}` : ''}.` : 'Off · you post by hand and record the link.'}</span>
+            </div>
+            <Toggle
+              on={auto}
+              label={`Posting for ${d.project.handle}`}
+              busy={busy === 'dispatch'}
+              disabled={!!busy || (!auto && !d.account.ready)}
+              title={!auto && !d.account.ready ? 'Set the posting limits first (Manage projects).' : undefined}
+              onChange={(on) =>
+                void run('dispatch', async () => {
+                  await project({ action: 'upload-post-dispatch', on });
+                  announceProjectsChanged();
+                  return on ? `Posting is on for ${d.project.handle}.` : `Posting is off for ${d.project.handle}. You post by hand.`;
+                })
+              }
+            />
+          </li>
+          <li className={`cx-step ${publishingOn ? 'is-done' : ''}`}>
+            <span className="cx-step-mark" aria-hidden="true">{publishingOn ? '✓' : '3'}</span>
+            <div className="cx-step-text">
+              <span className="cx-step-title">Publishing</span>
+              <span className="cx-step-sub">{publishingOn ? 'On for every project. Turn off to pause all posting at once.' : 'Paused for every project: nothing is posted or scheduled.'}</span>
+            </div>
+            <Toggle on={publishingOn} label="Publishing" busy={busy === 'publishing'} disabled={!!busy || !s.ready} title={s.ready ? undefined : s.reason} onChange={(on) => void flip('publishing', on)} />
+          </li>
+        </ol>
+        <div className="cx-ready-foot">
+          <div className="cx-foot-item">
+            <Toggle on={s.switches.autopilot.on} label="Autopilot" busy={busy === 'autopilot'} disabled={!!busy || !s.ready} onChange={(on) => void flip('autopilot', on)} />
+            <span>
+              <b>Autopilot</b> <span className="st-muted">{s.switches.autopilot.on ? 'runs once a day where it is set up' : 'paused'}</span>
+            </span>
+          </div>
+          <span className="cx-foot-note">
+            Scheduled posts: {!publishingOn ? 'paused' : d.scheduler.enabled ? 'sent while Signal runs on this machine' : up.scheduling.enabled ? 'sent by Upload-Post' : 'not available yet'}
+          </span>
+        </div>
+      </section>
 
-      <span className="label">Publishing</span>
-      <div className="conn-grid">
-        <Card
-          title="Instagram (Meta)"
-          tone={igTone}
-          status={c ? (c.expired ? 'Expired' : `@${c.username}`) : ig.mode === 'instagram-login' ? 'Legacy token' : 'Not connected'}
-          actions={
-            <>
-              <button
-                type="button"
-                className="st-btn st-btn-primary st-btn-sm"
+      {/* 2. Publishing */}
+      <Section id="pub" title="Publishing" sub="Where approved posts go.">
+        <Row mark="IG" name="Instagram (Meta)" {...igRow} action={<Btn onClick={() => setOpen('meta')}>{c || ig.mode ? 'Manage' : 'Set up'}</Btn>} />
+        <Row mark="R2" name="Media bucket" {...r2Row} action={<Btn onClick={() => setOpen('r2')}>{d.mediaHost.enabled ? 'Manage' : 'Set up'}</Btn>} />
+        <Row mark="UP" name="Upload-Post" {...upRow} action={<Btn onClick={() => setOpen('upload-post')}>{up.profile || up.keySet ? 'Manage' : 'Set up'}</Btn>} />
+      </Section>
+
+      {/* 3. Creating */}
+      <Section id="make" title="Creating" sub="Tools that write and draw posts. They run only when you ask, or in Autopilot.">
+        <Row mark="CC" name="Claude Code" {...claudeRow} action={<Btn onClick={() => setOpen('claude')}>Manage</Btn>} />
+        <Row mark="CX" name="Codex" {...codexRow} action={<Btn onClick={() => setOpen('codex')}>Manage</Btn>} />
+        <Row mark="HF" name="Higgsfield" {...higgsRow} action={<Btn onClick={() => setOpen('higgsfield')}>{higgs.complete ? 'Manage' : 'Set up'}</Btn>} />
+      </Section>
+
+      {/* 4. Sources */}
+      <Section id="src" title="Sources" sub="What Signal learns your brand and assets from. Read-only.">
+        <Row mark="Br" name="Brand" tone={d.brand ? 'ok' : 'idle'} status={d.brand ? 'Imported' : 'Not set up'} detail={d.brand ? `${d.brand.name} · ${d.brand.website ?? 'no website'} · updated ${formatDateTime(d.brand.updatedAt)}` : 'Colours, fonts, logo and voice from your website or a folder.'} action={<Btn onClick={openBrand}>Open Brand</Btn>} />
+        <Row mark="Fo" name="Project folders" tone={folders.length ? 'ok' : 'idle'} status={folders.length ? `${folders.length} linked` : 'None'} detail={folders.length ? folders.map((f) => f.label).join(' · ') : 'Art, screenshots and notes from this machine.'} action={<Btn onClick={() => setOpen('folders')}>{folders.length ? 'Open' : 'Link a folder'}</Btn>} />
+        <Row mark="Fi" name="Figma" tone={figma?.connected ? 'ok' : 'idle'} status={figma?.connected ? 'Connected' : 'Not set up'} detail={!figma ? 'Export frames into this project.' : !figma.ready ? figma.reason : figma.connected ? `${figma.user} · ${figma.files.length} file${figma.files.length === 1 ? '' : 's'} · ${figma.imports.length} exported` : 'Export frames into this project with your own token.'} action={<Btn disabled={!figma?.ready} onClick={() => setOpen('figma')}>{figma?.connected ? 'Open' : 'Connect'}</Btn>} />
+      </Section>
+
+      <FeaturesSection say={say} />
+
+      <p className="cx-soon">Coming next: TikTok and YouTube Shorts, through Upload-Post.</p>
+
+      {/* ---- panels ---- */}
+      {open === 'meta' ? (
+        <Panel title="Instagram (Meta)" onClose={() => setOpen(null)}>
+          <p className="st-small st-muted" style={{ margin: 0 }}>Posts, results and comments through Instagram’s own API. Needs your Meta app and, for posting, the media bucket.</p>
+          <div className="cx-panel-block">
+            <span className="cx-subhead">Account</span>
+            <span className="st-small">{c ? `@${c.username} · connected ${formatDateTime(c.connectedAt)} · ${c.expiresAt ? (c.expired ? 'sign-in expired' : `valid for ${c.daysLeft} more days`) : 'no expiry'}` : ig.mode === 'instagram-login' ? 'Legacy token from .env.local' : 'Not connected'}</span>
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <Btn
+                primary
                 aria-busy={busy === 'connect'}
                 disabled={!!busy || !ig.unifiedLogin.enabled}
                 title={ig.unifiedLogin.enabled ? '' : ig.unifiedLogin.reason}
@@ -150,41 +318,37 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
                 }
               >
                 {c ? 'Connect again' : 'Connect with Meta'}
-              </button>
-              <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'igtest'} disabled={!!busy || !ig.api.enabled} onClick={() => void run('igtest', async () => { const j = await call<{ account: { username: string; followers: number | null }; quota: { used: number; total: number } | null }>('/api/studio/instagram', { project: getProjectId(), action: 'test' }); return `Works: @${j.account.username}${j.quota ? ` · ${j.quota.used}/${j.quota.total} API posts used today` : ''}. Nothing was posted.`; })}>
+              </Btn>
+              <Btn aria-busy={busy === 'igtest'} disabled={!!busy || !ig.api.enabled} onClick={() => void run('igtest', async () => { const j = await call<{ account: { username: string; followers: number | null }; quota: { used: number; total: number } | null }>('/api/studio/instagram', { project: getProjectId(), action: 'test' }); return `Works: @${j.account.username}${j.quota ? ` · ${j.quota.used}/${j.quota.total} API posts used today` : ''}. Nothing was posted.`; })}>
                 Test
-              </button>
+              </Btn>
               {c ? (
-                <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'disc'} disabled={!!busy} onClick={() => { if (window.confirm(`Disconnect @${c.username}? Signal deletes its stored token on this machine. To revoke it at Meta too, remove the app from the business portfolio's integrations.`)) void run('disc', async () => { await call('/api/studio/instagram', { project: getProjectId(), action: 'disconnect' }); return 'Disconnected. The token was deleted on this machine.'; }); }}>
+                <Btn aria-busy={busy === 'disc'} disabled={!!busy} onClick={() => { if (window.confirm(`Disconnect @${c.username}? Signal deletes its stored token on this machine. To revoke it at Meta too, remove the app from the business portfolio's integrations.`)) void run('disc', async () => { await call('/api/studio/instagram', { project: getProjectId(), action: 'disconnect' }); return 'Disconnected. The token was deleted on this machine.'; }); }}>
                   Disconnect
-                </button>
+                </Btn>
               ) : null}
-            </>
-          }
-        >
-          {c ? (
-            <span className="xs st-muted">
-              Connected {formatDateTime(c.connectedAt)} · {c.expiresAt ? (c.expired ? 'token expired' : `expires in ${c.daysLeft} days`) : 'no expiry'}
-            </span>
-          ) : null}
-          <More label="More">
-            <Line g={ig.unifiedLogin} label="Meta Unified Login set up" />
-            {ig.api.enabled ? (
-              <>
-                <Line g={ig.publish} label="Publish" />
-                <Line g={ig.insights} label="Results" />
-                <Line g={ig.comments} label="Comments" />
-              </>
-            ) : (
-              <Line g={ig.api} label="Account connected" />
-            )}
-            {ig.api.enabled ? (
-              <button
-                type="button"
-                className="st-btn st-btn-ghost st-btn-sm"
+            </div>
+            {!ig.unifiedLogin.enabled ? <span className="xs st-muted">{ig.unifiedLogin.reason}</span> : null}
+            <ul className="cx-checks">
+              {ig.api.enabled ? (
+                <>
+                  <Check g={ig.publish} label="Publish" />
+                  <Check g={ig.insights} label="Results" />
+                  <Check g={ig.comments} label="Comments" />
+                  <Check g={d.mediaHost} label="Media bucket" />
+                </>
+              ) : (
+                <Check g={ig.api} label="Account connected" />
+              )}
+            </ul>
+          </div>
+          <KeyForm group={group('meta')} ready={s.ready} reason={s.reason} say={say} onSaved={reloadAll} title="Meta app" />
+          {ig.api.enabled ? (
+            <More label="Advanced">
+              <span>One read-only call per permission, so Meta’s App Review sees them. Nothing is posted or changed.</span>
+              <Btn
                 aria-busy={busy === 'review'}
                 disabled={!!busy}
-                title="One read-only call per permission, so Meta's App Review sees them. Nothing is posted or changed."
                 onClick={() =>
                   void run('review', async () => {
                     const j = await call<{ results: { permission: string; ok: boolean; note: string }[] }>('/api/studio/instagram', { project: getProjectId(), action: 'review-calls' });
@@ -192,33 +356,37 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
                   })
                 }
               >
-                Meta review calls
-              </button>
-            ) : null}
-          </More>
-        </Card>
+                Make Meta review calls
+              </Btn>
+            </More>
+          ) : null}
+        </Panel>
+      ) : null}
 
-        <Card
-          title="Upload-Post"
-          tone={upTone}
-          status={up.profile ? `“${up.profile}”${up.instagram ? ` · ${up.instagram}` : ''}` : 'Not connected'}
-          actions={
-            <>
-              <button type="button" className={`st-btn ${up.profile ? 'st-btn-ghost' : 'st-btn-primary'} st-btn-sm`} disabled={!!busy || !up.profileSetup.enabled} title={up.profileSetup.enabled ? '' : up.profileSetup.reason} onClick={() => setPick(true)}>
-                {up.profile ? 'Change profile' : 'Connect'}
-              </button>
+      {open === 'r2' ? (
+        <Panel title="Media bucket" onClose={() => setOpen(null)}>
+          <p className="st-small st-muted" style={{ margin: 0 }}>Instagram’s API downloads each image or video from a public link. Signal puts the approved files in your Cloudflare R2 bucket just before posting and deletes them once Instagram has them.</p>
+          <KeyForm group={group('r2')} ready={s.ready} reason={s.reason} say={say} onSaved={reloadAll} title="Cloudflare R2" />
+        </Panel>
+      ) : null}
+
+      {open === 'upload-post' ? (
+        <Panel title="Upload-Post" onClose={() => setOpen(null)}>
+          <p className="st-small st-muted" style={{ margin: 0 }}>Posts and schedules through Upload-Post, also while this machine is off, and reads results.</p>
+          <KeyForm group={group('upload-post')} ready={s.ready} reason={s.reason} say={say} onSaved={reloadAll} title="API key" />
+          <div className="cx-panel-block">
+            <span className="cx-subhead">Profile for {d.project.handle}</span>
+            <span className="st-small">{up.profile ? `“${up.profile}”${up.instagram ? ` · ${up.instagram}` : ' · no Instagram seen yet'}${up.verifiedAt ? ` · checked ${formatDateTime(up.verifiedAt)}` : ''}` : 'None linked yet.'}</span>
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <Btn primary={!up.profile} disabled={!!busy || !up.profileSetup.enabled} title={up.profileSetup.enabled ? '' : up.profileSetup.reason} onClick={() => { setOpen(null); setPick(true); }}>{up.profile ? 'Change profile' : 'Choose profile'}</Btn>
               {up.profile ? (
                 <>
-                  <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'upload-post'} disabled={!!busy || !up.profileSetup.enabled} title={up.profileSetup.enabled ? 'Read-only: reads the profile and its Instagram.' : up.profileSetup.reason} onClick={() => void check('upload-post')}>
-                    Check
-                  </button>
-                  <button
-                    type="button"
-                    className="st-btn st-btn-ghost st-btn-sm"
+                  <Btn aria-busy={busy === 'upload-post'} disabled={!!busy || !up.profileSetup.enabled} title="Read-only: reads the profile and its Instagram." onClick={() => void check('upload-post')}>Check</Btn>
+                  <Btn
                     aria-busy={busy === 'up-remove'}
                     disabled={!!busy}
                     onClick={() => {
-                      if (window.confirm(`Remove profile “${up.profile}” from ${d.project.name}? Posting through Upload-Post stops. The profile stays at Upload-Post and the posting limits are kept.`))
+                      if (window.confirm(`Remove profile “${up.profile}” from ${d.project.name}? Posting through Upload-Post stops. The profile stays at Upload-Post.`))
                         void run('up-remove', async () => {
                           await project({ action: 'upload-post-profile', profile: '' });
                           announceProjectsChanged();
@@ -227,87 +395,64 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
                     }}
                   >
                     Remove
-                  </button>
+                  </Btn>
                 </>
               ) : null}
-            </>
-          }
-        >
-          {!up.keySet ? (
-            <>
-              <span className="xs real-error">API key missing: nothing can be listed or posted.</span>
-              <KeyHowTo />
-            </>
-          ) : null}
-          {up.profile ? (
-            <Switch
-              checked={auto}
-              busy={busy === 'up-dispatch'}
-              disabled={!!busy || (!auto && !d.account.ready)}
-              reason={!auto && !d.account.ready ? 'Set the posting limits first (Manage projects).' : undefined}
-              label="Use for posting"
-              hint={!auto ? 'Off · you post by hand.' : metaOn ? 'On · Meta posts first; Upload-Post is the fallback.' : up.posting.enabled ? 'On · approved posts go out through Upload-Post.' : `On, but blocked: ${up.posting.reason}`}
-              onChange={(on) =>
-                void run('up-dispatch', async () => {
-                  await project({ action: 'upload-post-dispatch', on });
-                  announceProjectsChanged();
-                  return on ? 'One-click posting is on.' : 'One-click posting is off. You post by hand.';
-                })
-              }
-            />
-          ) : (
-            <span className="xs st-muted">{metaOn ? 'Fallback for Meta; also schedules while your machine is off.' : 'Posts and schedules through Upload-Post.'}</span>
-          )}
-          <More label="More">
-            {up.verifiedAt ? <span>Checked {formatDateTime(up.verifiedAt)}</span> : null}
-            <Line g={up.posting} label="Post now" />
-            <Line g={up.scheduling} label="Schedule (posts while your machine is off)" />
-            <Line g={up.results} label="Results" />
-            <span>Remove unlinks the profile from this project only; nothing is deleted at Upload-Post.</span>
-          </More>
-        </Card>
+            </div>
+            {up.keySet && !up.profileSetup.enabled ? <span className="xs st-muted">{up.profileSetup.reason}</span> : null}
+            <ul className="cx-checks">
+              <Check g={up.posting} label="Post now" />
+              <Check g={up.scheduling} label="Schedule (posts while the Mac is off)" />
+              <Check g={up.results} label="Results" />
+            </ul>
+          </div>
+        </Panel>
+      ) : null}
 
-        <Card title="Media bucket (R2)" tone={d.mediaHost.enabled ? 'on' : 'off'} status={d.mediaHost.publicHost ?? 'Not set'}>
-          <span className="xs st-muted">{d.mediaHost.enabled ? 'Temporary links Instagram downloads from.' : d.mediaHost.reason}</span>
-          <More label="Why?">
-            <span>Instagram&apos;s API fetches media from a public link. Files are deleted after publishing.</span>
-          </More>
-        </Card>
+      {open === 'claude' && tools ? (
+        <Panel title="Claude Code" onClose={() => setOpen(null)}>
+          <p className="st-small st-muted" style={{ margin: 0 }}>Runs the strategist, planner and agent team with your own Claude Code sign-in on this machine, only when you ask (or in Autopilot).</p>
+          <div className="cx-panel-block">
+            <span className="cx-subhead">On this machine</span>
+            <span className="st-small">{tools.claude.found ? tools.claude.version : 'Not found'}</span>
+            <ToolBlock tool={tools.claude} busy={ws.busy} run={ws.run} />
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <Btn aria-busy={busy === 'claude'} disabled={!!busy} onClick={() => void check('claude')}>Check</Btn>
+            </div>
+            <ul className="cx-checks">
+              <Check g={d.agents} label={d.agents.billing === 'api-key' ? 'Agents · billed to your API key' : 'Agents · on your Claude Code sign-in'} />
+            </ul>
+          </div>
+          <KeyForm group={group('anthropic')} ready={s.ready} reason={s.reason} say={say} onSaved={reloadAll} title="Anthropic API key (optional)" />
+        </Panel>
+      ) : null}
 
-        <Card title="Scheduling in Signal" tone={d.scheduler.enabled && !d.paused.paused ? 'on' : 'off'} status={d.paused.paused ? 'Paused' : d.scheduler.enabled ? 'On' : 'Off'}>
-          <span className="xs st-muted">{d.scheduler.enabled ? 'Sends scheduled posts while Signal runs on this machine.' : d.scheduler.reason}</span>
-          {d.scheduler.enabled ? (
-            <More label="More">
-              <span>Missed times wait for you; nothing is sent twice.</span>
-            </More>
-          ) : null}
-        </Card>
-      </div>
+      {open === 'codex' && tools ? (
+        <Panel title="Codex" onClose={() => setOpen(null)}>
+          <p className="st-small st-muted" style={{ margin: 0 }}>Draws images with your own Codex sign-in on this machine, when you press Make.</p>
+          <div className="cx-panel-block">
+            <span className="cx-subhead">On this machine</span>
+            <span className="st-small">{tools.codex.found ? `${tools.codex.version}${tools.codex.signedIn === false ? ' · not signed in (run codex login)' : tools.codex.signedIn ? ' · signed in' : ''}` : 'Not found'}</span>
+            <ToolBlock tool={tools.codex} busy={ws.busy} run={ws.run} />
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <Btn aria-busy={busy === 'codex'} disabled={!!busy} onClick={() => void check('codex')}>Check</Btn>
+            </div>
+            <ul className="cx-checks">
+              <Check g={d.codex} label="Codex images for this account" />
+            </ul>
+          </div>
+        </Panel>
+      ) : null}
 
-      <span className="label">Creation</span>
-      <div className="conn-grid">
-        <Card title="Claude (agents)" tone={d.agents.enabled ? 'on' : 'off'} status={d.agents.enabled ? (d.agents.billing === 'api-key' ? 'Your API key' : 'Your Claude Code sign-in') : 'Off'} actions={<button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'claude'} disabled={!!busy} onClick={() => void check('claude')}>Check</button>}>
-          <span className="xs st-muted">{d.agents.enabled ? 'Strategy and planning, only when you press a button.' : d.agents.reason}</span>
-        </Card>
-        <Card title="Codex (images)" tone={d.codex.enabled ? 'on' : 'off'} status={d.codex.enabled ? 'Your Codex sign-in' : 'Off'} actions={<button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'codex'} disabled={!!busy} onClick={() => void check('codex')}>Check</button>}>
-          <span className="xs st-muted">{d.codex.enabled ? 'Draws images when you press Make.' : d.codex.reason}</span>
-        </Card>
-        <Card title="Brand" tone={d.brand ? 'on' : 'off'} status={d.brand ? d.brand.name : 'Not imported'} actions={<button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={openBrand}>Open Brand</button>}>
-          {d.brand ? <span className="xs st-muted">{d.brand.website ?? 'no website'} · updated {formatDateTime(d.brand.updatedAt)}</span> : <span className="xs st-muted">Import the website on the Brand screen.</span>}
-        </Card>
-      </div>
+      {open === 'higgsfield' ? (
+        <Panel title="Higgsfield" onClose={() => setOpen(null)}>
+          <p className="st-small st-muted" style={{ margin: 0 }}>Images and Reels from Higgsfield. Paid per request; each run shows its cost first.</p>
+          <KeyForm group={higgs} ready={s.ready} reason={s.reason} say={say} onSaved={reloadAll} title="API keys" />
+        </Panel>
+      ) : null}
 
-      <KeysSection say={say} />
-
-      <FeaturesSection say={say} />
-
-      <Workspace say={say} />
-
-      <span className="label">Not yet supported</span>
-      <div className="conn-grid">
-        <Card title="TikTok" tone="soon" status="Not yet"><span className="xs st-muted">Instagram only for now.</span></Card>
-        <Card title="YouTube Shorts" tone="soon" status="Not yet"><span className="xs st-muted">Instagram only for now.</span></Card>
-      </div>
+      {open === 'folders' && ws.d ? <FoldersPanel folders={ws.d.folders} busy={ws.busy} run={ws.run} onClose={() => setOpen(null)} /> : null}
+      {open === 'figma' && ws.d ? <FigmaPanel figma={ws.d.figma} busy={ws.busy} run={ws.run} say={say} onClose={() => setOpen(null)} /> : null}
 
       {pick ? (
         <ProfilePanel

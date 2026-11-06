@@ -15,7 +15,7 @@ export interface MetricsFile { fetched_at: string; metrics: Metrics | null; erro
 
 export async function analyticsAllowed(): Promise<{ enabled: boolean; reason: string }> {
   if (!(await featureEnabled('uploadPostResults'))) return { enabled: false, reason: featureOffReason('uploadPostResults') };
-  if (!process.env.UPLOAD_POST_API_KEY) return { enabled: false, reason: 'UPLOAD_POST_API_KEY is not set.' };
+  if (!process.env.UPLOAD_POST_API_KEY) return { enabled: false, reason: 'Add your Upload-Post API key in Connections (Upload-Post → Manage).' };
   return { enabled: true, reason: '' };
 }
 

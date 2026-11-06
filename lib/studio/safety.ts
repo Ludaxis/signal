@@ -5,5 +5,5 @@
 export function publishingPaused(): { paused: boolean; reason: string } {
   const v = (process.env.SIGNAL_PUBLISH_PAUSED ?? '').trim().toLowerCase();
   const paused = v === '1' || v === 'true' || v === 'yes';
-  return { paused, reason: paused ? 'Publishing is paused (Connections → Posting). Nothing will be posted or scheduled.' : '' };
+  return { paused, reason: paused ? 'Publishing is paused. Switch it on in Connections; nothing is posted or scheduled until then.' : '' };
 }

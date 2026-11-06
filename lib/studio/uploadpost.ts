@@ -26,7 +26,7 @@ export interface UpProfile {
 
 export async function profileManagementAllowed(): Promise<{ enabled: boolean; reason: string }> {
   if (!(await featureEnabled('uploadPostProfiles'))) return { enabled: false, reason: `${featureOffReason('uploadPostProfiles')} Until then, type the profile username.` };
-  if (!process.env.UPLOAD_POST_API_KEY) return { enabled: false, reason: 'Add your Upload-Post API key in Connections → Keys.' };
+  if (!process.env.UPLOAD_POST_API_KEY) return { enabled: false, reason: 'Add your Upload-Post API key in Connections (Upload-Post → Manage).' };
   return { enabled: true, reason: '' };
 }
 

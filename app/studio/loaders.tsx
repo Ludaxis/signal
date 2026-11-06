@@ -101,17 +101,23 @@ export function ScreenSkeleton({ variant, count = 3, label = 'Loading' }: { vari
           ))}
         </div>
       ) : variant === 'connections' ? (
-        <div className="conn-grid">
-          {Array.from({ length: count }, (_, i) => (
-            <div key={i} className="st-card ld-card" style={{ ['--i' as string]: i } as CSSProperties}>
-              <div className="row-wrap" style={{ justifyContent: 'space-between' }}>
-                <Skeleton w="45%" h={14} />
-                <Skeleton w="20%" h={10} />
-              </div>
-              <SkeletonText lines={3} />
-              <Skeleton w={120} h={36} r={999} />
-            </div>
-          ))}
+        <div className="cx">
+          <div className="st-card ld-card cx-ready">
+            <Skeleton w="55%" h={18} />
+            <SkeletonText lines={3} />
+          </div>
+          <ul className="cx-list st-card">
+            {Array.from({ length: count }, (_, i) => (
+              <li key={i} className="cx-row ld-card" style={{ ['--i' as string]: i } as CSSProperties}>
+                <Skeleton w={36} h={36} r={10} />
+                <div className="cx-row-main">
+                  <Skeleton w="35%" h={14} />
+                  <Skeleton w="60%" h={10} />
+                </div>
+                <Skeleton w={84} h={34} r={999} />
+              </li>
+            ))}
+          </ul>
         </div>
       ) : variant === 'list' ? (
         <div className="st-stack" style={{ gap: 10 }}>
