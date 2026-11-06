@@ -154,7 +154,7 @@ describe('ideas (agent)', () => {
     config({ memoryTeam: true, autopilot: true, higgsfield: true });
     writePipeline(P1, { steps: { ...SCHED, source: { kind: 'ideas' }, make: IMAGE, review: { enabled: false } } });
     run = await runProject('manual', { now: NOW, generatePackage: fakeGenerator().generate, agentRunner: ideas.runner });
-    expect(run.steps[0]).toMatchObject({ kind: 'ideas', ideas: 0, error: /Turn on "agents"/ });
+    expect(run.steps[0]).toMatchObject({ kind: 'ideas', ideas: 0, error: /Turn on "agents" in Connections/ });
   });
 });
 

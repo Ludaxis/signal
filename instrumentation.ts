@@ -7,6 +7,8 @@
 // SIGNAL_PUBLISH_PAUSED=1 and SIGNAL_AUTOPILOT_PAUSED=1 stop both ticks from doing anything.
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  // Keys and switches saved in Connections (encrypted) apply before anything else runs.
+  await import('./lib/studio/app-settings').then((m) => m.applySavedSettings()).catch(() => undefined);
   const g = globalThis as typeof globalThis & { __signalScheduler?: ReturnType<typeof setInterval>; __signalAutopilotScheduler?: ReturnType<typeof setInterval> };
   if (!g.__signalScheduler) {
     const { tickAll } = await import('./lib/studio/publish-meta');

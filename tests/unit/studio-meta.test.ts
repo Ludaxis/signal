@@ -82,7 +82,7 @@ describe('Instagram API posting', () => {
     expect((await metaLive(NOW)).reason).toMatch(/instagramApi/);
     gate();
     delete process.env.R2_BUCKET;
-    expect((await metaLive(NOW)).reason).toMatch(/R2_BUCKET/);
+    expect((await metaLive(NOW)).reason).toMatch(/media bucket/);
     process.env.R2_BUCKET = 'signal-media';
     expect((await metaLive(NOW)).enabled).toBe(true);
   });

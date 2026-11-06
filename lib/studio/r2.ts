@@ -20,7 +20,7 @@ export function r2Config(): { ok: true; account: string; keyId: string; secret: 
   const bucket = process.env.R2_BUCKET ?? '';
   const publicBase = (process.env.R2_PUBLIC_BASE ?? '').replace(/\/+$/, '');
   const missing = [!account && 'R2_ACCOUNT_ID', !keyId && 'R2_ACCESS_KEY_ID', !secret && 'R2_SECRET_ACCESS_KEY', !bucket && 'R2_BUCKET', !publicBase && 'R2_PUBLIC_BASE'].filter(Boolean);
-  if (missing.length) return { ok: false, reason: `Set ${missing.join(', ')} in .env.local for the media bucket.` };
+  if (missing.length) return { ok: false, reason: 'Add the media bucket keys in Connections → Keys.' };
   if (!/^https:\/\//.test(publicBase)) return { ok: false, reason: 'R2_PUBLIC_BASE must be an https:// address.' };
   if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(bucket)) return { ok: false, reason: 'R2_BUCKET is not a valid bucket name.' };
   return { ok: true, account, keyId, secret, bucket, publicBase };

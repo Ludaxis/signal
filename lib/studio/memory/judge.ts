@@ -200,7 +200,7 @@ interface MessagesResponse { content?: { type?: string; text?: string }[]; usage
 export async function claudeJudgeAvailable(): Promise<{ ok: boolean; reason: string }> {
   const mem = await memoryAllowed();
   if (!mem.enabled) return { ok: false, reason: mem.reason };
-  if ((await agentBilling()) !== 'api-key') return { ok: false, reason: 'The judge needs the "agentsApiKey" switch in signal.config.json and SIGNAL_ANTHROPIC_API_KEY in .env.local.' };
+  if ((await agentBilling()) !== 'api-key') return { ok: false, reason: 'The judge needs the "agentsApiKey" switch (Connections → Features) and an Anthropic API key (Connections → Keys).' };
   return { ok: true, reason: '' };
 }
 

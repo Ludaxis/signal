@@ -118,7 +118,7 @@ describe('Higgsfield switch', () => {
     delete process.env.HF_API_KEY_SECRET;
     a = await higgsfieldAllowed();
     expect(a.enabled).toBe(false);
-    expect(a.reason).toContain('HF_API_KEY_SECRET');
+    expect(a.reason).toContain('Higgsfield API keys are missing');
     expect(a.reason).not.toContain(KEY_ID);
     process.env.HF_API_KEY_SECRET = KEY_SECRET;
     a = await higgsfieldAllowed();
@@ -257,7 +257,7 @@ describe('Higgsfield formats', () => {
     await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-image', brief: { prompt: 'A harbour at dawn, soft light' }, higgsfield: client }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/higgsfield.*signal\.config\.json/) });
     writeTestConfig(path.join(root, 'signal.config.json'), { higgsfield: true });
     delete process.env.HF_API_KEY_ID;
-    await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-reel', brief: { prompt: 'A harbour at dawn, soft light' }, higgsfield: client }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/HF_API_KEY_ID/) });
+    await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-reel', brief: { prompt: 'A harbour at dawn, soft light' }, higgsfield: client }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/Higgsfield API keys/) });
     process.env.HF_API_KEY_ID = KEY_ID;
     await expect(withProject(example(), () => generatePackage({ format: 'higgsfield-image', brief: { prompt: 'short' }, higgsfield: client }))).rejects.toThrow(/Describe the image/);
     expect(hf.f).not.toHaveBeenCalled();

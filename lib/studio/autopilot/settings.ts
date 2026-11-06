@@ -102,7 +102,7 @@ export async function higgsfieldAllowed(): Promise<{ enabled: boolean; reason: s
 export function autopilotPaused(): { paused: boolean; reason: string } {
   const v = (process.env[AUTOPILOT_PAUSE_ENV] ?? '').trim().toLowerCase();
   const paused = v === '1' || v === 'true' || v === 'yes';
-  return { paused, reason: paused ? `Autopilot is paused (${AUTOPILOT_PAUSE_ENV}=1). Nothing is made, approved or scheduled automatically.` : '' };
+  return { paused, reason: paused ? 'Autopilot is paused (Connections → Posting). Nothing is made, approved or scheduled automatically.' : '' };
 }
 
 /** Anything that approves or schedules automatically also respects the publishing pause. */

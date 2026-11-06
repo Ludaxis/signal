@@ -62,9 +62,9 @@ describe('gates and pause', () => {
     expect(autoApprovePaused().paused).toBe(false);
     process.env.SIGNAL_PUBLISH_PAUSED = '1';
     expect(autopilotPaused().paused).toBe(false);
-    expect(autoApprovePaused()).toMatchObject({ paused: true, reason: /SIGNAL_PUBLISH_PAUSED/ });
+    expect(autoApprovePaused()).toMatchObject({ paused: true, reason: /Publishing is paused/ });
     process.env.SIGNAL_AUTOPILOT_PAUSED = 'true';
-    expect(autopilotPaused()).toMatchObject({ paused: true, reason: /SIGNAL_AUTOPILOT_PAUSED/ });
-    expect(autoApprovePaused().reason).toMatch(/SIGNAL_AUTOPILOT_PAUSED/);
+    expect(autopilotPaused()).toMatchObject({ paused: true, reason: /Autopilot is paused/ });
+    expect(autoApprovePaused().reason).toMatch(/Autopilot is paused/);
   });
 });

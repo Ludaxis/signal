@@ -42,15 +42,11 @@ export function useUpProfiles() {
 
 export const profileLine = (p: UpProfile) => (p.instagram?.handle ? `Instagram ${p.instagram.handle}${p.instagram.reauth ? ' · needs reconnecting' : ''}` : 'no Instagram yet');
 
-/** The exact line for .env.local when the key is missing. */
+/** Where to add the key when it is missing. */
 export function KeyHowTo() {
   return (
     <More label="How?">
-      <span>
-        Add this line to <code>.env.local</code> and restart Signal:
-      </span>
-      <code>UPLOAD_POST_API_KEY=your-key-from-upload-post</code>
-      <span>The key is in Upload-Post → Settings → API. It stays on this machine.</span>
+      <span>Add it under Connections → Keys → Upload-Post. The key is in Upload-Post → Settings → API keys. It stays on this machine, encrypted.</span>
     </More>
   );
 }
@@ -101,7 +97,7 @@ export function UploadPostPicker({
     return (
       <div className="st-stack" style={{ gap: 10 }}>
         <span className="st-small st-muted">{state.reason}</span>
-        {/UPLOAD_POST_API_KEY/.test(state.reason) ? <KeyHowTo /> : null}
+        {/Upload-Post API key/.test(state.reason) ? <KeyHowTo /> : null}
         {allowTyping ? (
           <>
             <label className="wiz-field">

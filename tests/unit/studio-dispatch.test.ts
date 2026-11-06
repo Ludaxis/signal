@@ -48,7 +48,7 @@ describe('Upload-Post dispatch', () => {
     expect((await liveState(NOW)).enabled).toBe(false);
     writeGate(true);
     delete process.env.UPLOAD_POST_API_KEY;
-    expect((await liveState(NOW)).reason).toMatch(/UPLOAD_POST_API_KEY/);
+    expect((await liveState(NOW)).reason).toMatch(/Upload-Post API key/);
     process.env.UPLOAD_POST_API_KEY = KEY;
     expect((await liveState(NOW)).enabled).toBe(true);
     expect((await liveState(Date.parse('2026-11-18T01:00:00+01:00'))).enabled).toBe(false);

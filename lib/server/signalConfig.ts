@@ -76,7 +76,37 @@ export async function featureEnabled(f: Feature): Promise<boolean> {
 
 /** The standard "turn it on" message for a switch that is off. */
 export function featureOffReason(f: Feature): string {
-  return `Turn on "${f}" in signal.config.json (features.${f}: true) or set ${envName(f)}=1.`;
+  return `Turn on "${f}" in Connections → Features.`;
+}
+
+/** Each switch: on/off and whether SIGNAL_FEATURE_<NAME> in the environment decides it. */
+export async function featureStates(): Promise<{ id: Feature; label: string; on: boolean; forcedByEnv: boolean }[]> {
+  const file = await readConfig();
+  return FEATURE_IDS.map((id) => {
+    const env = (process.env[envName(id)] ?? '').trim().toLowerCase();
+    const forced = ['1', 'true', 'yes', '0', 'false', 'no'].includes(env);
+    return { id, label: FEATURES[id], on: forced ? ['1', 'true', 'yes'].includes(env) : file.features[id] === true, forcedByEnv: forced };
+  });
+}
+
+/** Turns one switch on or off in signal.config.json (other keys in the file are kept). */
+export async function setFeature(f: Feature, on: boolean): Promise<void> {
+  if (!FEATURE_IDS.includes(f)) throw new Error('Unknown switch.');
+  let j: Record<string, unknown> = {};
+  try {
+    const raw = JSON.parse(await fs.readFile(/* turbopackIgnore: true */ configFile(), 'utf8')) as unknown;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) j = raw as Record<string, unknown>;
+  } catch {
+    /* new file */
+  }
+  const features = j.features && typeof j.features === 'object' && !Array.isArray(j.features) ? { ...(j.features as Record<string, unknown>) } : {};
+  if (on) features[f] = true;
+  else delete features[f];
+  j.features = features;
+  await fs.mkdir(/* turbopackIgnore: true */ path.dirname(configFile()), { recursive: true });
+  const tmp = `${configFile()}.${process.pid}.tmp`;
+  await fs.writeFile(/* turbopackIgnore: true */ tmp, JSON.stringify(j, null, 2) + '\n');
+  await fs.rename(tmp, configFile());
 }
 
 /** {enabled, reason} for one switch, with the standard reason when it is off. */

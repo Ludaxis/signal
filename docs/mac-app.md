@@ -48,6 +48,17 @@ checkout, set `SIGNAL_DATA_DIR=/path/to/signal/data` in signal.env.
 - Feature switches start off, exactly like the web version. Nothing posts, schedules or spends money
   until you turn it on.
 
+## Keys and switches without files
+
+Everything you need for posting can be set in **Connections**, with no file to edit:
+
+- **Posting**: the Publishing and Autopilot switches (the kill switches). They take effect at once
+  and override `SIGNAL_PUBLISH_PAUSED` / `SIGNAL_AUTOPILOT_PAUSED`.
+- **Keys**: Upload-Post, the media bucket (R2), the Meta app, Higgsfield and the Anthropic API.
+  Values are encrypted on this Mac (`~/.signal/settings.json`), active at once, win over
+  `.env.local`, and are never shown again. R2 and Upload-Post have a Test button.
+- **Features**: every feature switch from signal.config.json, as on/off switches.
+
 ## Connections → Workspace
 
 - **Project folders**: link folders with your art, screenshots and notes. Signal lists images,

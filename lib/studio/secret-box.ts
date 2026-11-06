@@ -69,3 +69,8 @@ export async function deleteSecret(store: string, name: string): Promise<boolean
   await write(store, s);
   return true;
 }
+
+/** Names saved in a store (never the values). */
+export async function listSecretNames(store: string): Promise<string[]> {
+  return Object.keys((await read(store)).items);
+}

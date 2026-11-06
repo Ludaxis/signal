@@ -48,7 +48,7 @@ function Card({ title, tone, status, children, actions }: { title: string; tone:
   );
 }
 
-function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useScrollLock();
   useFocusTrap(ref, onClose);

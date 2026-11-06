@@ -12,6 +12,7 @@ import { More } from './More';
 import { Switch } from './Autopilot';
 import { KeyHowTo, UploadPostPicker, useUpProfiles } from './UploadPostPicker';
 import { Workspace } from './Workspace';
+import { FeaturesSection, KeysSection, PostingSwitches } from './Keys';
 
 interface Gate { enabled: boolean; reason: string }
 interface Conn { username: string; scopes: string[]; expiresAt: string | null; expired: boolean; daysLeft: number | null; connectedAt: string; features: { publish: boolean; comments: boolean; insights: boolean } }
@@ -114,7 +115,18 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
         </span>
         <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'refresh'} disabled={!!busy} onClick={() => void run('refresh', async () => undefined)}>Refresh</button>
       </div>
-      {d.paused.paused ? <p className="real-live st-small" style={{ margin: 0 }}>{d.paused.reason}</p> : null}
+      <PostingSwitches
+        say={say}
+        status={
+          !auto
+            ? `Active · posting is off for ${d.project.handle}: turn on “Use for posting” on the Upload-Post card.`
+            : metaOn && d.mediaHost.enabled
+              ? 'Active · drag a post to Posted and it goes out through Meta.'
+              : up.posting.enabled
+                ? 'Active · drag a post to Posted and it goes out through Upload-Post.'
+                : `Active, but blocked: ${up.posting.reason}`
+        }
+      />
 
       <span className="label">Publishing</span>
       <div className="conn-grid">
@@ -284,6 +296,10 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
           {d.brand ? <span className="xs st-muted">{d.brand.website ?? 'no website'} · updated {formatDateTime(d.brand.updatedAt)}</span> : <span className="xs st-muted">Import the website on the Brand screen.</span>}
         </Card>
       </div>
+
+      <KeysSection say={say} />
+
+      <FeaturesSection say={say} />
 
       <Workspace say={say} />
 

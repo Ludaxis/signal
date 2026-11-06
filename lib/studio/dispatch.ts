@@ -42,7 +42,7 @@ export async function liveState(now = Date.now()): Promise<LiveState> {
   if (!lim.dispatch) return off(`Automatic posting is off for ${currentProject().handle}. Post by hand.`);
   const pause = publishingPaused();
   if (pause.paused) return off(pause.reason);
-  if (!process.env.UPLOAD_POST_API_KEY) return off('UPLOAD_POST_API_KEY is not set in .env.local.');
+  if (!process.env.UPLOAD_POST_API_KEY) return off('Add your Upload-Post API key in Connections → Keys.');
   if (!currentProject().uploadPostProfile) return off('This project has no Upload-Post profile.');
   return { enabled: true, reason: `Approve posts here; the dashboard sends each approved package once to ${currentProject().handle}.`, provider: 'upload-post' };
 }

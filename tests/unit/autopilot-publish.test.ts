@@ -82,7 +82,7 @@ describe('auto-approve', () => {
     ['the team is switched off', async () => ({ teamAllowed: async () => ({ enabled: false, reason: 'no team' }) }), /no reviewer verdict/],
     ['the account settings have posting off', async () => void writeTestConfig(path.join(root, 'signal.config.json'), { memoryTeam: true, autopilot: true, trustedPublish: true, dispatch: false }), /automatic posting is off/],
     ['the account posting period ended', async () => void writeTestConfig(path.join(root, 'signal.config.json'), { memoryTeam: true, autopilot: true, trustedPublish: true, dispatch: true, expires: '2026-11-05T00:00:00+01:00' }), /has ended/],
-    ['publishing is paused', async () => void (process.env.SIGNAL_PUBLISH_PAUSED = '1'), /SIGNAL_PUBLISH_PAUSED/],
+    ['publishing is paused', async () => void (process.env.SIGNAL_PUBLISH_PAUSED = '1'), /Publishing is paused/],
     ['no scheduling path is approved', async () => ({ schedulerAllowed: offFn, schedulingAllowed: offFn }), /no scheduling path/],
     ['the slot is too close', async () => ({ now: Date.parse('2026-11-06T16:50:00Z') }), /past or too close/],
   ];

@@ -85,7 +85,7 @@ describe('configuration', () => {
     expect(unifiedConfig()).toMatchObject({ ok: false, reason: expect.stringMatching(/32 random bytes/) });
     env();
     delete process.env.META_LOGIN_CONFIG_ID;
-    expect(unifiedConfig()).toMatchObject({ ok: false, reason: expect.stringMatching(/META_LOGIN_CONFIG_ID/) });
+    expect(unifiedConfig()).toMatchObject({ ok: false, reason: expect.stringMatching(/Meta app settings/) });
   });
 
   it('builds the Unified Login URL without secrets or scopes', () => {

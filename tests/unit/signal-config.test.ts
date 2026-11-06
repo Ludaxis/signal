@@ -22,7 +22,7 @@ describe('feature switches', () => {
       expect(await featureEnabled(f)).toBe(false);
       expect((await featureState(f)).reason).toBe(featureOffReason(f));
     }
-    expect(featureOffReason('autopilot')).toBe('Turn on "autopilot" in signal.config.json (features.autopilot: true) or set SIGNAL_FEATURE_AUTOPILOT=1.');
+    expect(featureOffReason('autopilot')).toBe('Turn on "autopilot" in Connections → Features.');
   });
   it('read true values only, ignoring unknown keys and bad files', async () => {
     writeFileSync(process.env.SIGNAL_CONFIG_FILE!, JSON.stringify({ features: { autopilot: true, scheduler: 'yes', nope: true } }));
