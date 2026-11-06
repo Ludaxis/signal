@@ -7,6 +7,7 @@ import { COOKIE_PLAIN } from '@/lib/server/session';
 import { GET, POST } from '@/app/api/studio/pipelines/route';
 import type { PipelinesPayload } from '@/lib/studio/pipelines/types';
 import { listAutopilotRuns } from '@/lib/studio/autopilot/runner';
+import { TIMEZONE } from '@/lib/time';
 import { TEST_PROJECT, writeTestConfig } from './studio-helpers';
 import { campaignWithSlots, root, setupAutopilotProject, teardownAutopilotProject, writeSettings } from './autopilot-helpers';
 import { P1, readPipeline, writePipeline } from './pipelines-helpers';
@@ -56,7 +57,7 @@ describe('GET', () => {
     expect(j.switches.autopilot.enabled).toBe(true);
     expect(j.paused.paused).toBe(false);
     expect(j.website).toBe(false);
-    expect(j.timeZone).toBe('Europe/Amsterdam');
+    expect(j.timeZone).toBe(TIMEZONE);
     expect(j.running).toBeNull();
     expect(typeof j.nextRunAt).toBe('string');
     expect(j.runs).toEqual([]);

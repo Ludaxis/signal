@@ -15,7 +15,7 @@ import {
   weekDates,
 } from '@/lib/time';
 
-describe('Amsterdam calendar helpers', () => {
+describe('Studio time zone calendar helpers', () => {
   it('builds the DST week of 2026-10-19 Monday to Sunday', () => {
     expect(startOfWeek('2026-10-25')).toBe('2026-10-19');
     expect(startOfWeek('2026-10-19')).toBe('2026-10-19');
@@ -75,7 +75,7 @@ describe('Amsterdam calendar helpers', () => {
     expect(dstChanges(weekDates('2026-03-23'))[0]?.direction).toBe('forward');
   });
 
-  it('derives today in Amsterdam, not UTC', () => {
+  it('derives today in the Studio time zone, not UTC', () => {
     expect(todayInZone(Date.parse('2026-10-18T22:30:00Z'))).toBe('2026-10-19');
     expect(todayInZone(Date.parse('2026-10-25T23:30:00Z'))).toBe('2026-10-26');
   });

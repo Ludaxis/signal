@@ -14,7 +14,7 @@ import { generatePackage } from '@/lib/studio/generate';
 
 const sha = (b: string | Buffer) => createHash('sha256').update(b).digest('hex');
 const NOW = Date.parse('2026-11-04T12:00:00+01:00');
-const TOMORROW_18 = '2026-11-05T17:00:00.000Z'; // 18:00 Amsterdam
+const TOMORROW_18 = '2026-11-05T17:00:00.000Z'; // 18:00 in the test zone
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 let root = '';
 

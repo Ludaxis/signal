@@ -38,7 +38,7 @@ describe('desktop env', () => {
   });
 
   it('checkout mode keeps the folder\'s own paths and token key', () => {
-    const env = serverEnv({ base: {}, user: {}, userData: '/U', serverDir: '/repo/apps/web', port: 1, ownerPassword: 'o', sessionSecret: 's', tokenKey: 'keychain', pathValue: '/bin', mode: 'checkout', appEnvNames: new Set(['SIGNAL_TOKEN_KEY']) });
+    const env = serverEnv({ base: {}, user: {}, userData: '/U', serverDir: '/repo/signal', port: 1, ownerPassword: 'o', sessionSecret: 's', tokenKey: 'keychain', pathValue: '/bin', mode: 'checkout', appEnvNames: new Set(['SIGNAL_TOKEN_KEY']) });
     expect(env.SIGNAL_DATA_DIR).toBeUndefined();
     expect(env.SIGNAL_PROMPTS_DIR).toBeUndefined();
     expect(env.SIGNAL_TOKEN_KEY).toBeUndefined();

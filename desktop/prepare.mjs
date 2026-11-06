@@ -73,7 +73,7 @@ if (process.argv.includes('--checkout')) {
     process.exit(1);
   }
   fs.rmSync(out, { recursive: true, force: true });
-  // --env KEY=VALUE (repeatable): defaults for this checkout, e.g. SIGNAL_API_MOCK=1. signal.env wins over them.
+  // --env KEY=VALUE (repeatable): defaults for this checkout. signal.env wins over them.
   const env = {};
   process.argv.forEach((a, i) => {
     const m = a === '--env' ? /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(process.argv[i + 1] ?? '') : null;
