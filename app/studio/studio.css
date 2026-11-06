@@ -1101,3 +1101,10 @@
 .studio .camp-more-slots > .more-body { gap: 0; }
 .studio .ap-settings > .more-body { gap: 12px; padding-top: 4px; }
 .studio .camp-more-slots > .more-btn { order: 2; margin-top: 4px; }
+
+/* Workspace: linked folders and Figma exports */
+.studio .ws-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 10px; }
+.studio .ws-thumb { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.studio .ws-thumb img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; background: var(--rule); display: block; }
+.studio .ws-thumb figcaption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--graphite); }
+.studio .ws-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow: auto; }

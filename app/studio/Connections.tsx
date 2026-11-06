@@ -11,6 +11,7 @@ import { ScreenSkeleton } from './loaders';
 import { More } from './More';
 import { Switch } from './Autopilot';
 import { KeyHowTo, UploadPostPicker, useUpProfiles } from './UploadPostPicker';
+import { Workspace } from './Workspace';
 
 interface Gate { enabled: boolean; reason: string }
 interface Conn { username: string; scopes: string[]; expiresAt: string | null; expired: boolean; daysLeft: number | null; connectedAt: string; features: { publish: boolean; comments: boolean; insights: boolean } }
@@ -283,6 +284,8 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
           {d.brand ? <span className="xs st-muted">{d.brand.website ?? 'no website'} · updated {formatDateTime(d.brand.updatedAt)}</span> : <span className="xs st-muted">Import the website on the Brand screen.</span>}
         </Card>
       </div>
+
+      <Workspace say={say} />
 
       <span className="label">Not yet supported</span>
       <div className="conn-grid">

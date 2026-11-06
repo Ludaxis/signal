@@ -1,0 +1,68 @@
+# Signal for Mac
+
+The Mac app runs the same Studio as `npm run dev`, but in its own window and with access to your Mac:
+project folders, Figma and the Claude Code / Codex CLIs you already use.
+
+## Build it
+
+On the Mac (Apple Silicon), in the Signal folder:
+
+```sh
+npm install
+npm run app:build
+```
+
+This builds a self-contained server (`SIGNAL_STANDALONE=1 next build`), copies it into
+`desktop/app-server`, and packages `desktop/dist/Signal-<version>-arm64.dmg` (plus a `.zip`).
+Open the dmg and drag Signal to Applications. The build is unsigned (ad-hoc signed only), so it is
+meant for your own Mac. Intel Macs: `npm run app:prepare && npm --prefix desktop install && npm --prefix desktop run dist:x64`.
+
+To run a Signal folder you already use (its own `.env.local`, data and settings) instead of the
+built-in server, build with `npm run build && node desktop/prepare.mjs --checkout`, then
+`npm --prefix desktop install && npm --prefix desktop run dist`. Or set `SIGNAL_APP_DIR=/path/to/signal`
+in signal.env. After pulling changes, run `npm run build` in that folder and restart Signal.
+
+While developing the Studio, run `npm run dev` in one terminal and `npm run app:dev` in another. The
+window then opens your dev server and you sign in with your normal password.
+
+## Where things live
+
+| What | Where |
+| --- | --- |
+| Settings and keys (same names as `.env.local`) | `~/Library/Application Support/Signal/signal.env` (File → Open Settings File) |
+| Feature switches | `~/Library/Application Support/Signal/signal.config.json` (File → Open Feature Switches) |
+| Projects, posts, memory | `~/Library/Application Support/Signal/data` (or `SIGNAL_DATA_DIR` in signal.env) |
+| Encrypted tokens | `~/.signal` (or `SIGNAL_SECRETS_DIR`) |
+| Server log | File → Show Server Log |
+
+Restart Signal (File → Restart Signal) after editing either file. To keep using the data folder of a
+checkout, set `SIGNAL_DATA_DIR=/path/to/signal/data` in signal.env.
+
+## How it stays safe
+
+- The server listens on 127.0.0.1 on a random port. The window signs in with a one-time password
+  made at launch; other apps on the Mac cannot use your session.
+- `SIGNAL_TOKEN_KEY`, which encrypts tokens such as Figma's, is created on first launch and kept with
+  macOS Keychain, unless you set your own in signal.env.
+- The window only loads the local server. Every other link opens in your browser.
+- Feature switches start off, exactly like the web version. Nothing posts, schedules or spends money
+  until you turn it on.
+
+## Connections → Workspace
+
+- **Project folders**: link folders with your art, screenshots and notes. Signal lists images,
+  videos, design files, docs and fonts, shows thumbnails, and can import the brand from a folder. It
+  only reads: nothing in a linked folder is changed, moved or deleted. Hidden folders, `node_modules`
+  and build folders are skipped, and files reached through symlinks are not served.
+- **Figma**: paste a personal access token (Figma → Settings → Security → Personal access tokens,
+  scope `file_content:read`). Link files by URL, pick frames and export them as PNG into the
+  project's brand folder (`brand/figma/`). Signal never writes to Figma.
+- **Claude Code & Codex**: Signal finds the CLIs on your login shell's PATH (Homebrew, npm and the
+  official installers), shows their versions and whether Codex is signed in, and lets you set a full
+  path if they live somewhere else. `CLAUDE_BIN` / `CODEX_BIN` in signal.env win over both.
+
+## Known limits
+
+- Meta Unified Login needs an HTTPS callback, so connecting Instagram that way still runs from the
+  HTTPS dev server (`npm run dev:https`). Upload-Post works in the app.
+- No auto-update yet: rebuild to update.

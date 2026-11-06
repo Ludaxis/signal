@@ -16,6 +16,9 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "app:prepare": "SIGNAL_STANDALONE=1 next build --webpack && node desktop/prepare.mjs",
+    "app:dev": "npm --prefix desktop run dev",
+    "app:build": "npm run app:prepare && npm --prefix desktop install && npm --prefix desktop run dist",
     "tokens": "node design/scripts/build-tokens.mjs",
     "tokens:check": "node design/scripts/check-contrast.mjs"
   },

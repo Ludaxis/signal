@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { ContentError, currentLimits } from './content';
+import { cliBin } from './tools';
 
 export const CODEX_TIMEOUT_MS = 280_000;
 
@@ -57,7 +58,7 @@ async function findPngs(dir: string, depth = 0): Promise<string[]> {
 export async function codexImage(prompt: string, width: number, height: number): Promise<CodexImage> {
   const allowed = await codexImagesAllowed();
   if (!allowed.enabled) throw new ContentError(403, allowed.reason);
-  const bin = process.env.CODEX_BIN || 'codex';
+  const bin = await cliBin('codex');
   const work = await fs.mkdtemp(path.join(/* turbopackIgnore: true */ os.tmpdir(), 'signal-codex-'));
   const started = Date.now();
   try {
@@ -65,7 +66,7 @@ export async function codexImage(prompt: string, width: number, height: number):
     try {
       cliVersion = (await run(bin, ['--version'], work, 15_000)).out.trim().slice(0, 80) || 'unknown';
     } catch {
-      throw new ContentError(503, 'The Codex CLI was not found. Install it and sign in (`codex login`), or set CODEX_BIN in .env.local.');
+      throw new ContentError(503, 'The Codex CLI was not found. Install it and sign in (`codex login`), or set its path in Connections.');
     }
     const task = [
       '$imagegen',

@@ -16,6 +16,7 @@ import path from 'node:path';
 import { featureEnabled, featureOffReason } from '@/lib/server/signalConfig';
 import { promptsDir } from './projects';
 import { SHARED_RULES, builtinPrompt } from './team/roles';
+import { cliBin } from './tools';
 
 export const AGENT_TIMEOUT_MS = 8 * 60_000;
 export type AgentId = 'strategist' | 'content-planner' | 'researcher' | 'analyst' | 'community-manager';
@@ -179,7 +180,7 @@ function spawnCli(bin: string, args: string[], cwd: string, stdin: string, timeo
 
 /** The real runner: `claude -p` with the prompt on stdin, streaming progress events. */
 export const claudeCliRunner: Runner = async (prompt, { web, onEvent }) => {
-  const bin = process.env.CLAUDE_BIN || 'claude';
+  const bin = await cliBin('claude');
   const work = await fs.mkdtemp(path.join(/* turbopackIgnore: true */ os.tmpdir(), 'signal-agent-'));
   const started = Date.now();
   const billing = await agentBilling();
@@ -189,7 +190,7 @@ export const claudeCliRunner: Runner = async (prompt, { web, onEvent }) => {
     try {
       cli = (await spawnCli(bin, ['--version'], work, '', 15_000)).out.trim().slice(0, 80) || 'unknown';
     } catch {
-      throw new AgentError(503, 'The Claude Code CLI was not found. Install it and sign in (`claude`), or set CLAUDE_BIN in .env.local.');
+      throw new AgentError(503, 'The Claude Code CLI was not found. Install it and sign in (`claude`), or set its path in Connections.');
     }
     emit({ kind: 'note', text: `Starting Claude Code ${cli}${billing === 'api-key' ? ' on your API key' : ' on your sign-in'}` });
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--strict-mcp-config', '--max-turns', web ? '30' : '4', '--disallowedTools', 'Bash,Edit,Write,MultiEdit,NotebookEdit,Task,TodoWrite'];

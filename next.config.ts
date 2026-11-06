@@ -19,6 +19,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // The Mac app (desktop/) runs a self-contained server: SIGNAL_STANDALONE=1 next build.
+  ...(process.env.SIGNAL_STANDALONE === '1' ? { output: 'standalone' as const } : {}),
   // Meta's documented token GETs contain sensitive query parameters; its callback carries
   // an authorization code. Disable Next's dev request/fetch logging, including cache-warning
   // URLs (fullUrl: false only truncates them). Application error reporting remains enabled.

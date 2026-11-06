@@ -17,6 +17,12 @@ certs/
 data/*
 !data/README.md
 
+# Mac app build output
+desktop/node_modules
+desktop/dist
+desktop/app-server
+desktop/app-config.json
+
 # test output
 coverage/
 test-results/

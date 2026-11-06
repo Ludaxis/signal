@@ -20,6 +20,7 @@ import { currentLimits } from '@/lib/studio/content';
 import { loadBrand } from '@/lib/studio/brand';
 import { UploadPostError, getUpProfile, profileManagementAllowed } from '@/lib/studio/uploadpost';
 import { accountSettings, markVerified } from '@/lib/studio/projects';
+import { cliBin } from '@/lib/studio/tools';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -103,9 +104,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   return inProject(req, b.project, async (project) => {
     if (b.action !== 'check') return jsonError(400, 'validation', 'Unknown action.');
     if (b.service === 'claude' || b.service === 'codex') {
-      const bin = b.service === 'claude' ? process.env.CLAUDE_BIN || 'claude' : process.env.CODEX_BIN || 'codex';
+      const bin = await cliBin(b.service);
       const v = await version(bin);
-      return v ? NextResponse.json({ ok: true, message: `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} found: ${v}` }) : jsonError(503, 'unavailable', `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} was not found on this machine. Install it or set ${b.service === 'claude' ? 'CLAUDE_BIN' : 'CODEX_BIN'} in .env.local.`);
+      return v ? NextResponse.json({ ok: true, message: `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} found: ${v}` }) : jsonError(503, 'unavailable', `${b.service === 'claude' ? 'Claude Code' : 'Codex CLI'} was not found on this machine. Install it, or set its path under Workspace → Tools.`);
     }
     if (b.service === 'upload-post') {
       if (!project.uploadPostProfile) return jsonError(409, 'conflict', 'This project has no Upload-Post profile.');

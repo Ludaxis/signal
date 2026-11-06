@@ -1,0 +1,36 @@
+{
+  "name": "signal-desktop",
+  "productName": "Signal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Signal Studio as a Mac app: runs the Studio server on this Mac and opens it in its own window.",
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "SIGNAL_DESKTOP_URL=${SIGNAL_DESKTOP_URL:-http://127.0.0.1:3000} electron .",
+    "dist": "electron-builder --mac --arm64",
+    "dist:x64": "electron-builder --mac --x64"
+  },
+  "devDependencies": {
+    "electron": "44.9.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "io.ludaxis.signal",
+    "productName": "Signal",
+    "copyright": "MIT licensed",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.cjs", "preload.cjs", "env.cjs", "app-config.json", "package.json"],
+    "asar": true,
+    "afterPack": "./after-pack.cjs",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"],
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": { "sign": false }
+  }
+}

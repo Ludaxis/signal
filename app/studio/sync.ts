@@ -6,7 +6,7 @@
 // on a slow poll while visible, so changes made on the server (scheduler, status checks) show up too.
 import { useEffect, useRef } from 'react';
 
-export type Topic = 'content' | 'calendar' | 'campaigns' | 'brand' | 'connections' | 'autopilot' | 'pipelines';
+export type Topic = 'content' | 'calendar' | 'campaigns' | 'brand' | 'connections' | 'autopilot' | 'pipelines' | 'workspace';
 const EVENT = 'signal:changed';
 let channel: BroadcastChannel | null = null;
 function bc(): BroadcastChannel | null {

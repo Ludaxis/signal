@@ -50,6 +50,11 @@ For a production build: `npm run build && npm start`.
 
 Meta's login callback must be `https://`. Make a local certificate (for example with `mkcert`), put the files where `SIGNAL_DEV_CERT_KEY` / `SIGNAL_DEV_CERT` point (default `~/.signal/certs/signal-dev-key.pem` and `signal-dev.pem`), set `SIGNAL_DEV_HOST=<your-dev-hostname>` and run `npm run dev:https`. Use the same hostname in `META_REDIRECT_URI`.
 
+## Mac app
+
+Run Signal as a Mac app with project folders, Figma and your Claude Code / Codex CLIs:
+`npm run app:build`, then open `desktop/dist/Signal-*.dmg`. See [docs/mac-app.md](docs/mac-app.md).
+
 ## Configuration
 
 Two files, both git-ignored: `.env.local` (secrets and locations) and `signal.config.json` (feature switches). `SIGNAL_FEATURE_<NAME>=1` in the environment overrides a switch.
