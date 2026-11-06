@@ -73,7 +73,13 @@ if (process.argv.includes('--checkout')) {
     process.exit(1);
   }
   fs.rmSync(out, { recursive: true, force: true });
-  fs.writeFileSync(path.join(here, 'app-config.json'), JSON.stringify({ appDir: root }, null, 2) + '\n');
+  // --env KEY=VALUE (repeatable): defaults for this checkout, e.g. SIGNAL_API_MOCK=1. signal.env wins over them.
+  const env = {};
+  process.argv.forEach((a, i) => {
+    const m = a === '--env' ? /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(process.argv[i + 1] ?? '') : null;
+    if (m) env[m[1]] = m[2];
+  });
+  fs.writeFileSync(path.join(here, 'app-config.json'), JSON.stringify({ appDir: root, env }, null, 2) + '\n');
   console.log(`Signal.app will run ${root}. Next: npm --prefix desktop install && npm --prefix desktop run dist`);
   process.exit(0);
 }

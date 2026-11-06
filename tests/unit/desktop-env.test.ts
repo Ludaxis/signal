@@ -42,6 +42,7 @@ describe('desktop env', () => {
     expect(env.SIGNAL_DATA_DIR).toBeUndefined();
     expect(env.SIGNAL_PROMPTS_DIR).toBeUndefined();
     expect(env.SIGNAL_TOKEN_KEY).toBeUndefined();
+    expect(env.SIGNAL_OWNER_PASSWORD).toBeUndefined(); // a checkout keeps its own sign-in
     const env2 = serverEnv({ base: {}, user: {}, userData: '/U', serverDir: '/r', port: 1, ownerPassword: 'o', sessionSecret: 's', tokenKey: 'keychain', pathValue: '/bin', mode: 'checkout', appEnvNames: new Set() });
     expect(env2.SIGNAL_TOKEN_KEY).toBe('keychain');
   });

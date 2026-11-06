@@ -113,7 +113,8 @@ async function waitForHealth(url, ms = 90_000) {
 async function startServer() {
   ensureFiles();
   const user = readEnvFile(envFile());
-  const appDir = user.SIGNAL_APP_DIR || appConfig().appDir || '';
+  const cfg = appConfig();
+  const appDir = user.SIGNAL_APP_DIR || cfg.appDir || '';
   const mode = appDir ? 'checkout' : 'bundled';
   const dir = appDir || serverDir();
   let entry;
@@ -141,6 +142,7 @@ async function startServer() {
     pathValue: loginShellPath(process.env),
     mode,
     appEnvNames,
+    defaults: cfg.env && typeof cfg.env === 'object' ? cfg.env : {},
   });
   if (env.SIGNAL_DATA_DIR) fs.mkdirSync(env.SIGNAL_DATA_DIR, { recursive: true });
   const log = fs.createWriteStream(logFile(), { flags: 'w' });
@@ -156,7 +158,7 @@ async function startServer() {
   });
   origin = `http://127.0.0.1:${port}`;
   await waitForHealth(origin);
-  await signIn(ownerPassword);
+  if (mode === 'bundled') await signIn(ownerPassword);
 }
 
 /** Signs this window in with the one-time password; the session cookie stays httpOnly. */

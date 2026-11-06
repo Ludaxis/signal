@@ -60,17 +60,20 @@ function readEnvFile(file) {
  * (SIGNAL_APP_DIR), which keeps using that folder's own .env.local and data. `user` (signal.env) wins over the inherited environment; the app then
  * fixes what it must own: the bind address, the login and the session for this launch.
  */
-function serverEnv({ base, user, userData, serverDir, port, ownerPassword, sessionSecret, tokenKey, pathValue, mode = 'bundled', appEnvNames = new Set() }) {
-  const env = { ...base, ...user };
+function serverEnv({ base, user, userData, serverDir, port, ownerPassword, sessionSecret, tokenKey, pathValue, mode = 'bundled', appEnvNames = new Set(), defaults = {} }) {
+  const env = { ...base, ...defaults, ...user };
   env.NODE_ENV = 'production';
   env.PORT = String(port);
   env.HOSTNAME = '127.0.0.1';
   env.PATH = pathValue;
   env.SIGNAL_DESKTOP = '1';
   env.SIGNAL_WEB_ORIGIN = `http://127.0.0.1:${port}`;
-  env.SIGNAL_OWNER_PASSWORD = ownerPassword;
-  env.SIGNAL_SESSION_SECRET = sessionSecret;
-  delete env.SIGNAL_LOCAL_ONLY_NO_PASSWORD;
+  if (mode === 'bundled') {
+    // The app signs its own window in. A checkout keeps its own sign-in (you sign in once in the window).
+    env.SIGNAL_OWNER_PASSWORD = ownerPassword;
+    env.SIGNAL_SESSION_SECRET = sessionSecret;
+    delete env.SIGNAL_LOCAL_ONLY_NO_PASSWORD;
+  }
   if (mode === 'bundled') {
     env.SIGNAL_DATA_DIR = user.SIGNAL_DATA_DIR || path.join(userData, 'data');
     env.SIGNAL_CONFIG_FILE = user.SIGNAL_CONFIG_FILE || path.join(userData, 'signal.config.json');
