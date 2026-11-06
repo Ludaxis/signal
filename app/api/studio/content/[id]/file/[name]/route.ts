@@ -1,6 +1,6 @@
 // GET /api/studio/content/:id/file/:name — serve a file listed in the package (preview/download).
 import type { NextRequest } from 'next/server';
-import { ContentError, isPackageId, readPackageFile } from '@/lib/studio/content';
+import { ContentError, downloadName, isPackageId, readPackageFile } from '@/lib/studio/content';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
 import { inProject } from '@/lib/server/studioProject';
@@ -32,11 +32,4 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
       return jsonError(500, 'internal', 'Could not read the file.');
     }
   });
-}
-
-/** "<project id>-post-<package id>-<file>": names the account the file belongs to, never a fixed prefix. */
-
-export function downloadName(projectId: string, id: string, name: string): string {
-  const slug = projectId.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'signal';
-  return `${slug}-post-${id}-${name}`;
 }

@@ -94,7 +94,7 @@ describe('download filenames', () => {
   });
 
   it('falls back to a safe name when the id has nothing usable', async () => {
-    const { downloadName } = await import('@/app/api/studio/content/[id]/file/[name]/route');
+    const { downloadName } = await import('@/lib/studio/content');
     expect(downloadName('My Brand!', '07', 'cover.png')).toBe('my-brand-post-07-cover.png');
     expect(downloadName('---', '07', 'cover.png')).toBe('signal-post-07-cover.png');
   });

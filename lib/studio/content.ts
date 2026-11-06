@@ -441,6 +441,12 @@ export async function confirmLabel(id: string, by: string, now = Date.now(), dep
   return loadPackage(id);
 }
 
+/** "<project id>-post-<package id>-<file>": names the account the file belongs to, never a fixed prefix. */
+export function downloadName(projectId: string, id: string, name: string): string {
+  const slug = projectId.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'signal';
+  return `${slug}-post-${id}-${name}`;
+}
+
 export async function readPackageFile(id: string, name: string): Promise<{ body: Buffer; type: string }> {
   const pkg = await loadPackage(id);
   const f = pkg.files.find((x) => x.name === name);
