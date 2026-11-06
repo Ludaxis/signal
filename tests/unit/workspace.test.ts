@@ -1,7 +1,6 @@
 // Workspace: linked folders (read-only, no escapes), Figma links and token store, CLI lookup.
 // No real network: Figma calls use a fake fetch.
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FolderError, getFolder, kindOf, linkFolder, listFiles, listFolders, resolveInside, unlinkFolder, unsafeFolderReason } from '@/lib/studio/folders';
@@ -9,10 +8,13 @@ import { connectFigma, figmaStatus, linkFigmaFile, listFrames, parseFigmaUrl } f
 import { getSecret, putSecret } from '@/lib/studio/secret-box';
 import { cliBin, resolveOnPath, saveCliPath } from '@/lib/studio/tools';
 
+const FIXTURE_ROOT = path.join(__dirname, '..', '.tmp');
 let tmp: string;
 const saved = { ...process.env };
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'signal-ws-'));
+  // Fixtures live inside the checkout (git-ignored), not os.tmpdir(): on macOS that is /private/var/..., a refused system folder.
+  mkdirSync(FIXTURE_ROOT, { recursive: true });
+  tmp = mkdtempSync(path.join(FIXTURE_ROOT, 'signal-ws-'));
   process.env.SIGNAL_DATA_DIR = path.join(tmp, 'data');
   process.env.SIGNAL_SECRETS_DIR = path.join(tmp, 'secrets');
   process.env.SIGNAL_TOKEN_KEY = Buffer.alloc(32, 7).toString('base64');
@@ -32,6 +34,18 @@ describe('linked folders', () => {
     expect(unsafeFolderReason('/Users/a/Library/Keychains', '/Users/a')).toMatch(/private/);
     expect(unsafeFolderReason('/etc', '/Users/a')).toMatch(/system/);
     expect(unsafeFolderReason('/Users/a/Projects/game', '/Users/a')).toBeNull();
+    expect(unsafeFolderReason('/private/var/folders/x', '/Users/a')).toMatch(/system/);
+  });
+
+  it('allows iCloud Drive and cloud-storage folders but still refuses the rest of ~/Library', () => {
+    const home = '/Users/a';
+    expect(unsafeFolderReason('/Users/a/Library/Mobile Documents/com~apple~CloudDocs/Games', home)).toBeNull();
+    expect(unsafeFolderReason('/Users/a/Library/CloudStorage/GoogleDrive-me/My Drive/game', home)).toBeNull();
+    expect(unsafeFolderReason('/Users/a/Library/CloudStorage', home)).toBeNull();
+    expect(unsafeFolderReason('/Users/a/Library', home)).toMatch(/private/);
+    expect(unsafeFolderReason('/Users/a/Library/Keychains', home)).toMatch(/private/);
+    expect(unsafeFolderReason('/Users/a/Library/Application Support/Signal', home)).toMatch(/private/);
+    expect(unsafeFolderReason('/Users/a/Library/Mobile Documents-evil', home)).toMatch(/private/);
   });
 
   it('links, lists media and refuses paths outside the folder', async () => {
@@ -91,13 +105,13 @@ describe('Figma', () => {
       calls.push(String(url));
       expect((init?.headers as Record<string, string>)['X-Figma-Token']).toBe('figd_test_token_value_1234567890');
       const u = String(url);
-      const body = u.endsWith('/me') ? { handle: 'reza' } : u.includes('depth=1') ? { name: 'Brand', thumbnailUrl: 'https://s3/x.png' } : { document: { children: [{ id: '0:1', name: 'Page 1', type: 'CANVAS', children: [{ id: '1:2', name: 'Hero', type: 'FRAME' }, { id: '1:3', name: 'note', type: 'TEXT' }] }] } };
+      const body = u.endsWith('/me') ? { handle: 'owner' } : u.includes('depth=1') ? { name: 'Brand', thumbnailUrl: 'https://s3/x.png' } : { document: { children: [{ id: '0:1', name: 'Page 1', type: 'CANVAS', children: [{ id: '1:2', name: 'Hero', type: 'FRAME' }, { id: '1:3', name: 'note', type: 'TEXT' }] }] } };
       return new Response(JSON.stringify(body), { status: 200 });
     }) as typeof fetch;
     expect((await figmaStatus()).connected).toBe(false);
-    expect(await connectFigma('figd_test_token_value_1234567890', f)).toBe('reza');
+    expect(await connectFigma('figd_test_token_value_1234567890', f)).toBe('owner');
     const st = await figmaStatus();
-    expect(st).toMatchObject({ connected: true, user: 'reza' });
+    expect(st).toMatchObject({ connected: true, user: 'owner' });
     const file = await linkFigmaFile('p1', 'https://www.figma.com/design/AbCdEf1234567/Brand', f);
     expect(file.name).toBe('Brand');
     expect(await listFrames('p1', 'AbCdEf1234567', f)).toEqual([{ id: '1:2', name: 'Hero', page: 'Page 1', type: 'FRAME' }]);

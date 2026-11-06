@@ -64,7 +64,10 @@ export function unsafeFolderReason(real: string, home = os.homedir()): string | 
   const rel = path.relative(home, r);
   const inside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
   const top = inside ? rel.split(path.sep)[0]! : '';
-  if (inside && (top.startsWith('.') || top === 'Library')) return 'That is a private system folder. Pick a project folder instead.';
+  // iCloud Drive and the cloud-storage providers live under ~/Library but are where people keep project files.
+  const second = inside ? (rel.split(path.sep)[1] ?? '') : '';
+  const cloudDrive = top === 'Library' && (second === 'Mobile Documents' || second === 'CloudStorage');
+  if (inside && !cloudDrive && (top.startsWith('.') || top === 'Library')) return 'That is a private system folder. Pick a project folder instead.';
   if (/^\/(System|private|etc|usr|bin|sbin|var|dev|Library)(\/|$)/.test(r)) return 'That is a system folder. Pick a project folder instead.';
   return null;
 }

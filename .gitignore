@@ -26,6 +26,8 @@ desktop/app-config.json
 # test output
 coverage/
 test-results/
+# Studio test fixtures (linked-folder tests must live inside the checkout, not os.tmpdir())
+tests/.tmp/
 
 # OS / editor
 .DS_Store
