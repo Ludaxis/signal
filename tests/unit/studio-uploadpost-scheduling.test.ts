@@ -37,6 +37,7 @@ beforeEach(() => {
   setTestProjectEnv(path.join(root, 'posts'));
   process.env.SIGNAL_CONFIG_FILE = path.join(root, 'signal.config.json');
   process.env.SIGNAL_PROJECTS_FILE = path.join(root, 'no-projects.json');
+  process.env.SIGNAL_DATA_DIR = path.join(root, 'data');
   process.env.UPLOAD_POST_API_KEY = 'test-key-abcdefghijklmnopqrstuvwxyz0123456789';
   process.env.UPLOAD_POST_PROFILE = 'demo-profile';
   process.env.SIGNAL_ALLOW_PRIVATE_FETCH = '1';
@@ -46,7 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   rmSync(root, { recursive: true, force: true });
-  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'UPLOAD_POST_API_KEY', 'UPLOAD_POST_PROFILE', 'SIGNAL_ALLOW_PRIVATE_FETCH']) delete process.env[k];
+  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'SIGNAL_DATA_DIR', 'UPLOAD_POST_API_KEY', 'UPLOAD_POST_PROFILE', 'SIGNAL_ALLOW_PRIVATE_FETCH']) delete process.env[k];
 });
 
 describe('scheduling on Upload-Post', () => {

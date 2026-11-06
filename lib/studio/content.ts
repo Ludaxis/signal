@@ -8,6 +8,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { TIMEZONE } from '@/lib/time';
 import { accountSettings, postingActive, currentProject } from './projects';
+import { getAccount, getMedia, instagramApiAllowed, listMedia, shortcode, type IgMedia } from './meta';
 import type { AutopilotMark } from './autopilot/types';
 
 /** Posting limits for the current project's Instagram account, from its posting settings (accounts.json). */
@@ -269,12 +270,28 @@ export function assertCanApprove(all: PackageView[], now: number, lim: Limits): 
   if (unlabelled.length) throw new ContentError(409, `Check that post ${unlabelled[0]!.id} shows Instagram's AI label, then confirm it.`);
 }
 
+/** The AI-label canary: nothing more is sent or scheduled while a posted package's AI label is unconfirmed. */
+export function assertNoUnlabelled(all: PackageView[], exceptId?: string): void {
+  const u = all.find((p) => p.id !== exceptId && p.posted && !p.labelConfirmed);
+  if (u) throw new ContentError(409, `Check that post ${u.id} shows Instagram's AI label, then confirm it. Nothing more goes out until then.`);
+}
+
+/**
+ * When a committed package goes (or went) out: the posted time; the scheduled time while it is
+ * scheduled or in flight from a schedule (an Upload-Post schedule that is processing still belongs to
+ * its scheduled day); otherwise the time it was sent. Null when it is not committed.
+ */
+export function goesOutAt(p: PackageView): string | null {
+  if (p.posted) return p.posted.posted_at;
+  if (p.scheduled && (p.status === 'scheduled' || IN_FLIGHT.includes(p.status))) return p.scheduled.scheduled_for;
+  if (IN_FLIGHT.includes(p.status) && p.dispatch) return p.dispatch.claimed_at;
+  return null;
+}
+
 /** The calendar day a package goes (or went) out on, if it is committed. */
 function goesOutOn(p: PackageView): string | null {
-  if (p.posted) return dayKey(Date.parse(p.posted.posted_at));
-  if (p.status === 'scheduled' && p.scheduled) return dayKey(Date.parse(p.scheduled.scheduled_for));
-  if (IN_FLIGHT.includes(p.status) && p.dispatch) return dayKey(Date.parse(p.dispatch.claimed_at));
-  return null;
+  const at = goesOutAt(p);
+  return at ? dayKey(Date.parse(at)) : null;
 }
 
 /** Posts per calendar day (Studio time zone) on the target day, counting posted, scheduled and in-flight packages. */
@@ -312,12 +329,55 @@ export async function recordPosted(id: string, url: string, aiLabel: boolean, by
   return loadPackage(id);
 }
 
+/** What was known when you confirmed the AI label, stored in label.json. */
+export interface LabelEvidence {
+  permalink: string | null;
+  media_id: string | null;
+  /** Instagram's is_ai_generated flag as read from its API; null when it was not read. */
+  ai_label: boolean | null;
+  ai_label_source: 'instagram-api' | null;
+  read_at: string | null;
+  read_error?: string;
+  /** SHA-256 of the posted slides, video and cover. */
+  hashes: Record<string, string>;
+}
+
+/** Reads the post from Instagram's API when it is set up for this account; never fails the confirmation. */
+async function labelEvidence(pkg: PackageView, now: number, f: typeof fetch): Promise<LabelEvidence> {
+  const posted = pkg.posted!;
+  const ev: LabelEvidence = {
+    permalink: posted.url ?? null,
+    media_id: posted.media_id ?? null,
+    ai_label: null,
+    ai_label_source: null,
+    read_at: null,
+    hashes: Object.fromEntries(pkg.files.filter((x) => x.role !== 'caption').map((x) => [x.name, x.sha256])),
+  };
+  if (!(ev.media_id || shortcode(ev.permalink)) || !(await instagramApiAllowed().catch(() => ({ enabled: false }))).enabled) return ev;
+  try {
+    let media: IgMedia | null = null;
+    if (ev.media_id) media = await getMedia(ev.media_id, f);
+    else {
+      const code = shortcode(ev.permalink);
+      media = (await listMedia((await getAccount(f)).userId, 50, f)).find((m) => shortcode(m.permalink) === code) ?? null;
+    }
+    ev.read_at = new Date(now).toISOString();
+    if (!media) ev.read_error = 'Not found among the latest 50 Instagram posts.';
+    else Object.assign(ev, { media_id: media.id || ev.media_id, permalink: media.permalink ?? ev.permalink, ai_label: media.aiLabel, ai_label_source: media.aiLabel === null ? null : 'instagram-api' });
+  } catch (e) {
+    ev.read_at = new Date(now).toISOString();
+    ev.read_error = (e as Error).message.slice(0, 160);
+  }
+  return ev;
+}
+
 /** You confirm Instagram's AI label is visible on an automatically posted package. */
-export async function confirmLabel(id: string, by: string, now = Date.now()): Promise<PackageView> {
+export async function confirmLabel(id: string, by: string, now = Date.now(), deps: { fetch?: typeof fetch } = {}): Promise<PackageView> {
   const pkg = await loadPackage(id);
   if (pkg.status !== 'posted') throw new ContentError(409, `Post ${id} is not posted.`);
   if (pkg.labelConfirmed) throw new ContentError(409, 'Already confirmed.');
-  await writeJsonExclusive(path.join(pkgDir(id), 'label.json'), { confirmed_by: by, confirmed_at: new Date(now).toISOString() } satisfies LabelCheck);
+  const evidence = await labelEvidence(pkg, now, deps.fetch ?? fetch);
+  await writeJsonExclusive(path.join(pkgDir(id), 'label.json'), { confirmed_by: by, confirmed_at: new Date(now).toISOString(), evidence } satisfies LabelCheck & { evidence: LabelEvidence });
   return loadPackage(id);
 }
 

@@ -3,7 +3,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
-import { listPackages, type PackageView } from '@/lib/studio/content';
+import { IN_FLIGHT, goesOutAt, listPackages, type PackageView } from '@/lib/studio/content';
 import { listProjects, withProject } from '@/lib/studio/projects';
 import { TIMEZONE, zonedParts, isValidDate } from '@/lib/time';
 
@@ -48,9 +48,10 @@ export async function GET(req: NextRequest): Promise<Response> {
         thumb: media ? `/api/studio/content/${k.id}/file/${encodeURIComponent(media.name)}?project=${encodeURIComponent(p.id)}` : null,
         url: k.posted?.url ?? null,
       };
-      // Posted: when it went out. Being sent: when it was sent. Otherwise: its planned time.
-      const inFlight = ['sending', 'submitted', 'uncertain'].includes(k.status) ? k.dispatch?.claimed_at : undefined;
-      const when = k.posted?.posted_at ?? inFlight ?? k.plannedFor;
+      // Same day rule as the one-post-per-day limit (goesOutAt): posted time; scheduled time while scheduled
+      // or in flight from a schedule; else when it was sent. Otherwise: its planned time.
+      const inFlight = IN_FLIGHT.includes(k.status) && Boolean(k.dispatch);
+      const when = goesOutAt(k) ?? k.plannedFor;
       if (!when) {
         if (k.status !== 'failed') unplanned.push({ ...base, when: null, kind: 'unplanned' });
         continue;

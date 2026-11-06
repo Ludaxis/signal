@@ -18,7 +18,7 @@ import { codexImagesAllowed } from '@/lib/studio/codex';
 import { publishingPaused } from '@/lib/studio/safety';
 import { currentLimits } from '@/lib/studio/content';
 import { loadBrand } from '@/lib/studio/brand';
-import { UploadPostError, getUpProfile, profileManagementAllowed } from '@/lib/studio/uploadpost';
+import { UploadPostError, getUpProfile, profileManagementAllowed, uploadQuota } from '@/lib/studio/uploadpost';
 import { accountSettings, markVerified } from '@/lib/studio/projects';
 import { cliBin } from '@/lib/studio/tools';
 
@@ -81,6 +81,10 @@ export async function GET(req: NextRequest): Promise<Response> {
         scheduling: await schedulingAllowed(),
         results: await analyticsAllowed(),
         profileSetup: await profileManagementAllowed(),
+        // Monthly uploads as last seen in an Upload-Post answer, plus schedules still to go out; null until seen.
+        quota: await uploadQuota()
+          .then((q) => (q ? { used: q.used, limit: q.limit, resetsAt: q.resetsAt, scheduled: q.scheduled, seenAt: q.seenAt, stale: q.stale } : null))
+          .catch(() => null),
       },
       mediaHost: r2.ok ? { enabled: true, reason: '', publicHost: new URL(r2.publicBase).host } : { enabled: false, reason: r2.reason, publicHost: null },
       scheduler: await schedulerAllowed(),
