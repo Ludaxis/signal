@@ -4,9 +4,10 @@
 // - Your data lives in ~/Library/Application Support/Signal (data/, signal.config.json, signal.env).
 //   Put the same keys you would put in .env.local into signal.env (File → Open Settings File).
 // - Or set SIGNAL_APP_DIR=/path/to/signal in signal.env (or build with `prepare.mjs --checkout`):
-//   the app then runs `next start` in that folder, with that folder's own .env.local and data.
+//   the app then runs `next start` in that folder, with that folder's own .env.local and data
+//   (desktop/env.cjs resolveMode). signal.env and the app-config env override the folder's .env.local.
 // - SIGNAL_TOKEN_KEY (encrypts tokens such as Figma's) is created once and kept with macOS Keychain
-//   (Electron safeStorage), unless you set your own in signal.env.
+//   (Electron safeStorage), only when none of signal.env, the app-config env or the folder's .env.local sets one.
 // - The window can only talk to the local server. Other links open in your browser. Nothing here
 //   posts, schedules or spends anything: the Studio's own switches and approvals still apply.
 'use strict';
@@ -15,7 +16,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
-const { loginShellPath, readEnvFile, serverEnv } = require('./env.cjs');
+const { loginShellPath, readEnvFile, resolveMode, serverEnv, signalEnvTemplate } = require('./env.cjs');
 
 const DEV_URL = process.env.SIGNAL_DESKTOP_URL || '';
 let server = null;
@@ -56,7 +57,7 @@ function freePort() {
   });
 }
 
-/** 32 random bytes, kept encrypted by macOS Keychain (safeStorage). Created on first launch. */
+/** 32 random bytes, kept encrypted by macOS Keychain (safeStorage). Created lazily: only called when no SIGNAL_TOKEN_KEY is provided. */
 function tokenKey() {
   const file = path.join(userData(), 'token-key.bin');
   if (!safeStorage.isEncryptionAvailable()) return '';
@@ -74,21 +75,7 @@ function tokenKey() {
 function ensureFiles() {
   fs.mkdirSync(path.join(userData(), 'logs'), { recursive: true });
   if (!fs.existsSync(envFile())) {
-    fs.writeFileSync(
-      envFile(),
-      [
-        '# Signal for Mac: settings and keys (same names as .env.local). Restart Signal after editing.',
-        '# This file stays on this Mac. Never share it.',
-        '# UPLOAD_POST_API_KEY=',
-        '# CLAUDE_BIN=/opt/homebrew/bin/claude',
-        '# CODEX_BIN=/opt/homebrew/bin/codex',
-        '# NEXT_PUBLIC_SIGNAL_TIME_ZONE=Europe/Tallinn',
-        '# Run a Signal folder (its own .env.local and data) instead of the built-in server:',
-        '# SIGNAL_APP_DIR=/Users/you/signal',
-        '',
-      ].join('\n'),
-      { mode: 0o600 },
-    );
+    fs.writeFileSync(envFile(), signalEnvTemplate(), { mode: 0o600 });
   }
   const cfg = path.join(userData(), 'signal.config.json');
   const example = path.join(serverDir(), 'signal.config.example.json');
@@ -114,8 +101,7 @@ async function startServer() {
   ensureFiles();
   const user = readEnvFile(envFile());
   const cfg = appConfig();
-  const appDir = user.SIGNAL_APP_DIR || cfg.appDir || '';
-  const mode = appDir ? 'checkout' : 'bundled';
+  const { mode, appDir } = resolveMode({ user, cfg });
   const dir = appDir || serverDir();
   let entry;
   let args = [];
@@ -138,7 +124,7 @@ async function startServer() {
     port,
     ownerPassword,
     sessionSecret: crypto.randomBytes(32).toString('base64url'),
-    tokenKey: tokenKey(),
+    tokenKey,
     pathValue: loginShellPath(process.env),
     mode,
     appEnvNames,
@@ -264,9 +250,10 @@ app.whenReady().then(async () => {
     } else await startServer();
     createWindow();
   } catch (e) {
-    dialog.showErrorBox('Signal could not start', String(e && e.message ? e.message : e));
+    // Stop the server first, so it does not keep running behind the dialog.
     quitting = true;
     server?.kill();
+    dialog.showErrorBox('Signal could not start', String(e && e.message ? e.message : e));
     app.quit();
   }
 });

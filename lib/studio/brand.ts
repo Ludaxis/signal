@@ -50,13 +50,92 @@ async function saveBrand(kit: BrandKit, p?: Project): Promise<BrandKit> {
 }
 
 // ---- safe fetching of public pages ---------------------------------------------------------
-function privateIp(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number) as [number, number];
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+// Every hop is checked: redirects are followed by hand (at most MAX_REDIRECTS), and each new host is
+// resolved and refused when any address is private. The body is streamed and stopped at the byte cap.
+// Residual gap: fetch resolves the host again, so a DNS answer that changes between the check and the
+// connection (rebinding) is not caught; pinning the address needs a custom dispatcher.
+export const MAX_REDIRECTS = 3;
+const PRIVATE_V4 = new net.BlockList();
+for (const [a, p] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) PRIVATE_V4.addSubnet(a, p, 'ipv4');
+const PRIVATE_V6 = new net.BlockList();
+for (const [a, p] of [['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8], ['100::', 64], ['2001:db8::', 32]] as const) PRIVATE_V6.addSubnet(a, p, 'ipv6');
+
+/** The eight 16-bit groups of a valid IPv6 address (zone id dropped, dotted IPv4 tail expanded). */
+function v6Groups(ip: string): number[] | null {
+  let s = ip.toLowerCase().replace(/%.*$/, '');
+  const v4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3})$/)?.[1];
+  if (v4) {
+    const [a, b, c, d] = v4.split('.').map(Number) as [number, number, number, number];
+    s = `${s.slice(0, -v4.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
   }
-  const l = ip.toLowerCase();
-  return l === '::1' || l.startsWith('fc') || l.startsWith('fd') || l.startsWith('fe80') || l.startsWith('::ffff:127.') || l === '::';
+  const [head, tail] = s.split('::') as [string, string | undefined];
+  const h = head ? head.split(':') : [];
+  const t = tail === undefined ? null : tail ? tail.split(':') : [];
+  const groups = t === null ? h : [...h, ...Array<string>(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+  if (groups.length !== 8) return null;
+  const n = groups.map((x) => parseInt(x, 16));
+  return n.every((x) => Number.isInteger(x) && x >= 0 && x <= 0xffff) ? n : null;
+}
+
+/**
+ * Loopback, private, link-local, CGNAT, multicast and reserved ranges, including IPv4 inside IPv6
+ * (::ffff:a.b.c.d, ::a.b.c.d, NAT64 64:ff9b::/96). Anything that is not an address counts as private.
+ * Exported for tests.
+ */
+export function privateIp(ip: string): boolean {
+  if (net.isIPv4(ip)) return PRIVATE_V4.check(ip, 'ipv4');
+  if (!net.isIPv6(ip)) return true;
+  const g = v6Groups(ip);
+  if (!g) return true;
+  const v4 = () => [g[6]! >> 8, g[6]! & 255, g[7]! >> 8, g[7]! & 255].join('.');
+  const zeros = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+  if (zeros(0, 5) && g[5] === 0) return true; // ::, ::1 and IPv4-compatible ::a.b.c.d
+  if (zeros(0, 5) && g[5] === 0xffff) return PRIVATE_V4.check(v4(), 'ipv4'); // IPv4-mapped
+  if (g[0] === 0x64 && g[1] === 0xff9b && zeros(2, 6)) return PRIVATE_V4.check(v4(), 'ipv4'); // NAT64
+  return PRIVATE_V6.check(g.map((x) => x.toString(16)).join(':'), 'ipv6');
+}
+
+/** App store pages are the store's own chrome (colours, fonts), not the app's or brand's own. */
+const APP_STORE_HOSTS = new Set(['play.google.com', 'apps.apple.com', 'itunes.apple.com']);
+export function assertBrandSource(u: URL): void {
+  if (APP_STORE_HOSTS.has(u.hostname.toLowerCase().replace(/\.$/, ''))) {
+    throw new BrandError(400, 'That is an app store page, not the brand’s own website: its colours and fonts are the store’s. Import the brand’s or app’s website instead, or link your project folder.');
+  }
+}
+
+export type Resolve = (host: string) => Promise<{ address: string }[]>;
+const dnsResolve: Resolve = (host) => lookup(host, { all: true });
+
+async function assertPublicHost(u: URL, resolve: Resolve): Promise<void> {
+  if (process.env.SIGNAL_ALLOW_PRIVATE_FETCH === '1') return;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  const addrs = net.isIP(host) ? [{ address: host }] : await resolve(host).catch(() => []);
+  if (!addrs.length) throw new BrandError(400, `Can't find ${u.hostname}.`);
+  if (addrs.some((a) => privateIp(a.address))) throw new BrandError(400, 'That address is on a private network; only public websites can be imported.');
+}
+
+async function readCapped(r: Response, maxBytes: number): Promise<Buffer> {
+  const tooLarge = () => new BrandError(413, 'That page is too large to import.');
+  const declared = Number(r.headers.get('content-length') ?? '');
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await r.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  if (!r.body) return Buffer.alloc(0);
+  const reader = r.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, total);
 }
 
 export function normaliseUrl(input: string): URL {
@@ -71,17 +150,30 @@ export function normaliseUrl(input: string): URL {
 }
 
 type Fetch = typeof fetch;
-async function getPublic(url: string, f: Fetch, maxBytes: number, accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.5'): Promise<{ ok: boolean; status: number; type: string; body: Buffer; url: string }> {
-  const u = normaliseUrl(url);
-  if (process.env.SIGNAL_ALLOW_PRIVATE_FETCH !== '1') {
-    const addrs = await lookup(u.hostname, { all: true }).catch(() => []);
-    if (!addrs.length) throw new BrandError(400, `Can't find ${u.hostname}.`);
-    if (addrs.some((a) => privateIp(a.address))) throw new BrandError(400, 'That address is on a private network; only public websites can be imported.');
+/** GET a public http(s) page: per-hop host checks, manual redirects, streamed byte cap. Exported for tests. */
+export async function getPublic(url: string, f: Fetch, maxBytes: number, accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.5', resolve: Resolve = dnsResolve): Promise<{ ok: boolean; status: number; type: string; body: Buffer; url: string }> {
+  let u = normaliseUrl(url);
+  const signal = AbortSignal.timeout(15_000);
+  for (let hop = 0; ; hop++) {
+    await assertPublicHost(u, resolve);
+    const r = await f(u.toString(), { headers: { Accept: accept, 'User-Agent': 'SignalStudio/1.0 (brand import)' }, redirect: 'manual', signal, cache: 'no-store' });
+    const location = r.status >= 300 && r.status < 400 ? r.headers.get('location') : null;
+    if (location) {
+      await r.body?.cancel().catch(() => undefined);
+      if (hop >= MAX_REDIRECTS) throw new BrandError(502, 'That website redirects too many times.');
+      let next: URL;
+      try {
+        next = new URL(location, u);
+      } catch {
+        throw new BrandError(502, 'That website redirects to an address that is not valid.');
+      }
+      if (next.protocol !== 'http:' && next.protocol !== 'https:') throw new BrandError(400, 'Only http(s) websites can be imported.');
+      u = next;
+      continue;
+    }
+    const body = await readCapped(r, maxBytes);
+    return { ok: r.ok, status: r.status, type: r.headers.get('content-type') ?? '', body, url: u.toString() };
   }
-  const r = await f(u.toString(), { headers: { Accept: accept, 'User-Agent': 'SignalStudio/1.0 (brand import)' }, redirect: 'follow', signal: AbortSignal.timeout(15_000), cache: 'no-store' });
-  const buf = Buffer.from(await r.arrayBuffer());
-  if (buf.length > maxBytes) throw new BrandError(413, 'That page is too large to import.');
-  return { ok: r.ok, status: r.status, type: r.headers.get('content-type') ?? '', body: buf, url: r.url || u.toString() };
 }
 
 // ---- parsing helpers -----------------------------------------------------------------------
@@ -156,7 +248,9 @@ async function saveImage(buf: Buffer, file: string, p?: Project): Promise<string
 // ---- import --------------------------------------------------------------------------------
 export async function importWebsite(input: string, f: Fetch = fetch): Promise<BrandKit> {
   const p = currentProject();
+  assertBrandSource(normaliseUrl(input));
   const page = await getPublic(input, f, 3_000_000);
+  assertBrandSource(new URL(page.url)); // a short link or a redirect to a store page
   if (!page.ok) throw new BrandError(502, `The website answered HTTP ${page.status}.`);
   const html = page.body.toString('utf8');
   const base = new URL(page.url);

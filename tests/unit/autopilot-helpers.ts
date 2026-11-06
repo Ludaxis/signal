@@ -10,7 +10,7 @@ import type { StoredReview } from '@/lib/studio/team/schemas';
 import type { AutopilotSettings } from '@/lib/studio/autopilot/types';
 
 export { root, writeCampaign, writePackage, slot, strategy, A, B };
-/** Wednesday 2026-11-05 08:30 Amsterdam (CET): inside the daily window. */
+/** Wednesday 2026-11-05 08:30 in the test zone (CET): inside the daily window. */
 export const NOW = Date.parse('2026-11-05T08:30:00+01:00');
 export const TODAY = '2026-11-05';
 
@@ -44,7 +44,7 @@ export function writeSettings(campaign: string, s: Partial<AutopilotSettings>): 
   writeFileSync(path.join(root, 'campaigns', campaign, 'autopilot.json'), JSON.stringify({ campaign, enabled: true, makeAheadDays: 3, autoPlan: false, review: false, autoPublish: 'never', formats: null, dailyBudgetUsd: 3, updatedAt: '2026-11-04T10:00:00.000Z', updatedBy: 'owner', ...s }));
 }
 
-/** Campaign A, active with a strategy, planned slots on the given dates (18:00 Amsterdam = 17:00Z). */
+/** Campaign A, active with a strategy, planned slots on the given dates (18:00 in the test zone = 17:00Z). */
 export function campaignWithSlots(dates: string[], o: { id?: string; name?: string; format?: Slot['format']; status?: 'active' | 'paused' | 'draft' } = {}): string {
   const id = o.id ?? A;
   writeCampaign({ id, name: o.name ?? 'Grow saves', goal: 'engagement', status: o.status ?? 'active', strategy: strategy([{ name: 'Guess the link', weight: 100 }]) }, dates.map((d, i) => slot(id, d, 'Guess the link', `Hook ${i + 1} for ${d}`, o.format ?? 'website-card')));

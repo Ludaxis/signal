@@ -214,11 +214,27 @@ describe('planning', () => {
     const run = await runProject('manual', { now: NOW, makeSlotPost: fakeMaker().make, makePlan: async () => { throw new Error('No free days in the next two weeks.'); } });
     expect(kinds(run)).toEqual(['skip', 'make']);
     expect(run.steps[0]).toMatchObject({ reason: /Planning failed: No free days/ });
+    expect(run.costUsd).toBe(0);
+  });
+  it('counts what a failed plan cost (known cost, else the run cap on the API key) against the budget', async () => {
+    campaignWithSlots(['2026-11-06']);
+    writeSettings(A, { enabled: true, autoPlan: true, review: false, dailyBudgetUsd: 3 });
+    const billed = Object.assign(new Error('The plan broke Signal\'s content rules.'), { costUsd: 0.09 });
+    const run = await runProject('manual', { now: NOW, makeSlotPost: fakeMaker().make, makePlan: async () => { throw billed; } });
+    expect(kinds(run)).toEqual(['plan', 'skip', 'make']);
+    expect(run.steps[0]).toMatchObject({ kind: 'plan', campaign: A, slots: 0, costUsd: 0.09 });
+    expect(run.costUsd).toBe(0.09);
+
+    campaignWithSlots(['2026-11-07']);
+    const capped = Object.assign(new Error('Claude Code did not finish (timed out)'), { costUpperBoundUsd: 0.5 });
+    const run2 = await runProject('manual', { now: NOW + 1000, makeSlotPost: fakeMaker().make, makePlan: async () => { throw capped; } });
+    expect(run2.steps[0]).toMatchObject({ kind: 'plan', costUsd: 0.5 });
+    expect(run2.costUsd).toBe(0.5);
   });
 });
 
 describe('once a day, locks and the window', () => {
-  it('allows one daily run per Amsterdam day; manual runs are still allowed and share the day', async () => {
+  it('allows one daily run per Studio day; manual runs are still allowed and share the day', async () => {
     campaignWithSlots(['2026-11-06', '2026-11-07']);
     writeSettings(A, { enabled: true, review: false });
     const { make } = fakeMaker();
@@ -253,7 +269,7 @@ describe('once a day, locks and the window', () => {
     process.env.SIGNAL_AUTOPILOT_PAUSED = '1';
     await expect(startRun('manual', { now: NOW })).rejects.toMatchObject({ status: 409 });
   });
-  it('shouldRunNow: inside 08:00–12:00 Amsterdam and not yet run today; missed days are not caught up', async () => {
+  it('shouldRunNow: inside 08:00–12:00 Studio time and not yet run today; missed days are not caught up', async () => {
     expect(inRunWindow(Date.parse('2026-11-05T07:59:00+01:00'))).toBe(false);
     expect(inRunWindow(Date.parse('2026-11-05T08:00:00+01:00'))).toBe(true);
     expect(inRunWindow(Date.parse('2026-11-05T11:59:00+01:00'))).toBe(true);

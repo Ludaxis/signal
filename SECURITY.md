@@ -6,11 +6,12 @@
 - **Instagram tokens** obtained through Meta Unified Login are encrypted with AES-256-GCM using `SIGNAL_TOKEN_KEY` and stored under `SIGNAL_SECRETS_DIR` (default `~/.signal`, mode 0600). Disconnecting deletes them.
 - **Sessions** are HMAC-signed tokens in an httpOnly, SameSite=Lax cookie (`__Host-` prefixed and Secure over HTTPS). The owner password is compared in constant time and never stored.
 - **Same-origin checks** apply to every mutating request, on top of the cookie's SameSite attribute, and a per-request CSP nonce is set by `proxy.ts`.
-- **Agents** run in empty temporary folders with an allow-listed environment; only the key you named for Signal is passed on, and only when you switched that on.
+- **Agents** run in empty temporary folders with an allow-listed environment; only the key you named for Signal is passed on, and only when you switched that on. The Claude Code / Codex version and login checks get the same kind of allow-listed environment, and a saved CLI path must be that CLI's own program.
+- **Brand import** follows redirects by hand and refuses every hop whose host resolves to a private, loopback or link-local address.
 
 ## Running it safely
 
-- Keep Signal on your own machine or behind an authenticated reverse proxy. The password-less mode (`SIGNAL_LOCAL_ONLY_NO_PASSWORD=1`) is accepted only from loopback addresses and must never be exposed.
+- Keep Signal on your own machine or behind an authenticated reverse proxy. The password-less mode (`SIGNAL_LOCAL_ONLY_NO_PASSWORD=1`) is accepted only from loopback addresses and must never be exposed; in that mode only loopback origins pass the same-origin check (against DNS rebinding), and `npm run dev` binds to 127.0.0.1.
 - Everything that posts, schedules or spends is off until you turn it on in `signal.config.json`; `SIGNAL_PUBLISH_PAUSED=1` and `SIGNAL_AUTOPILOT_PAUSED=1` stop all of it at once.
 
 ## Reporting a vulnerability

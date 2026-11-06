@@ -8,7 +8,7 @@
     "node": ">=20.9.0"
   },
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 3000 -H 127.0.0.1",
     "dev:https": "next dev -p 3000 -H 127.0.0.1 --experimental-https --experimental-https-key \"${SIGNAL_DEV_CERT_KEY:-$HOME/.signal/certs/signal-dev-key.pem}\" --experimental-https-cert \"${SIGNAL_DEV_CERT:-$HOME/.signal/certs/signal-dev.pem}\"",
     "build": "next build --webpack",
     "start": "next start -p 3000",

@@ -15,7 +15,9 @@ import { useRealPosts, type RealPackage } from './RealPosts';
 import { Posts } from './Posts';
 import { Results } from './Results';
 import { AutopilotSummary } from './Autopilot';
-import { LazyImage, LoadMoreSentinel, Reveal, ScreenSkeleton, useProgressiveList } from './loaders';
+import { LazyImage, LoadError, LoadMoreSentinel, Reveal, ScreenSkeleton, useProgressiveList } from './loaders';
+import { connectedMessage, parseQuota, quotaText, type UpQuota } from './UploadPostPicker';
+import { notifyChanged } from './sync';
 import { addDays, formatDateTime, todayInZone } from '@/lib/time';
 
 type View = 'today' | 'campaigns' | 'pipelines' | 'calendar' | 'posts' | 'library' | 'results' | 'comments' | 'brand' | 'memory' | 'connections';
@@ -137,6 +139,26 @@ export function Studio() {
     }, 0);
     return () => clearTimeout(t);
   }, [say]);
+  // Back from Upload-Post's connect page (?connected=<profile>): open Connections, check the profile again and say what it found.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const profile = q.get('connected');
+    if (!profile) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      setView('connections');
+      window.history.replaceState(null, '', window.location.pathname);
+      void connectedMessage(profile).then((m) => {
+        if (!alive) return;
+        say(m);
+        notifyChanged('connections', 'content');
+      });
+    }, 0);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [say]);
 
   const go = (v: View) => {
     setView(v);
@@ -219,7 +241,7 @@ export function Studio() {
           </div>
         </header>
 
-        {view === 'today' ? <Today key={pid ?? 'none'} data={posts.data} go={go} say={say} /> : null}
+        {view === 'today' ? posts.error && !posts.data ? <LoadError title="Today could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Today key={pid ?? 'none'} data={posts.data} go={go} say={say} /> : null}
         {view === 'calendar' ? (
           <section className="screen" aria-label="Calendar">
             <Calendar say={say} onOpenPosts={() => go('posts')} />
@@ -230,8 +252,8 @@ export function Studio() {
             <Posts key={pid ?? 'none'} say={say} />
           </section>
         ) : null}
-        {view === 'library' ? <Library data={posts.data} /> : null}
-        {view === 'results' ? <Results data={posts.data} reload={posts.reload} say={say} /> : null}
+        {view === 'library' ? posts.error && !posts.data ? <LoadError title="The library could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Library data={posts.data} /> : null}
+        {view === 'results' ? posts.error && !posts.data ? <LoadError title="Results could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Results data={posts.data} reload={posts.reload} say={say} /> : null}
         {view === 'campaigns' ? <Campaigns key={pid ?? 'none'} say={say} openPosts={() => go('posts')} /> : null}
         {view === 'pipelines' ? <Pipelines key={pid ?? 'none'} say={say} /> : null}
         {view === 'comments' ? <Comments key={pid ?? 'none'} say={say} onManage={() => go('connections')} /> : null}
@@ -262,6 +284,7 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
   const monthStart = `${today.slice(0, 8)}01`;
   const monthEnd = addDays(mm === 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`, -1);
   const month = useCalendarRange(monthStart, monthEnd);
+  const quota = useUploadPostQuota(data?.project?.id ?? null);
   const [now] = useState(() => Date.now());
   if (!data) return <ScreenSkeleton variant="cards" count={3} label="Loading today" />;
   const pk = data.packages.filter((p) => p.status !== 'discarded');
@@ -313,8 +336,9 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
         </div>
         <div className="st-card stat">
           <span className="label">Posted this month</span>
-          <span className="stat-num">{month.data ? thisMonth : '…'}</span>
-          <span className="st-small st-muted">All accounts · Upload-Post’s free plan allows 10</span>
+          <span className="stat-num">{month.data ? thisMonth : month.error ? '—' : '…'}</span>
+          <span className="st-small st-muted">All accounts{quota ? ` · ${quotaText(quota)}` : ''}</span>
+
         </div>
       </div>
 
@@ -364,6 +388,31 @@ function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: 
       </div>
     </section>
   );
+}
+
+/**
+ * Upload-Post's monthly upload count, from GET /api/studio/connections (uploadPost.quota). Until the
+ * server sends it, nothing is shown: no fixed plan figure is guessed here.
+ */
+function useUploadPostQuota(projectId: string | null): UpQuota | null {
+  const [quota, setQuota] = useState<UpQuota | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/studio/connections?project=${encodeURIComponent(projectId)}`, { cache: 'no-store' });
+        const j = (await r.json().catch(() => null)) as { uploadPost?: { quota?: unknown } } | null;
+        if (alive) setQuota(r.ok ? parseQuota(j?.uploadPost?.quota) : null);
+      } catch {
+        if (alive) setQuota(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+  return quota;
 }
 
 function Library({ data }: { data: Data }) {

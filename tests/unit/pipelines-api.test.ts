@@ -1,12 +1,13 @@
 // GET/POST /api/studio/pipelines: auth, the payload shape, create/update/toggle/delete/run-now.
 import path from 'node:path';
 import { NextRequest } from 'next/server';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { issueSession } from '@/lib/server/auth';
 import { COOKIE_PLAIN } from '@/lib/server/session';
 import { GET, POST } from '@/app/api/studio/pipelines/route';
 import type { PipelinesPayload } from '@/lib/studio/pipelines/types';
 import { listAutopilotRuns } from '@/lib/studio/autopilot/runner';
+import { TIMEZONE } from '@/lib/time';
 import { TEST_PROJECT, writeTestConfig } from './studio-helpers';
 import { campaignWithSlots, root, setupAutopilotProject, teardownAutopilotProject, writeSettings } from './autopilot-helpers';
 import { P1, readPipeline, writePipeline } from './pipelines-helpers';
@@ -20,6 +21,7 @@ beforeEach(() => {
   token = issueSession();
 });
 afterEach(() => {
+  vi.useRealTimers();
   delete process.env.SIGNAL_SESSION_SECRET;
   teardownAutopilotProject();
 });
@@ -35,6 +37,10 @@ describe('GET', () => {
     expect((await post({ action: 'create', pipeline: {} }, false)).status).toBe(401);
   });
   it('answers the payload shape: pipelines with next slots, spend, status and last result; formats, campaigns, switches', async () => {
+    // Morning of the campaign day, so that day's 18:00 slot is still ahead whatever the wall clock says.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-11-06T09:00:00.000Z'));
+    token = issueSession();
     campaignWithSlots(['2026-11-06']);
     writePipeline(P1, { name: 'Blog', steps: { schedule: { makeAheadDays: 5 } } });
     writePipeline('pl-20261102-bbbb', { name: 'Gone', archived: true });
@@ -56,7 +62,7 @@ describe('GET', () => {
     expect(j.switches.autopilot.enabled).toBe(true);
     expect(j.paused.paused).toBe(false);
     expect(j.website).toBe(false);
-    expect(j.timeZone).toBe('Europe/Amsterdam');
+    expect(j.timeZone).toBe(TIMEZONE);
     expect(j.running).toBeNull();
     expect(typeof j.nextRunAt).toBe('string');
     expect(j.runs).toEqual([]);

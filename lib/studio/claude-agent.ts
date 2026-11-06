@@ -1,25 +1,57 @@
 // Server-only: runs one of the marketing agents (strategist, content planner) through your own
-// Claude Code CLI (`claude -p`), only when you press a button.
+// Claude Code CLI (`claude -p`), only when you press a button or an autopilot run you switched on
+// asks for a plan.
 //
-// - Uses the CLI's existing sign-in on this machine (your Claude subscription). API-key
-//   variables are removed from the child environment so it never bills an API key by accident,
-//   unless the "agentsApiKey" switch is on and SIGNAL_ANTHROPIC_API_KEY is set.
-// - Runs in an empty temporary folder, with no MCP servers (--strict-mcp-config) and only the
-//   WebSearch / WebFetch tools allowed when the agent researches; no shell, no file edits.
+// - Billing: the CLI's existing sign-in on this machine (your Claude subscription), or, when the
+//   "agentsApiKey" switch is on and SIGNAL_ANTHROPIC_API_KEY is set, that key (passed as ANTHROPIC_API_KEY
+//   and capped per run with --max-budget-usd, see AGENT_BUDGET_USD). No other Anthropic credential is ever passed on.
+// - Environment: an allow-list (CLI_ENV_ALLOW) plus the one credential the run needs. Every other server
+//   variable (Upload-Post, Meta, Higgsfield, R2, Signal's own session secret, other Anthropic variables) is absent.
+// - Isolation: an empty temporary folder as cwd; --restricted (no command-running tools, user/project/local
+//   settings ignored, file tools confined to that folder); --strict-mcp-config (no MCP servers); --tools
+//   names the only built-ins the run has (WebSearch / WebFetch / ToolSearch for a researching agent, none
+//   otherwise); --disallowedTools repeats the denials (shell, edits, file reads, skills, sub-agents, and the
+//   web for agents that do not research); slash commands and skills off; no session kept on disk; --max-turns
+//   caps the turns (Claude Code 2.1.319 accepts it although `claude --help` does not list it).
 // - Prompts: the built-in ones in ./team/roles.ts, or your overrides in <SIGNAL_PROMPTS_DIR>/_shared.md
 //   and <SIGNAL_PROMPTS_DIR>/<agent>/prompt.md; external text goes inside <untrusted_data>.
-// - Output is a proposal (JSON); you approve strategies and every post.
+// - Output is a proposal (JSON) checked by the caller's validator; you approve strategies and every post.
+//   Every run is recorded in project memory (runs.jsonl) when the memory switch is on.
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { featureEnabled, featureOffReason } from '@/lib/server/signalConfig';
-import { promptsDir } from './projects';
+import { currentProject, promptsDir } from './projects';
 import { SHARED_RULES, builtinPrompt } from './team/roles';
 import { cliBin } from './tools';
+import { memoryAllowed, newId, writeRun } from './memory/store';
+import type { AgentRunRecord, Role } from './memory/types';
 
 export const AGENT_TIMEOUT_MS = 8 * 60_000;
 export type AgentId = 'strategist' | 'content-planner' | 'researcher' | 'analyst' | 'community-manager';
+
+/** The most one `claude -p` run may spend when it bills your API key (passed as --max-budget-usd). */
+export const STRATEGIST_BUDGET_USD = 1.0;
+export const PLANNER_BUDGET_USD = 0.5;
+export const AGENT_BUDGET_USD: Record<AgentId, number> = { strategist: STRATEGIST_BUDGET_USD, 'content-planner': PLANNER_BUDGET_USD, researcher: 1.0, analyst: 0.5, 'community-manager': 0.2 };
+
+/** Environment variables a CLI child process (Claude Code, Codex) may inherit. No credential is on this list. */
+export const CLI_ENV_ALLOW = ['PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TERM', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'] as const;
+
+/** Copies the allow-listed variables (plus the `extra` names) from `source`. Exported for codex.ts and tests. */
+export function allowListedEnv(source: NodeJS.ProcessEnv = process.env, extra: readonly string[] = []): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const k of [...CLI_ENV_ALLOW, ...extra]) {
+    const v = source[k];
+    if (typeof v === 'string') env[k] = v;
+  }
+  return env;
+}
+
+/** Built-in tools every `claude -p` run is denied; the web tools are denied too unless the agent researches. */
+export const CLI_DENIED_TOOLS = ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Task', 'Agent', 'TodoWrite', 'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'Skill'] as const;
+export const CLI_WEB_TOOLS = ['WebSearch', 'WebFetch', 'ToolSearch'] as const;
 
 export class AgentError extends Error {
   constructor(public status: number, message: string, public detail?: Record<string, unknown>) {
@@ -53,8 +85,8 @@ export async function readPromptOverride(rel: string): Promise<string> {
   }
 }
 
-/** The team role whose built-in prompt backs a CLI agent id. */
-const ROLE_FOR: Record<AgentId, 'strategist' | 'planner' | 'researcher' | 'analyst' | 'community-manager'> = { strategist: 'strategist', 'content-planner': 'planner', researcher: 'researcher', analyst: 'analyst', 'community-manager': 'community-manager' };
+/** The team role whose built-in prompt backs a CLI agent id (and the memory role its runs are recorded under). */
+const ROLE_FOR: Record<AgentId, Role> = { strategist: 'strategist', 'content-planner': 'planner', researcher: 'researcher', analyst: 'analyst', 'community-manager': 'community-manager' };
 
 /** Builds the full prompt text. Exported for tests. */
 export async function buildPrompt(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string }): Promise<string> {
@@ -87,7 +119,7 @@ export function extractJson(text: string): unknown {
   }
 }
 
-export type Runner = (prompt: string, opts: { web: boolean; onEvent?: (e: { at: string; kind: string; text: string }) => void }) => Promise<{ text: string; seconds: number; cli: string; costUsd?: number | null; billing?: Billing }>;
+export type Runner = (prompt: string, opts: { web: boolean; agent?: AgentId; onEvent?: (e: { at: string; kind: string; text: string }) => void }) => Promise<{ text: string; seconds: number; cli: string; costUsd?: number | null; billing?: Billing; model?: string | null; turns?: number | null }>;
 
 const redactKey = (t: string) => {
   const k = process.env.SIGNAL_ANTHROPIC_API_KEY;
@@ -96,7 +128,7 @@ const redactKey = (t: string) => {
 
 export interface AgentEvent { at: string; kind: 'start' | 'search' | 'read' | 'thinking' | 'writing' | 'note' | 'done' | 'error'; text: string }
 export type OnEvent = (e: AgentEvent) => void;
-type CliResult = { result?: string; is_error?: boolean; subtype?: string; total_cost_usd?: number };
+type CliResult = { result?: string; is_error?: boolean; subtype?: string; total_cost_usd?: number; num_turns?: number };
 
 const host = (u: unknown) => {
   try {
@@ -108,7 +140,7 @@ const host = (u: unknown) => {
 const clip = (t: unknown, n: number) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** Turns one line of `claude -p --output-format stream-json` into progress events (and the final result). Exported for tests. */
-export function parseStreamLine(line: string, state: { chars: number }): { events: Omit<AgentEvent, 'at'>[]; result?: CliResult } {
+export function parseStreamLine(line: string, state: { chars: number; model?: string }): { events: Omit<AgentEvent, 'at'>[]; result?: CliResult } {
   let j: Record<string, unknown>;
   try {
     j = JSON.parse(line) as Record<string, unknown>;
@@ -116,7 +148,10 @@ export function parseStreamLine(line: string, state: { chars: number }): { event
     return { events: [] };
   }
   const events: Omit<AgentEvent, 'at'>[] = [];
-  if (j.type === 'system' && j.subtype === 'init') events.push({ kind: 'start', text: `Claude Code started (${clip(j.model, 40) || 'default model'})` });
+  if (j.type === 'system' && j.subtype === 'init') {
+    if (typeof j.model === 'string' && j.model) state.model = clip(j.model, 80);
+    events.push({ kind: 'start', text: `Claude Code started (${clip(j.model, 40) || 'default model'})` });
+  }
   if (j.type === 'assistant') {
     const content = ((j.message as { content?: Record<string, unknown>[] } | undefined)?.content ?? []) as Record<string, unknown>[];
     for (const c of content) {
@@ -138,14 +173,32 @@ export function parseStreamLine(line: string, state: { chars: number }): { event
   return { events };
 }
 
+/** The child environment of a `claude -p` run: the allow-list, CLAUDE_CONFIG_DIR (where the CLI keeps its
+ *  sign-in, when moved) and exactly one credential: your Signal key on api-key billing (agentsApiKey switch), else
+ *  the CLI's own OAuth token when one is set. Everything else stays out. Exported for tests. */
+export function cliEnv(billing: Billing, source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env = allowListedEnv(source, ['CLAUDE_CONFIG_DIR']);
+  if (billing === 'api-key' && source.SIGNAL_ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = source.SIGNAL_ANTHROPIC_API_KEY;
+  else if (billing === 'subscription' && source.CLAUDE_CODE_OAUTH_TOKEN) env.CLAUDE_CODE_OAUTH_TOKEN = source.CLAUDE_CODE_OAUTH_TOKEN;
+  env.DISABLE_AUTOUPDATER = '1';
+  return env;
+}
+
+/** The `claude -p` arguments for one run (the prompt goes on stdin). Every flag is in `claude --help` of
+ *  Claude Code 2.1.319. Exported for tests. */
+export function cliArgs(o: { agent: AgentId; web: boolean; billing: Billing; model?: string }): string[] {
+  const denied = [...CLI_DENIED_TOOLS, ...(o.web ? [] : ['WebSearch', 'WebFetch'])];
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', o.web ? '30' : '4', '--tools', o.web ? CLI_WEB_TOOLS.join(',') : '', '--disallowedTools', denied.join(',')];
+  if (o.web) args.push('--allowedTools', CLI_WEB_TOOLS.join(','));
+  if (o.billing === 'api-key') args.push('--max-budget-usd', AGENT_BUDGET_USD[o.agent].toFixed(2));
+  const model = (o.model ?? '').replace(/[^a-z0-9.\-]/gi, '');
+  if (model) args.push('--model', model);
+  return args;
+}
+
 function spawnCli(bin: string, args: string[], cwd: string, stdin: string, timeoutMs: number, billing: Billing = 'subscription', onLine?: (line: string) => void): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env };
-    // Only the key named for Signal is ever passed on, and only when the "agentsApiKey" switch allows it.
-    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'SIGNAL_ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) delete env[k];
-    if (billing === 'api-key' && process.env.SIGNAL_ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.SIGNAL_ANTHROPIC_API_KEY;
-    else if (process.env.CLAUDE_CODE_OAUTH_TOKEN) env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    const p = spawn(bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env });
+    const p = spawn(bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: cliEnv(billing) as NodeJS.ProcessEnv });
     let out = '';
     let err = '';
     let buf = '';
@@ -179,7 +232,7 @@ function spawnCli(bin: string, args: string[], cwd: string, stdin: string, timeo
 }
 
 /** The real runner: `claude -p` with the prompt on stdin, streaming progress events. */
-export const claudeCliRunner: Runner = async (prompt, { web, onEvent }) => {
+export const claudeCliRunner: Runner = async (prompt, { web, agent, onEvent }) => {
   const bin = await cliBin('claude');
   const work = await fs.mkdtemp(path.join(/* turbopackIgnore: true */ os.tmpdir(), 'signal-agent-'));
   const started = Date.now();
@@ -193,11 +246,9 @@ export const claudeCliRunner: Runner = async (prompt, { web, onEvent }) => {
       throw new AgentError(503, 'The Claude Code CLI was not found. Install it and sign in (`claude`), or set its path in Connections.');
     }
     emit({ kind: 'note', text: `Starting Claude Code ${cli}${billing === 'api-key' ? ' on your API key' : ' on your sign-in'}` });
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--strict-mcp-config', '--max-turns', web ? '30' : '4', '--disallowedTools', 'Bash,Edit,Write,MultiEdit,NotebookEdit,Task,TodoWrite'];
-    if (web) args.push('--allowedTools', 'WebSearch,WebFetch,ToolSearch');
-    const model = process.env.CLAUDE_AGENT_MODEL || (billing === 'api-key' ? 'sonnet' : '');
-    if (model) args.push('--model', model.replace(/[^a-z0-9.\-]/gi, ''));
-    const state = { chars: 0 };
+    const id: AgentId = agent ?? (web ? 'strategist' : 'content-planner');
+    const args = cliArgs({ agent: id, web, billing, model: process.env.CLAUDE_AGENT_MODEL || (billing === 'api-key' ? 'sonnet' : '') });
+    const state: { chars: number; model?: string } = { chars: 0 };
     let res: CliResult | null = null;
     let lastChars = 0;
     const r = await spawnCli(bin, args, work, prompt, AGENT_TIMEOUT_MS, billing, (line) => {
@@ -221,42 +272,83 @@ export const claudeCliRunner: Runner = async (prompt, { web, onEvent }) => {
     if (!final || final.is_error || typeof final.result !== 'string') {
       const hint = redactKey(String(final?.result || r.err || r.out.split('\n').slice(-3).join(' ') || 'no output')).replace(/\s+/g, ' ').trim().slice(-300);
       emit({ kind: 'error', text: hint });
-      throw new AgentError(502, `Claude Code did not finish${r.code === null ? ' (timed out)' : ` (exit ${r.code})`}${final?.subtype ? ` (${final.subtype})` : ''}: ${hint}`, {
+      const failedCost = billing === 'api-key' && typeof final?.total_cost_usd === 'number' ? final.total_cost_usd : null;
+      const err = new AgentError(502, `Claude Code did not finish${r.code === null ? ' (timed out)' : ` (exit ${r.code})`}${final?.subtype ? ` (${final.subtype})` : ''}: ${hint}`, {
         exit: r.code,
         cli,
         bin,
         seconds: Math.round((Date.now() - started) / 1000),
         billing,
+        costUsd: failedCost,
         stderr: redactKey(r.err).slice(-2000),
         stdout: redactKey(r.out).slice(-2000),
       });
+      // A run that started on the API key may have been billed: carry the known cost, else the run's cap.
+      if (failedCost != null) (err as AgentError & { costUsd?: number }).costUsd = failedCost;
+      else if (billing === 'api-key') (err as AgentError & { costUpperBoundUsd?: number }).costUpperBoundUsd = AGENT_BUDGET_USD[id];
+      throw err;
     }
     const costUsd = billing === 'api-key' && typeof final.total_cost_usd === 'number' ? final.total_cost_usd : null;
     emit({ kind: 'done', text: `Finished in ${Math.round((Date.now() - started) / 1000)}s${costUsd != null ? ` · $${costUsd.toFixed(2)}` : ''}` });
-    return { text: final.result, seconds: Math.round((Date.now() - started) / 1000), cli, billing, costUsd };
+    return { text: final.result, seconds: Math.round((Date.now() - started) / 1000), cli, billing, costUsd, model: state.model ?? null, turns: typeof final.num_turns === 'number' ? final.num_turns : null };
   } finally {
     await fs.rm(/* turbopackIgnore: true */ work, { recursive: true, force: true }); // our own temp folder only
   }
 };
 
-export async function runAgent<T>(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string; web?: boolean; validate: (v: unknown) => T; onEvent?: OnEvent }, runner: Runner = claudeCliRunner): Promise<{ value: T; meta: { agent: AgentId; cli: string; seconds: number; at: string; billing: Billing; costUsd: number | null } }> {
+/** Records one CLI run in project memory (runs.jsonl, the records the agent team writes too: start line, then
+ *  end line; last line per id wins) so the Memory screen counts it. Only when the memory switch is on; never throws. */
+async function recordCliRun(rec: AgentRunRecord): Promise<void> {
+  try {
+    if (!(await memoryAllowed()).enabled) return;
+    await writeRun(rec);
+  } catch {
+    /* best effort: a memory write never fails the agent run */
+  }
+}
+
+const errText = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+
+export async function runAgent<T>(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string; web?: boolean; campaign?: string | null; validate: (v: unknown) => T; onEvent?: OnEvent }, runner: Runner = claudeCliRunner): Promise<{ value: T; meta: { agent: AgentId; cli: string; seconds: number; at: string; billing: Billing; costUsd: number | null } }> {
   const allowed = await claudeAgentsAllowed();
   if (!allowed.enabled) throw new AgentError(403, allowed.reason);
   const prompt = await buildPrompt(agent, o);
-  const r = await runner(prompt, { web: o.web === true, onEvent: o.onEvent as ((e: { at: string; kind: string; text: string }) => void) | undefined });
+  const startedAt = new Date().toISOString();
+  const rec: AgentRunRecord = { id: newId('run', Date.parse(startedAt)), role: ROLE_FOR[agent], project: currentProject().id, campaign: o.campaign ?? null, startedAt, endedAt: null, status: 'running', model: null, costUsd: null, turns: null, summary: `Claude Code CLI (${agent})`, error: null };
+  await recordCliRun(rec);
+  const finish = (patch: Partial<AgentRunRecord>) => recordCliRun({ ...rec, ...patch, endedAt: new Date().toISOString() });
+  let r: Awaited<ReturnType<Runner>>;
+  try {
+    r = await runner(prompt, { web: o.web === true, agent, onEvent: o.onEvent as ((e: { at: string; kind: string; text: string }) => void) | undefined });
+  } catch (e) {
+    await finish({ status: 'error', costUsd: agentCostOf(e), error: errText(e) });
+    throw e;
+  }
+  const done = { model: r.model ?? null, turns: r.turns ?? null, costUsd: r.costUsd ?? null, summary: `Claude Code CLI ${r.cli} (${agent}, ${r.billing ?? 'subscription'}, ${r.seconds}s)`.slice(0, 200) };
   let value: T;
   try {
     value = o.validate(extractJson(r.text));
   } catch (e) {
     // The call was billed even though its answer is unusable: carry the cost so the caller can count it.
     if (e instanceof Error && typeof r.costUsd === 'number') (e as Error & { costUsd?: number }).costUsd = r.costUsd;
+    await finish({ ...done, status: 'error', error: errText(e) });
     throw e;
   }
+  await finish({ ...done, status: 'done' });
   return { value, meta: { agent, cli: r.cli, seconds: r.seconds, at: new Date().toISOString(), billing: r.billing ?? 'subscription', costUsd: r.costUsd ?? null } };
 }
 
-/** The cost a failed runAgent call carries (an answer that did not validate), or null when unknown. */
+/** The cost a failed runAgent call carries (an answer that did not validate, or a billed run that failed), or null when unknown. */
 export function agentCostOf(e: unknown): number | null {
   const c = (e as { costUsd?: unknown } | null)?.costUsd;
+  return typeof c === 'number' && Number.isFinite(c) ? c : null;
+}
+
+/** What a failed run may have spent, for budgets: the known cost; else the run's --max-budget-usd cap when it
+ *  billed the API key and its cost is unknown (timed out, crashed); else null (subscription, or never started). */
+export function agentSpendOf(e: unknown): number | null {
+  const known = agentCostOf(e);
+  if (known != null) return known;
+  const c = (e as { costUpperBoundUsd?: unknown } | null)?.costUpperBoundUsd;
   return typeof c === 'number' && Number.isFinite(c) ? c : null;
 }

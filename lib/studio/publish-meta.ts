@@ -8,11 +8,15 @@
 // - The AI label is always set (is_ai_generated=true); the owner still confirms it after posting.
 // - Signal schedules (provider 'signal') are sent by the scheduler tick while the dashboard runs.
 //   A time that passed while Signal was off becomes "missed": the owner decides.
+//   A Signal schedule is only accepted when this process registered the minute timer (instrumentation.ts).
+// - The AI-label canary (assertNoUnlabelled) applies to Post now, scheduling and the tick: a due post
+//   becomes "missed" with the reason instead of being sent.
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import {
   ContentError,
   assertDayCapacity,
+  assertNoUnlabelled,
   currentLimits,
   listPackages,
   loadPackage,
@@ -37,6 +41,11 @@ interface MetaState { ig_user_id: string; container_id: string; children: string
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', mp4: 'video/mp4' };
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const iso = (ms: number) => new Date(ms).toISOString();
+
+/** True when instrumentation.ts registered the minute scheduler in this process. */
+export function schedulerTimerRegistered(): boolean {
+  return (globalThis as typeof globalThis & { __signalSchedulerRegistered?: boolean }).__signalSchedulerRegistered === true;
+}
 
 /** Instagram API posting is ready for the current project. */
 export async function metaLive(now = Date.now()): Promise<{ enabled: boolean; reason: string }> {
@@ -79,6 +88,7 @@ export async function publishViaMeta(id: string, by: string, deps: MetaDeps = {}
   const all = await listPackages();
   const unclear = all.find((p) => p.id !== id && p.status === 'uncertain');
   if (unclear) throw new ContentError(409, `Post ${unclear.id} has an unclear result. Resolve it first.`);
+  assertNoUnlabelled(all, id);
   assertDayCapacity(all, now, await currentLimits(now), id);
 
   const media = pkg.files.filter((x) => x.role === 'slide' || x.role === 'video');
@@ -188,14 +198,20 @@ async function finishPublish(id: string, by: string, deps: MetaDeps): Promise<Pa
 
 async function recordLive(id: string, by: string, st: MetaState, mediaId: string, deps: MetaDeps): Promise<PackageView> {
   const f = deps.fetch ?? fetch;
+  const recordedAt = deps.now ?? Date.now();
   let url: string | null = null;
+  let liveAt: string | null = null;
   try {
-    url = (await getMedia(mediaId, f)).permalink;
+    const m = await getMedia(mediaId, f);
+    url = m.permalink;
+    // Instagram's own timestamp is when it went live; a later check must not move it to another day.
+    const t = m.timestamp ? Date.parse(m.timestamp) : NaN;
+    liveAt = Number.isFinite(t) && t <= recordedAt + 10 * 60_000 ? iso(t) : null;
   } catch {
     url = null;
   }
   await writeJsonReplace(pkgPath(id, 'meta.json'), { ...st, media_id: mediaId });
-  const posted: Posted = { url, posted_at: iso(deps.now ?? Date.now()), ai_label_confirmed: false, recorded_by: by, via: 'meta', media_id: mediaId };
+  const posted: Posted & { recorded_at: string } = { url, posted_at: liveAt ?? iso(recordedAt), recorded_at: iso(recordedAt), ai_label_confirmed: false, recorded_by: by, via: 'meta', media_id: mediaId };
   await writeJsonExclusive(pkgPath(id, 'posted.json'), posted);
   await removeFiles(st.hosted, f);
   return loadPackage(id);
@@ -252,13 +268,17 @@ const GRACE_MS = 10 * 60_000;
 export async function scheduleInSignal(id: string, when: string, by: string, now = Date.now()): Promise<PackageView> {
   const sched = await schedulerAllowed();
   if (!sched.enabled) throw new ContentError(403, sched.reason);
+  if (!schedulerTimerRegistered())
+    throw new ContentError(409, "Signal's minute scheduler is not running in this app process, so nothing would send this post at its time. Nothing was scheduled; post it now instead.");
   const live = await metaLive(now);
   if (!live.enabled) throw new ContentError(403, live.reason);
   const pkg = await loadPackage(id);
   if (pkg.status !== 'approved') throw new ContentError(409, `Post ${id} must be approved to be scheduled.`);
   const at = Date.parse(when);
   if (!(at > now + 2 * 60_000)) throw new ContentError(400, 'Pick a time at least 2 minutes from now.');
-  assertDayCapacity(await listPackages(), at, await currentLimits(now), id);
+  const all = await listPackages();
+  assertNoUnlabelled(all, id);
+  assertDayCapacity(all, at, await currentLimits(now), id);
   await writeJsonExclusive(pkgPath(id, 'scheduled.json'), { job_id: '', scheduled_for: iso(at), provider: 'signal', scheduled_by: by, scheduled_at: iso(now) });
   await writeJsonReplace(pkgPath(id, 'plan.json'), { planned_for: iso(at), planned_by: by, planned_at: iso(now) });
   return loadPackage(id);
@@ -267,6 +287,8 @@ export async function scheduleInSignal(id: string, when: string, by: string, now
 export async function moveSignalSchedule(id: string, when: string, by: string, now = Date.now()): Promise<PackageView> {
   const pkg = await loadPackage(id);
   if (pkg.status !== 'scheduled' || pkg.scheduled?.provider !== 'signal') throw new ContentError(409, `Post ${id} is not scheduled in Signal.`);
+  const pause = publishingPaused();
+  if (pause.paused) throw new ContentError(403, pause.reason);
   const at = Date.parse(when);
   if (!(at > now + 2 * 60_000)) throw new ContentError(400, 'Pick a time at least 2 minutes from now.');
   assertDayCapacity(await listPackages(), at, await currentLimits(now), id);
@@ -287,7 +309,8 @@ export async function cancelSignalSchedule(id: string, by: string, now = Date.no
 export async function tickProject(deps: MetaDeps = {}): Promise<{ sent: string[]; missed: string[]; checked: string[]; errors: string[] }> {
   const now = deps.now ?? Date.now();
   const out = { sent: [] as string[], missed: [] as string[], checked: [] as string[], errors: [] as string[] };
-  for (const p of await listPackages()) {
+  const all = await listPackages();
+  for (const p of all) {
     try {
       if (p.status === 'scheduled' && p.scheduled?.provider === 'signal') {
         const due = Date.parse(p.scheduled.scheduled_for);
@@ -296,6 +319,19 @@ export async function tickProject(deps: MetaDeps = {}): Promise<{ sent: string[]
           // Missed while Signal was off: never sent late on its own. The owner decides.
           await fs.rename(pkgPath(p.id, 'scheduled.json'), pkgPath(p.id, `scheduled-missed-${iso(now).replace(/[:.]/g, '-')}.json`));
           await writeJsonReplace(pkgPath(p.id, 'plan.json'), { planned_for: p.scheduled.scheduled_for, planned_by: 'signal-scheduler', planned_at: iso(now), missed_at: iso(now) });
+          out.missed.push(p.id);
+          continue;
+        }
+        let unlabelled: string | null = null;
+        try {
+          assertNoUnlabelled(all, p.id);
+        } catch (e) {
+          unlabelled = (e as Error).message;
+        }
+        if (unlabelled) {
+          // The AI-label canary: a due post is not sent while an earlier post's label is unconfirmed.
+          await fs.rename(pkgPath(p.id, 'scheduled.json'), pkgPath(p.id, `scheduled-missed-${iso(now).replace(/[:.]/g, '-')}.json`));
+          await writeJsonReplace(pkgPath(p.id, 'plan.json'), { planned_for: p.scheduled.scheduled_for, planned_by: 'signal-scheduler', planned_at: iso(now), missed_at: iso(now), missed_reason: unlabelled.slice(0, 200) });
           out.missed.push(p.id);
           continue;
         }

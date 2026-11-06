@@ -20,10 +20,42 @@ meant for your own Mac. Intel Macs: `npm run app:prepare && npm --prefix desktop
 To run a Signal folder you already use (its own `.env.local`, data and settings) instead of the
 built-in server, build with `npm run build && node desktop/prepare.mjs --checkout`, then
 `npm --prefix desktop install && npm --prefix desktop run dist`. Or set `SIGNAL_APP_DIR=/path/to/signal`
-in signal.env. After pulling changes, run `npm run build` in that folder and restart Signal.
+in signal.env. After pulling changes, quit Signal first (it serves that folder's `.next`), run
+`npm run build` there, then open Signal again.
 
 While developing the Studio, run `npm run dev` in one terminal and `npm run app:dev` in another. The
 window then opens your dev server and you sign in with your normal password.
+
+## Two modes
+
+| | Bundled mode (what `npm run app:build` makes) | Checkout mode |
+| --- | --- | --- |
+| Server | The standalone server copied into the app | `next start` in a Signal folder, using its `.next` build |
+| Config and data | `~/Library/Application Support/Signal` | That folder's `.env.local`, `signal.config.json` and data |
+| Sign-in | The app signs the window in with a one-time password made at launch | You sign in once in the window, as for the web version |
+
+The mode is checkout when `SIGNAL_APP_DIR` is set in signal.env, or `desktop/app-config.json` (written
+by `prepare.mjs --checkout`) names a folder; signal.env wins. Otherwise it is bundled.
+
+## Where settings come from
+
+Highest first:
+
+1. Keys and switches saved in Connections (`~/.signal/settings.json`, encrypted). Applied inside the
+   server when it starts and on every save.
+2. signal.env (File → Open Settings File).
+3. The env in `desktop/app-config.json` (`prepare.mjs --checkout --env KEY=VALUE`).
+4. The environment Signal was launched with.
+5. In checkout mode, the folder's `.env.local` (and `.env`, `.env.production`). Next never overwrites a
+   variable that is already set, so anything from 2 to 4 hides the same name in `.env.local`.
+
+The app always sets the loopback bind address and port; in bundled mode it also sets the login, the
+session and the data paths (`SIGNAL_DATA_DIR`, `SIGNAL_CONFIG_FILE`, `SIGNAL_PROMPTS_DIR`, unless
+signal.env sets them).
+
+**Publishing pause**: `SIGNAL_PUBLISH_PAUSED=1` (in signal.env or `.env.local`) or the Publishing switch
+in Connections blocks Post now, Upload-Post scheduling, finishing an Instagram publish and every
+scheduler tick. Reads still work. The switch you saved in Connections wins over the environment value.
 
 ## Where things live
 
@@ -42,8 +74,10 @@ checkout, set `SIGNAL_DATA_DIR=/path/to/signal/data` in signal.env.
 
 - The server listens on 127.0.0.1 on a random port. The window signs in with a one-time password
   made at launch; other apps on the Mac cannot use your session.
-- `SIGNAL_TOKEN_KEY`, which encrypts tokens such as Figma's, is created on first launch and kept with
-  macOS Keychain, unless you set your own in signal.env.
+- `SIGNAL_TOKEN_KEY` encrypts tokens such as Figma's. A checkout uses the key in its `.env.local` (it
+  decrypts tokens saved earlier) and the app never replaces it. Only when signal.env, the app-config
+  env, the launch environment and the folder provide none does the app create one and keep it with
+  macOS Keychain, and only at that moment.
 - The window only loads the local server. Every other link opens in your browser.
 - Feature switches start off, exactly like the web version. Nothing posts, schedules or spends money
   until you turn it on.
@@ -74,6 +108,8 @@ Everything you need for posting can be set in **Connections**, with no file to e
 
 ## Known limits
 
-- Meta Unified Login needs an HTTPS callback, so connecting Instagram that way still runs from the
-  HTTPS dev server (`npm run dev:https`). Upload-Post works in the app.
+- **Connect with Meta is disabled in the app.** Meta login needs an HTTPS callback, and the app would
+  open it in your browser without this session, so it cannot finish. Connect Instagram from the HTTPS
+  dev server (`npm run dev:https`, see [instagram-unified-login.md](instagram-unified-login.md)).
+  Upload-Post works in the app.
 - No auto-update yet: rebuild to update.

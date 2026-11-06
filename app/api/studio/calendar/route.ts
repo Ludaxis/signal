@@ -3,7 +3,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
-import { listPackages, type PackageView } from '@/lib/studio/content';
+import { ContentError, IN_FLIGHT, goesOutAt, listPackages, type PackageView } from '@/lib/studio/content';
+
 import { listProjects, withProject } from '@/lib/studio/projects';
 import { TIMEZONE, zonedParts, isValidDate } from '@/lib/time';
 
@@ -31,6 +32,15 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!isValidDate(from) || !isValidDate(to) || from > to) return jsonError(400, 'validation', 'Use from/to as YYYY-MM-DD.');
   // ?project=<id> limits the calendar to one account; without it, every account is shown.
   const only = q.get('project');
+  try {
+    return await build(from, to, only);
+  } catch (e) {
+    // A plain JSON error (never a bare 500) so the Calendar and Today can say what went wrong.
+    return jsonError(500, 'internal', e instanceof ContentError ? `Could not load the calendar: ${e.message}` : 'Could not load the calendar. Try again.');
+  }
+}
+
+async function build(from: string, to: string, only: string | null): Promise<Response> {
   const projects = (await listProjects()).filter((p) => !only || p.id === only);
   const items: CalendarItem[] = [];
   const unplanned: CalendarItem[] = [];
@@ -48,9 +58,10 @@ export async function GET(req: NextRequest): Promise<Response> {
         thumb: media ? `/api/studio/content/${k.id}/file/${encodeURIComponent(media.name)}?project=${encodeURIComponent(p.id)}` : null,
         url: k.posted?.url ?? null,
       };
-      // Posted: when it went out. Being sent: when it was sent. Otherwise: its planned time.
-      const inFlight = ['sending', 'submitted', 'uncertain'].includes(k.status) ? k.dispatch?.claimed_at : undefined;
-      const when = k.posted?.posted_at ?? inFlight ?? k.plannedFor;
+      // Same day rule as the one-post-per-day limit (goesOutAt): posted time; scheduled time while scheduled
+      // or in flight from a schedule; else when it was sent. Otherwise: its planned time.
+      const inFlight = IN_FLIGHT.includes(k.status) && Boolean(k.dispatch);
+      const when = goesOutAt(k) ?? k.plannedFor;
       if (!when) {
         if (k.status !== 'failed') unplanned.push({ ...base, when: null, kind: 'unplanned' });
         continue;

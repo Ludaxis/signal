@@ -2,12 +2,15 @@
 // Calendar: a week of every project's posts (Studio time zone). Drag a package onto a day to plan
 // it, move planned ones between days, or open one to set the exact time. Planning never posts:
 // a planned package still needs your approval on the Posts board, and Today shows it when it is due.
+// A scheduled package is different: it really goes out at its time, so moving or cancelling it asks first.
 import { useRouter } from 'next/navigation';
 import { notifyChanged, useOnChanged } from './sync';
 import { useCallback, useEffect, useState, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { setProjectId, useProjectId, useScrollLock } from './Projects';
 import { Skeleton } from './loaders';
+import { useConfirm } from './Posts';
+import { OVERDUE_TEXT, isOverdue } from './posts-rules';
 import {
   TIMEZONE,
   addDays,
@@ -82,6 +85,20 @@ const STATUS_TEXT: Record<string, string> = {
   changed: 'Files changed',
 };
 
+/** A planned (not scheduled) approved post whose time has passed: nothing posts it by itself. */
+const overdue = (i: CalItem, now = Date.now()) => i.kind === 'planned' && isOverdue({ status: i.status, plannedFor: i.when }, now);
+const statusText = (i: CalItem) => (overdue(i) ? 'Time passed' : (STATUS_TEXT[i.status] ?? i.status));
+
+/** The question asked before a real schedule moves (it goes out at the new time instead). */
+export function moveScheduleQuestion(item: CalItem, date: string, time: string): string {
+  return `Post ${item.id} is scheduled: it really goes out at its time. Move the schedule to ${formatDateLabel(date)}, ${time}?`;
+}
+/** The question asked before a real schedule is cancelled. */
+export function cancelScheduleQuestion(item: CalItem): string {
+  return `Cancel the schedule for post ${item.id}? It will not go out by itself. It stays approved and planned for ${item.when ? `${formatDateLabel(zonedParts(item.when).date)
+}, ${formatTime(item.when)}` : 'its time'}, so you can schedule or post it again.`;
+}
+
 async function plan(item: CalItem, iso: string | null): Promise<void> {
   const r = await fetch(`/api/studio/content/${item.id}`, {
     method: 'POST',
@@ -106,6 +123,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const changes = dstChanges(days);
+  const confirmBox = useConfirm();
 
   const key = (i: CalItem) => `${i.project}/${i.id}`;
   const all = [...(cal.data?.items ?? []), ...(cal.data?.unplanned ?? [])];
@@ -126,9 +144,11 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
       say(r.message);
       return;
     }
+    const scheduled = it.status === 'scheduled';
+    if (scheduled && !(await confirmBox.confirm(moveScheduleQuestion(it, date, time)))) return;
     try {
       await plan(it, r.iso);
-      say(`Post ${it.id} planned for ${formatDateLabel(date)}, ${time}`);
+      say(scheduled ? `Schedule for post ${it.id} moved to ${formatDateLabel(date)}, ${time}` : `Post ${it.id} planned for ${formatDateLabel(date)}, ${time}`);
       await cal.reload();
     } catch (e) {
       say((e as Error).message);
@@ -141,7 +161,8 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
       <button
         key={key(i)}
         type="button"
-        className={`cal2-item k-${i.kind} s-${i.status}`}
+        className={`cal2-item k-${i.kind} s-${i.status} ${overdue(i) ? 'is-overdue' : ''}`}
+        title={overdue(i) ? OVERDUE_TEXT : undefined}
         draggable={!locked}
         onDragStart={(e: DragEvent) => {
           e.dataTransfer.setData('text/plain', key(i));
@@ -153,7 +174,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           setOver(null);
         }}
         onClick={() => setOpen(i)}
-        aria-label={`${i.title}, ${STATUS_TEXT[i.status] ?? i.status}${i.when ? `, ${formatTime(i.when)}` : ''}`}
+        aria-label={`${i.title}, ${overdue(i) ? OVERDUE_TEXT : (STATUS_TEXT[i.status] ?? i.status)}${i.when ? `, ${formatTime(i.when)}` : ''}`}
       >
         {i.thumb ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -164,7 +185,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
         <span className="cal2-meta">
           <span className="cal2-time">{i.when ? formatTime(i.when) : `#${i.id}`}</span>
           <span className="cal2-title">{i.title.replace(/^.*?·\s*/, '')}</span>
-          <span className="cal2-status">{STATUS_TEXT[i.status] ?? i.status}</span>
+          <span className="cal2-status">{statusText(i)}</span>
         </span>
       </button>
     );
@@ -209,8 +230,15 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
         </div>
       ))}
 
-      {cal.error ? <p className="real-error st-small">{cal.error}</p> : null}
-      {!cal.data ? (
+      {cal.error ? (
+        <p className="real-error st-small" role="alert">
+          {cal.error}{' '}
+          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => void cal.reload()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
+      {!cal.data && cal.error ? null : !cal.data ? (
         <div className="st-card ld-card" role="status" aria-busy="true" aria-label="Loading the calendar">
           <span className="st-vh">Loading the calendar…</span>
           <div className="ld-cal">
@@ -315,6 +343,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           item={open}
           handle={projects.find((p) => p.id === open.project)?.handle ?? ''}
           onClose={() => setOpen(null)}
+          confirm={confirmBox.confirm}
           onSaved={async (msg) => {
             setOpen(null);
             say(msg);
@@ -327,19 +356,22 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           }}
         />
       ) : null}
+      {confirmBox.node}
     </div>
   );
 }
 
-function PlanDrawer({ item, handle, onClose, onSaved, onReview }: { item: CalItem; handle: string; onClose: () => void; onSaved: (m: string) => Promise<void>; onReview: () => void }) {
+function PlanDrawer({ item, handle, confirm, onClose, onSaved, onReview }: { item: CalItem; handle: string; confirm: (m: string) => Promise<boolean>; onClose: () => void; onSaved: (m: string) => Promise<void>; onReview: () => void }) {
   const p = item.when ? zonedParts(item.when) : null;
   const [date, setDate] = useState(p?.date ?? todayInZone());
   const [time, setTime] = useState(p?.time ?? DEFAULT_TIME);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const locked = LOCKED.includes(item.status);
+  const scheduled = item.status === 'scheduled';
   useScrollLock();
   useEffect(() => {
+    // Escape inside the confirm box only closes the box (it stops the event before it gets here).
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
@@ -356,10 +388,20 @@ function PlanDrawer({ item, handle, onClose, onSaved, onReview }: { item: CalIte
       }
       iso = r.iso;
     }
+    // A real schedule goes out at its time: moving or cancelling it asks first.
+    if (scheduled && !(await confirm(clear ? cancelScheduleQuestion(item) : moveScheduleQuestion(item, date, time)))) return;
     setBusy(true);
     try {
       await plan(item, iso);
-      await onSaved(clear ? `Post ${item.id} is no longer planned` : `Post ${item.id} planned for ${formatDateLabel(date)}, ${time}`);
+      await onSaved(
+        scheduled
+          ? clear
+            ? `Schedule for post ${item.id} cancelled. It stays approved and planned, and will not go out by itself.`
+            : `Schedule for post ${item.id} moved to ${formatDateLabel(date)}, ${time}`
+          : clear
+            ? `Post ${item.id} is no longer planned`
+            : `Post ${item.id} planned for ${formatDateLabel(date)}, ${time}`,
+      );
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -384,8 +426,13 @@ function PlanDrawer({ item, handle, onClose, onSaved, onReview }: { item: CalIte
         ) : null}
         <span style={{ fontWeight: 600 }}>{item.title}</span>
         <span className="st-small st-muted">
-          {handle} · {STATUS_TEXT[item.status] ?? item.status}
+          {handle} · {statusText(item)}
         </span>
+        {overdue(item) ? (
+          <p className="real-outcome st-small real-uncertain" role="status">
+            <strong>{OVERDUE_TEXT}</strong> A planned time is not a schedule: nothing was posted. Open it in Posts to post or schedule it, or pick a new time here.
+          </p>
+        ) : null}
         {locked ? (
           <span className="st-small">
             {item.kind === 'posted' ? `Posted ${formatDateLabel(zonedParts(item.when!).date)} at ${formatTime(item.when)}.` : 'Being sent; its time can’t change.'}{' '}
@@ -407,14 +454,18 @@ function PlanDrawer({ item, handle, onClose, onSaved, onReview }: { item: CalIte
                 <input className="st-input" type="time" value={time} step={300} onChange={(e) => setTime(e.target.value)} />
               </label>
             </div>
-            <span className="xs st-muted">Planning doesn’t post: you still approve it on Posts.</span>
+            <span className="xs st-muted">
+              {scheduled
+                ? 'This post is scheduled: it goes out at this time. A new time moves the real schedule; Cancel schedule stops it going out (it stays approved and planned).'
+                : 'Planning doesn’t post: you still approve it on Posts.'}
+            </span>
             <div className="row-wrap" style={{ gap: 8 }}>
               <button type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy} onClick={() => void save(false)}>
-                {item.when ? 'Save time' : 'Plan'}
+                {scheduled ? 'Move schedule' : item.when ? 'Save time' : 'Plan'}
               </button>
               {item.when ? (
                 <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={() => void save(true)}>
-                  Remove from calendar
+                  {scheduled ? 'Cancel schedule' : 'Remove from calendar'}
                 </button>
               ) : null}
             </div>

@@ -65,31 +65,72 @@ export function backgroundSvg(W: number, H: number, colors?: Kit['colors']): str
 </svg>`;
 }
 
-/** Brand mark (logo + name, bottom right) and the "AI-generated content" label (bottom left). */
-export async function brandLayers(kit: Kit, W: number, H: number): Promise<OverlayOptions[]> {
-  const k = kit.icon ? 64 : 0;
+/** Instagram Reels safe area on 1080x1920: the top 268 px and bottom 420 px are covered by the app; text stays in x 60..1020. */
+export const REEL_SAFE = { top: 268, bottom: 1920 - 420, left: 60, right: 1020 } as const;
+
+export type BrandVariant = 'post' | 'reel';
+export interface Box { left: number; top: number; width: number; height: number }
+export interface BrandGeometry { variant: BrandVariant; pill: Box; icon: Box | null; name: Box }
+
+/** Tall 9:16 canvases (Reels, Reel covers) get the Reel-safe brand mark; everything else keeps the post layout. */
+export const brandVariantFor = (W: number, H: number): BrandVariant => (H / W >= 1.7 ? 'reel' : 'post');
+
+const ICON = 64;
+const ICON_GAP = 14;
+const PILL_H = 46;
+const AI_LABEL = 'AI-generated content';
+
+/**
+ * Where the brand mark goes.
+ * post (1080x1350 and other non-tall canvases): AI pill bottom-left, icon + name bottom-right, 40 px inset (unchanged).
+ * reel (9:16): one header row just under Instagram's top reserve: AI pill top-left inside REEL_SAFE, icon + name
+ * right-aligned to REEL_SAFE.right, so nothing sits in the bottom 420 px the caption, username and action rail cover.
+ */
+export function brandGeometry(kit: Kit, W: number, H: number, variant: BrandVariant = brandVariantFor(W, H)): BrandGeometry {
+  const k = kit.icon ? ICON : 0;
+  const nw = kit.font.getAdvanceWidth(kit.brandName, 36);
+  const lw = kit.font.getAdvanceWidth(AI_LABEL, 24);
+  const nameW = Math.ceil(nw) + 4;
+  const pillW = Math.ceil(lw) + 40;
+  if (variant === 'reel') {
+    const top = REEL_SAFE.top;
+    const x = REEL_SAFE.right - nameW - (k ? k + ICON_GAP : 0);
+    return {
+      variant,
+      pill: { left: REEL_SAFE.left, top: top + Math.round((ICON - PILL_H) / 2), width: pillW, height: PILL_H },
+      icon: k ? { left: x, top, width: ICON, height: ICON } : null,
+      name: { left: x + (k ? k + ICON_GAP : 0), top: top + 12, width: nameW, height: PILL_H },
+    };
+  }
+  const x = W - 40 - nw - (k ? k + ICON_GAP : 0);
+  const y = H - 40 - ICON;
+  return {
+    variant,
+    pill: { left: 40, top: H - 40 - PILL_H, width: pillW, height: PILL_H },
+    icon: k ? { left: Math.round(x), top: y, width: ICON, height: ICON } : null,
+    name: { left: Math.round(x + (k ? k + ICON_GAP : 0)), top: y + 12, width: nameW, height: PILL_H },
+  };
+}
+
+/** Brand mark (logo + name) and the "AI-generated content" label, placed by brandGeometry for the canvas shape. */
+export async function brandLayers(kit: Kit, W: number, H: number, variant: BrandVariant = brandVariantFor(W, H)): Promise<OverlayOptions[]> {
+  const g = brandGeometry(kit, W, H, variant);
   const icon = kit.icon
     ? await sharp(kit.icon)
-        .resize(64, 64)
+        .resize(ICON, ICON)
         .composite([{ input: Buffer.from(`<svg width="64" height="64"><rect width="64" height="64" rx="16" fill="#fff"/></svg>`), blend: 'dest-in' }])
         .png()
         .toBuffer()
     : null;
-  const name = kit.brandName;
-  const nw = kit.font.getAdvanceWidth(name, 36);
-  const nameD = kit.font.getPath(name, 0, 34, 36).toPathData(2);
-  const label = 'AI-generated content';
-  const lw = kit.font.getAdvanceWidth(label, 24);
-  const labelD = kit.font.getPath(label, 20, 32, 24).toPathData(2);
-  const x = W - 40 - nw - (k ? k + 14 : 0);
-  const y = H - 40 - 64;
+  const nameD = kit.font.getPath(kit.brandName, 0, 34, 36).toPathData(2);
+  const labelD = kit.font.getPath(AI_LABEL, 20, 32, 24).toPathData(2);
   return [
-    ...(icon ? [{ input: icon, left: Math.round(x), top: y }] : []),
-    { input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(nw) + 4}" height="46"><path d="${nameD}" fill="#ffffff"/></svg>`), left: Math.round(x + (k ? k + 14 : 0)), top: y + 12 },
+    ...(icon && g.icon ? [{ input: icon, left: g.icon.left, top: g.icon.top }] : []),
+    { input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${g.name.width}" height="46"><path d="${nameD}" fill="#ffffff"/></svg>`), left: g.name.left, top: g.name.top },
     {
-      input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(lw) + 40}" height="46"><rect width="100%" height="46" rx="23" fill="#0a0628" fill-opacity="0.78"/><path d="${labelD}" fill="#ebebff"/></svg>`),
-      left: 40,
-      top: H - 40 - 46,
+      input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${g.pill.width}" height="46"><rect width="100%" height="46" rx="23" fill="#0a0628" fill-opacity="0.78"/><path d="${labelD}" fill="#ebebff"/></svg>`),
+      left: g.pill.left,
+      top: g.pill.top,
     },
   ];
 }

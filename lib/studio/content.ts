@@ -8,6 +8,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { TIMEZONE } from '@/lib/time';
 import { accountSettings, postingActive, currentProject } from './projects';
+import { getAccount, getMedia, instagramApiAllowed, listMedia, shortcode, type IgMedia } from './meta';
 import type { AutopilotMark } from './autopilot/types';
 
 /** Posting limits for the current project's Instagram account, from its posting settings (accounts.json). */
@@ -106,6 +107,8 @@ export interface PackageView {
   autopilot: AutopilotMark | null;
   /** Set when a pipeline made the post: <package>/pipeline.json. */
   pipeline: { id: string; name: string; slotAt: string; article: string | null } | null;
+  /** State files in the folder that are not valid JSON (the package is then 'invalid' and names them in `problems`). */
+  unreadable?: string[];
 }
 
 export function contentDir(): string {
@@ -133,6 +136,25 @@ async function readJson<T>(file: string): Promise<T | null> {
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new ContentError(500, `Could not read ${path.basename(file)}.`);
+  }
+}
+
+/**
+ * State files that say whether something was (or may be) sent. When one of them cannot be read,
+ * Signal cannot tell what happened, so the package is 'invalid' and cannot be discarded either.
+ */
+const SENDING_STATE = ['posted.json', 'dispatch.json', 'outcome.json', 'scheduled.json', 'discarded.json'];
+
+/** Like readJson, but a file that is not valid JSON is noted in `unreadable` (and read as absent) instead of failing the whole package. */
+async function readState<T>(dir: string, name: string, unreadable: string[]): Promise<T | null> {
+  try {
+    return await readJson<T>(path.join(dir, name));
+  } catch (e) {
+    if (e instanceof ContentError) {
+      unreadable.push(name);
+      return null;
+    }
+    throw e;
   }
 }
 
@@ -176,8 +198,10 @@ function validSpec(spec: PackageSpec | null, id: string): string[] {
 
 export async function loadPackage(id: string): Promise<PackageView> {
   const dir = pkgDir(id);
-  const spec = await readJson<PackageSpec>(path.join(dir, 'package.json'));
-  const problems = validSpec(spec, id);
+  // One broken JSON file makes this package 'invalid' (named in problems); it never fails the whole list.
+  const unreadable: string[] = [];
+  const spec = await readState<PackageSpec>(dir, 'package.json', unreadable);
+  const problems = unreadable.length ? ['package.json could not be read (damaged or not valid JSON).'] : validSpec(spec, id);
   const files: PackageView['files'] = [];
   let caption = '';
   if (spec && problems.length === 0) {
@@ -193,25 +217,31 @@ export async function loadPackage(id: string): Promise<PackageView> {
       if (f.role === 'caption') caption = await fs.readFile(/* turbopackIgnore: true */ path.join(dir, f.name), 'utf8').catch(() => '');
     }
   }
-  const approval = await readJson<Approval>(path.join(dir, 'approval.json'));
-  const posted = await readJson<Posted>(path.join(dir, 'posted.json'));
-  const dispatch = await readJson<Dispatch>(path.join(dir, 'dispatch.json'));
-  const outcome = await readJson<Outcome>(path.join(dir, 'outcome.json'));
-  const label = await readJson<LabelCheck>(path.join(dir, 'label.json'));
-  const discarded = await readJson<{ discarded_by: string; discarded_at: string }>(path.join(dir, 'discarded.json'));
-  const plan = await readJson<{ planned_for: string | null; missed_at?: string; missed_reason?: string }>(path.join(dir, 'plan.json'));
-  const metrics = await readJson<PackageView['metrics']>(path.join(dir, 'metrics.json'));
-  const camp = await readJson<{ campaign: string; campaign_name?: string; slot: string }>(path.join(dir, 'campaign.json'));
-  const scheduled = await readJson<{ job_id: string; scheduled_for: string; provider?: 'upload-post' | 'signal' }>(path.join(dir, 'scheduled.json'));
+  const approval = await readState<Approval>(dir, 'approval.json', unreadable);
+  const posted = await readState<Posted>(dir, 'posted.json', unreadable);
+  const dispatch = await readState<Dispatch>(dir, 'dispatch.json', unreadable);
+  const outcome = await readState<Outcome>(dir, 'outcome.json', unreadable);
+  const label = await readState<LabelCheck>(dir, 'label.json', unreadable);
+  const discarded = await readState<{ discarded_by: string; discarded_at: string }>(dir, 'discarded.json', unreadable);
+  const plan = await readState<{ planned_for: string | null; missed_at?: string; missed_reason?: string }>(dir, 'plan.json', unreadable);
+  const metrics = await readState<PackageView['metrics']>(dir, 'metrics.json', unreadable);
+  const camp = await readState<{ campaign: string; campaign_name?: string; slot: string }>(dir, 'campaign.json', unreadable);
+  const scheduled = await readState<{ job_id: string; scheduled_for: string; provider?: 'upload-post' | 'signal' }>(dir, 'scheduled.json', unreadable);
   const autopilot = await readJson<AutopilotMark>(path.join(dir, 'autopilot.json')).catch(() => null);
   const pipe = await readJson<{ pipeline: string; name?: string; slotAt: string; idea?: { articleUrl?: string } }>(path.join(dir, 'pipeline.json')).catch(() => null);
   if (approval && spec) {
     for (const f of spec.files) if (approval.hashes?.[f.name] !== f.sha256) problems.push(`Approval does not cover the current ${f.name}.`);
   }
+  for (const name of unreadable) if (name !== 'package.json') problems.push(`${name} could not be read (damaged or not valid JSON).`);
+  const unsure = unreadable.some((n) => SENDING_STATE.includes(n));
+  // A discard wins over a broken package.json and over a definite failure (nothing was posted), never over a post.
+  const failed = outcome?.state === 'failed';
   let status: PackageStatus;
-  if (!spec || validSpec(spec, id).length) status = 'invalid';
+  if (unsure) status = 'invalid';
+  else if (discarded && !posted && (!dispatch || failed)) status = 'discarded';
+  else if (!spec || validSpec(spec, id).length) status = 'invalid';
   else if (posted) status = 'posted';
-  else if (discarded && !dispatch) status = 'discarded';
+  else if (unreadable.length) status = 'invalid';
   else if (outcome) status = outcome.state;
   else if (dispatch) status = 'sending';
   else if (problems.length) status = 'changed';
@@ -241,6 +271,7 @@ export async function loadPackage(id: string): Promise<PackageView> {
     campaign: camp ? { id: camp.campaign, name: camp.campaign_name ?? camp.campaign, slot: camp.slot } : null,
     autopilot: autopilot && typeof autopilot === 'object' && typeof autopilot.run === 'string' ? autopilot : null,
     pipeline: pipe && typeof pipe === 'object' && typeof pipe.pipeline === 'string' && typeof pipe.slotAt === 'string' ? { id: pipe.pipeline, name: typeof pipe.name === 'string' ? pipe.name : pipe.pipeline, slotAt: pipe.slotAt, article: typeof pipe.idea?.articleUrl === 'string' ? pipe.idea.articleUrl : null } : null,
+    ...(unreadable.length ? { unreadable } : {}),
   };
 }
 
@@ -251,7 +282,37 @@ export async function listPackages(): Promise<PackageView[]> {
   } catch {
     return [];
   }
-  return Promise.all(names.sort().map(loadPackage));
+  // One package that cannot be read at all never hides the others: it is listed as 'invalid'.
+  return Promise.all(names.sort().map((id) => loadPackage(id).catch((e: unknown) => unreadableView(id, e))));
+}
+
+function unreadableView(id: string, e: unknown): PackageView {
+  return {
+    id,
+    title: `Post ${id}`,
+    format: 'image',
+    destination: '',
+    status: 'invalid',
+    problems: [e instanceof ContentError ? e.message : `Post ${id} could not be read.`],
+    caption: '',
+    files: [],
+    approval: null,
+    posted: null,
+    dispatch: null,
+    outcome: null,
+    labelConfirmed: false,
+    source: null,
+    plannedFor: null,
+    metrics: null,
+    scheduled: null,
+    missedAt: null,
+    missedReason: null,
+    campaign: null,
+    autopilot: null,
+    pipeline: null,
+    // Signal cannot tell what this package's state is, so it is not discardable either.
+    unreadable: ['package folder'],
+  };
 }
 
 function dayKey(ms: number): string {
@@ -269,12 +330,28 @@ export function assertCanApprove(all: PackageView[], now: number, lim: Limits): 
   if (unlabelled.length) throw new ContentError(409, `Check that post ${unlabelled[0]!.id} shows Instagram's AI label, then confirm it.`);
 }
 
+/** The AI-label canary: nothing more is sent or scheduled while a posted package's AI label is unconfirmed. */
+export function assertNoUnlabelled(all: PackageView[], exceptId?: string): void {
+  const u = all.find((p) => p.id !== exceptId && p.posted && !p.labelConfirmed);
+  if (u) throw new ContentError(409, `Check that post ${u.id} shows Instagram's AI label, then confirm it. Nothing more goes out until then.`);
+}
+
+/**
+ * When a committed package goes (or went) out: the posted time; the scheduled time while it is
+ * scheduled or in flight from a schedule (an Upload-Post schedule that is processing still belongs to
+ * its scheduled day); otherwise the time it was sent. Null when it is not committed.
+ */
+export function goesOutAt(p: PackageView): string | null {
+  if (p.posted) return p.posted.posted_at;
+  if (p.scheduled && (p.status === 'scheduled' || IN_FLIGHT.includes(p.status))) return p.scheduled.scheduled_for;
+  if (IN_FLIGHT.includes(p.status) && p.dispatch) return p.dispatch.claimed_at;
+  return null;
+}
+
 /** The calendar day a package goes (or went) out on, if it is committed. */
 function goesOutOn(p: PackageView): string | null {
-  if (p.posted) return dayKey(Date.parse(p.posted.posted_at));
-  if (p.status === 'scheduled' && p.scheduled) return dayKey(Date.parse(p.scheduled.scheduled_for));
-  if (IN_FLIGHT.includes(p.status) && p.dispatch) return dayKey(Date.parse(p.dispatch.claimed_at));
-  return null;
+  const at = goesOutAt(p);
+  return at ? dayKey(Date.parse(at)) : null;
 }
 
 /** Posts per calendar day (Studio time zone) on the target day, counting posted, scheduled and in-flight packages. */
@@ -312,13 +389,62 @@ export async function recordPosted(id: string, url: string, aiLabel: boolean, by
   return loadPackage(id);
 }
 
+/** What was known when you confirmed the AI label, stored in label.json. */
+export interface LabelEvidence {
+  permalink: string | null;
+  media_id: string | null;
+  /** Instagram's is_ai_generated flag as read from its API; null when it was not read. */
+  ai_label: boolean | null;
+  ai_label_source: 'instagram-api' | null;
+  read_at: string | null;
+  read_error?: string;
+  /** SHA-256 of the posted slides, video and cover. */
+  hashes: Record<string, string>;
+}
+
+/** Reads the post from Instagram's API when it is set up for this account; never fails the confirmation. */
+async function labelEvidence(pkg: PackageView, now: number, f: typeof fetch): Promise<LabelEvidence> {
+  const posted = pkg.posted!;
+  const ev: LabelEvidence = {
+    permalink: posted.url ?? null,
+    media_id: posted.media_id ?? null,
+    ai_label: null,
+    ai_label_source: null,
+    read_at: null,
+    hashes: Object.fromEntries(pkg.files.filter((x) => x.role !== 'caption').map((x) => [x.name, x.sha256])),
+  };
+  if (!(ev.media_id || shortcode(ev.permalink)) || !(await instagramApiAllowed().catch(() => ({ enabled: false }))).enabled) return ev;
+  try {
+    let media: IgMedia | null = null;
+    if (ev.media_id) media = await getMedia(ev.media_id, f);
+    else {
+      const code = shortcode(ev.permalink);
+      media = (await listMedia((await getAccount(f)).userId, 50, f)).find((m) => shortcode(m.permalink) === code) ?? null;
+    }
+    ev.read_at = new Date(now).toISOString();
+    if (!media) ev.read_error = 'Not found among the latest 50 Instagram posts.';
+    else Object.assign(ev, { media_id: media.id || ev.media_id, permalink: media.permalink ?? ev.permalink, ai_label: media.aiLabel, ai_label_source: media.aiLabel === null ? null : 'instagram-api' });
+  } catch (e) {
+    ev.read_at = new Date(now).toISOString();
+    ev.read_error = (e as Error).message.slice(0, 160);
+  }
+  return ev;
+}
+
 /** You confirm Instagram's AI label is visible on an automatically posted package. */
-export async function confirmLabel(id: string, by: string, now = Date.now()): Promise<PackageView> {
+export async function confirmLabel(id: string, by: string, now = Date.now(), deps: { fetch?: typeof fetch } = {}): Promise<PackageView> {
   const pkg = await loadPackage(id);
   if (pkg.status !== 'posted') throw new ContentError(409, `Post ${id} is not posted.`);
   if (pkg.labelConfirmed) throw new ContentError(409, 'Already confirmed.');
-  await writeJsonExclusive(path.join(pkgDir(id), 'label.json'), { confirmed_by: by, confirmed_at: new Date(now).toISOString() } satisfies LabelCheck);
+  const evidence = await labelEvidence(pkg, now, deps.fetch ?? fetch);
+  await writeJsonExclusive(path.join(pkgDir(id), 'label.json'), { confirmed_by: by, confirmed_at: new Date(now).toISOString(), evidence } satisfies LabelCheck & { evidence: LabelEvidence });
   return loadPackage(id);
+}
+
+/** "<project id>-post-<package id>-<file>": names the account the file belongs to, never a fixed prefix. */
+export function downloadName(projectId: string, id: string, name: string): string {
+  const slug = projectId.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'signal';
+  return `${slug}-post-${id}-${name}`;
 }
 
 export async function readPackageFile(id: string, name: string): Promise<{ body: Buffer; type: string }> {
@@ -330,10 +456,27 @@ export async function readPackageFile(id: string, name: string): Promise<{ body:
   return { body: await fs.readFile(/* turbopackIgnore: true */ path.join(pkgDir(id), name)), type };
 }
 
-/** Hides an unapproved package from Review. Nothing is deleted; discarded.json records the decision. */
+/** Whether a package may be rejected: nothing posted, nothing on its way and nothing scheduled. */
+export function discardBlock(pkg: PackageView): string | null {
+  const id = pkg.id;
+  if (pkg.posted) return `Post ${id} is posted and cannot be discarded.`;
+  if (pkg.status === 'invalid') {
+    const unsure = (pkg.unreadable ?? []).filter((n) => SENDING_STATE.includes(n) || n === 'package folder');
+    if (unsure.length) return `Post ${id} has a file Signal cannot read (${unsure.join(', ')}), so it cannot tell whether the post was sent. Fix the file first.`;
+    if (pkg.scheduled) return `Post ${id} is scheduled. Cancel the schedule first.`;
+    if (pkg.dispatch && pkg.outcome?.state !== 'failed') return `Post ${id} was sent and its result is not known. Check its status first.`;
+    return null;
+  }
+  // A definite failure (Upload-Post or Instagram refused it, or you checked: not posted) may be rejected.
+  if (['ready', 'changed', 'approved', 'failed'].includes(pkg.status)) return null;
+  return `Post ${id} is ${pkg.status} and cannot be discarded.`;
+}
+
+/** Hides a package that will not be posted. Nothing is deleted; discarded.json records the decision. */
 export async function discardPackage(id: string, by: string, now = Date.now()): Promise<PackageView> {
   const pkg = await loadPackage(id);
-  if (!['ready', 'changed', 'invalid', 'approved'].includes(pkg.status)) throw new ContentError(409, `Post ${id} is ${pkg.status} and cannot be discarded.`);
+  const block = discardBlock(pkg);
+  if (block) throw new ContentError(409, block);
   await writeJsonExclusive(path.join(pkgDir(id), 'discarded.json'), { discarded_by: by, discarded_at: new Date(now).toISOString() });
   return loadPackage(id);
 }

@@ -1,6 +1,6 @@
 // GET /api/studio/content/:id/file/:name — serve a file listed in the package (preview/download).
 import type { NextRequest } from 'next/server';
-import { ContentError, isPackageId, readPackageFile } from '@/lib/studio/content';
+import { ContentError, downloadName, isPackageId, readPackageFile } from '@/lib/studio/content';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
 import { inProject } from '@/lib/server/studioProject';
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (user instanceof Response) return user;
   const { id, name } = await ctx.params;
   if (!isPackageId(id)) return jsonError(404, 'not_found', 'Not found.');
-  return inProject(req, null, async () => {
+  return inProject(req, null, async (project) => {
     try {
       const f = await readPackageFile(id, name);
       const download = new URL(req.url).searchParams.get('download') === '1';
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
           'Content-Type': f.type,
           'Cache-Control': 'no-store',
           'X-Content-Type-Options': 'nosniff',
-          ...(download ? { 'Content-Disposition': `attachment; filename="signal-post-${id}-${name}"` } : {}),
+          ...(download ? { 'Content-Disposition': `attachment; filename="${downloadName(project.id, id, name)}"` } : {}),
         },
       });
     } catch (e) {

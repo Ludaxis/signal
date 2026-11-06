@@ -33,13 +33,14 @@ beforeEach(() => {
   setTestProjectEnv(path.join(root, 'posts'));
   process.env.SIGNAL_CONFIG_FILE = path.join(root, 'signal.config.json');
   process.env.SIGNAL_PROJECTS_FILE = path.join(root, 'no-projects.json');
+  process.env.SIGNAL_DATA_DIR = path.join(root, 'data');
   process.env.UPLOAD_POST_API_KEY = KEY;
   process.env.UPLOAD_POST_PROFILE = 'demo-profile';
   writeGate(true);
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
-  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'UPLOAD_POST_API_KEY', 'UPLOAD_POST_PROFILE']) delete process.env[k];
+  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'SIGNAL_DATA_DIR', 'UPLOAD_POST_API_KEY', 'UPLOAD_POST_PROFILE']) delete process.env[k];
 });
 
 describe('Upload-Post dispatch', () => {

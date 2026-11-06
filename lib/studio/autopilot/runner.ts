@@ -21,6 +21,7 @@ import { MARK_FILE, autopilotDir, ensureAutopilotDir } from './trust';
 import type { AutopilotMark, AutopilotRun } from './types';
 import { higgsfieldAllowed } from '../higgsfield';
 import { ATTENDED_ONLY, AUTOPILOT_BY, BACKLOG_LIMIT, HIGGSFIELD_FORMATS, PLAN_CAP_USD, REVIEW_CAP_USD, iso, makeCostEstimate, maybeAutoApprove, msg, reviewStep, spendOf, waitingInReview, type RunnerDeps } from './steps';
+import { agentSpendOf } from '../claude-agent';
 import { listPipelines } from '../pipelines/store';
 import { runPipelines } from '../pipelines/runner';
 
@@ -203,6 +204,10 @@ async function executeCampaigns(run: AutopilotRun, todays: AutopilotRun[], owner
         run.steps.push({ kind: 'plan', campaign: c.id, slots: plan.slots.filter(planned).length, costUsd: plan.meta?.costUsd ?? null });
         await recordEvent({ type: 'plan.made', by: 'agent:planner', campaign: c.id, refs: { run: run.id }, data: { slots: plan.slots.filter(planned).length, requestedBy: AUTOPILOT_BY } });
       } catch (e) {
+        // A failed plan may still have been billed (an answer that broke the rules, a run that hit its cap or timed
+        // out on the API key): count what it cost, or its cap when the cost is unknown, against today's budget.
+        const spent = agentSpendOf(e);
+        if (spent) run.steps.push({ kind: 'plan', campaign: c.id, slots: 0, costUsd: spent });
         run.steps.push({ kind: 'skip', campaign: c.id, reason: `Planning failed: ${msg(e)}` });
       }
     }

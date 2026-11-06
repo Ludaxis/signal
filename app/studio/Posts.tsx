@@ -10,9 +10,9 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExtern
 import { createPortal } from 'react-dom';
 import { AutopilotMarkView } from './Autopilot';
 import { MAKE_SECONDS, MAKE_STEPS } from './Campaigns';
-import { LazyImage, ScreenSkeleton, TaskProgress } from './loaders';
+import { LazyImage, LoadError, ScreenSkeleton, TaskProgress } from './loaders';
 import { getProjectId, useFocusTrap, useProjectId, useScrollLock } from './Projects';
-import { COLUMNS, COLUMN_TITLE, columnOf, planMove, sortForColumn, type Column, type MoveCapabilities, type MovePlan, type MoveStep } from './posts-rules';
+import { COLUMNS, COLUMN_TITLE, OVERDUE_TEXT, columnOf, isOverdue, moveCapabilities, partialText, planMove, sortForColumn, type Column, type MoveCapabilities, type MovePlan, type MoveStep } from './posts-rules';
 import { GenerateBar, PackageActions, PackageMedia, STATUS_LABEL, quickAction, thumbUrl, usePackageAct, useRealPosts, type Live, type RealPackage } from './RealPosts';
 import { notifyChanged, useOnChanged } from './sync';
 import { More } from './More';
@@ -101,7 +101,8 @@ export function Posts({ say, initialTab = 'board' }: { say: (t: string) => void;
     (pkg: RealPackage) => setData((d) => (d ? { ...d, packages: d.packages.some((p) => p.id === pkg.id) ? d.packages.map((p) => (p.id === pkg.id ? pkg : p)) : [...d.packages, pkg] } : d)),
     [setData],
   );
-  const caps: MoveCapabilities = useMemo(() => ({ live: Boolean(data?.live.enabled), scheduling: Boolean(data?.scheduling?.enabled) }), [data]);
+  // Scheduling counts only while one-click posting is on: otherwise "Approve and schedule" would approve, then fail.
+  const caps: MoveCapabilities = useMemo(() => moveCapabilities(data?.live, data?.scheduling), [data]);
   const byColumn = useMemo(() => {
     const out: Record<Column, RealPackage[]> = { planned: [], review: [], posted: [], rejected: [] };
     for (const p of data?.packages ?? []) out[columnOf(p.status)].push(p);
@@ -127,7 +128,7 @@ export function Posts({ say, initialTab = 'board' }: { say: (t: string) => void;
   const closeMove = useCallback(() => setMove(null), []);
   const open = openId ? (data?.packages.find((p) => p.id === openId) ?? null) : null;
 
-  if (error) return <div className="st-card real-card st-small">Posts: {error}</div>;
+  if (error && !data) return <LoadError title="Posts could not be loaded." message={error} onRetry={reload} />;
   if (!data) return <ScreenSkeleton variant="cards" count={3} label="Loading posts" />;
 
   const live: Live = data.live;
@@ -148,6 +149,15 @@ export function Posts({ say, initialTab = 'board' }: { say: (t: string) => void;
           </More>
         ) : null}
       </div>
+
+      {error ? (
+        <p className="real-error st-small" role="alert">
+          {error} The board shows what was loaded last.{' '}
+          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => void reload()}>
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       <Tabs tab={tab} counts={counts} onChange={setTab} />
 
@@ -307,6 +317,7 @@ function whenText(pkg: RealPackage, live: Live, variant: 'board' | 'list'): { te
     case 'invalid':
       return { text: pkg.problems[0] ?? 'Something is wrong with this package.', tone: 'bad' };
     case 'approved':
+      if (isOverdue(pkg)) return { text: variant === 'board' ? OVERDUE_TEXT : `${OVERDUE_TEXT} It was planned for ${formatDateTime(pkg.plannedFor)}.`, tone: 'bad' };
       if (pkg.missedAt) return { text: `Missed ${formatDateTime(pkg.plannedFor)}. Post now or re-plan.`, tone: 'warn' };
       if (pkg.plannedFor) return { text: `Planned for ${formatDateTime(pkg.plannedFor)} · not scheduled`, tone: 'warn' };
       return { text: variant === 'board' ? `Not scheduled — move to Posted to ${live.enabled ? 'post now' : 'record it'}` : `Not scheduled. Move it to Posted to ${live.enabled ? 'post now' : 'record it'}.`, tone: 'warn' };
@@ -334,7 +345,7 @@ function PostCard({ pkg, variant, draggable, dragging, onDragStart, onDragEnd, l
   const col = columnOf(pkg.status);
   return (
     <article
-      className={`pb-card pb-card-${variant} s-${pkg.status} ${dragging ? 'is-dragging' : ''} ${busy ? 'is-working' : ''}`}
+      className={`pb-card pb-card-${variant} s-${pkg.status} ${isOverdue(pkg) ? 'is-overdue' : ''} ${dragging ? 'is-dragging' : ''} ${busy ? 'is-working' : ''}`}
       aria-label={`Post ${pkg.id}: ${pkg.title}`}
       aria-busy={busy || undefined}
       draggable={draggable}
@@ -542,7 +553,7 @@ const MOVE_HINT: Record<Column, string> = { planned: 'Back to waiting', review: 
 // ---- the move confirm dialog -------------------------------------------------------------------
 
 function MoveDialog({ pkg, to, plan, live, scheduling, say, onChange, reload, onClose }: { pkg: RealPackage; to: Column; plan: Exclude<MovePlan, { kind: 'none' } | { kind: 'refuse' }>; live: Live; scheduling?: Live; say: (t: string) => void; onChange: (p: RealPackage) => void; reload: () => Promise<void>; onClose: () => void }) {
-  const { act, busy, err, setErr } = usePackageAct(pkg.id, { onChange, reload, say });
+  const { act, busy, err, setErr, lastError } = usePackageAct(pkg.id, { onChange, reload, say });
   const [checks, setChecks] = useState({ look: false, claims: false });
   const [url, setUrl] = useState('');
   const [aiLabel, setAiLabel] = useState(false);
@@ -561,14 +572,22 @@ function MoveDialog({ pkg, to, plan, live, scheduling, say, onChange, reload, on
   const checksOk = !needsChecks || (checks.look && checks.claims);
   const handle = pkg.destination;
 
-  /** Runs the steps in order; stops (and says why) at the first one the server refuses. */
+  /**
+   * Runs the steps in order; stops (and says why) at the first one the server refuses. When an earlier
+   * step already went through (approved, schedule cancelled), the post has moved on and this dialog no
+   * longer describes it: close it and say what happened, so a retry cannot repeat the first step.
+   */
   const run = async (steps: MoveStep[], done: string) => {
     setErr('');
-    for (const s of steps) {
+    for (const [i, s] of steps.entries()) {
       const ok = await act({ ...s }, '');
       if (!ok) {
         await reload();
         notifyChanged('content', 'calendar');
+        if (i > 0) {
+          say(partialText(pkg.id, steps[0]!, s, lastError()));
+          onClose();
+        }
         return;
       }
     }
@@ -663,7 +682,11 @@ function MoveDialog({ pkg, to, plan, live, scheduling, say, onChange, reload, on
             </label>
           </div>
         ) : null}
-        {plan.kind === 'approve' && pkg.plannedFor && !plan.scheduleAt && !scheduling?.enabled ? <span className="xs st-muted">Planned for {formatDateTime(pkg.plannedFor)}. {scheduling?.reason || 'Scheduling is not available, so you post it yourself when the time comes.'}</span> : null}
+        {plan.kind === 'approve' && pkg.plannedFor && !plan.scheduleAt && !(live.enabled && scheduling?.enabled) ? (
+          <span className="xs st-muted">
+            Planned for {formatDateTime(pkg.plannedFor)}. {!live.enabled ? `Scheduling needs one-click posting, which is off${live.reason ? `: ${live.reason}` : '.'}` : scheduling?.reason || 'Scheduling is not available, so you post it yourself when the time comes.'}
+          </span>
+        ) : null}
         {err ? (
           <p className="real-error st-small" role="alert">
             {err}
@@ -682,8 +705,8 @@ function MoveDialog({ pkg, to, plan, live, scheduling, say, onChange, reload, on
   return host ? createPortal(node, host) : node;
 }
 
-/** A yes/no box in the Studio's look, as a promise (replaces window.confirm inside the drawer). */
-function useConfirm() {
+/** A yes/no box in the Studio's look, as a promise (replaces window.confirm inside the drawer and the Calendar). */
+export function useConfirm() {
   const [req, setReq] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
   const confirm = useCallback((message: string) => new Promise<boolean>((resolve) => setReq({ message, resolve })), []);
   const answer = useCallback(

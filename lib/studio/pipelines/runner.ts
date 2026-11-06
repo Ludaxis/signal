@@ -9,7 +9,7 @@
 // step, the backlog limit, the unclear-post stop (checked by the caller), one run at a time. Codex formats are
 // made only in a run you started for this one pipeline.
 import { addDays, todayInZone } from '@/lib/time';
-import { getCampaign, getPlan, makeSlotPost, type Slot } from '../campaigns';
+import { claimProblems, getCampaign, getPlan, makeSlotPost, type Slot } from '../campaigns';
 import { currentLimits, listPackages, loadPackage, pkgPath, setPlan, writeJsonReplace, type PackageView } from '../content';
 import { BRIEF_FORMATS, FORMAT_LABEL, generatePackage, HEADLINE_FORMATS, type Format } from '../generate';
 import { discoverArticles, loadBrand, readArticle } from '../brand';
@@ -113,10 +113,12 @@ async function writeIdeas(p: Pipeline, want: number, all: PackageView[], deps: R
         const out = rows
           .filter((r) => r && typeof r === 'object')
           .map((r) => ({ topic: s(r.topic, 160), hook: s(r.hook, 120), prompt: s(r.prompt, 600), headline: s(r.headline, 70), caption: typeof r.caption === 'string' ? r.caption.trim().slice(0, 900) : '' }))
-          .filter((r) => r.topic)
-          .slice(0, IDEAS_PER_CALL.max);
+          .filter((r) => r.topic);
+        // The claims lint on the agent's copy: an idea that breaks it is never queued.
+        const clean = out.filter((r) => ![r.topic, r.hook, r.headline, r.caption].some((t) => claimProblems(t).length)).slice(0, IDEAS_PER_CALL.max);
         if (!out.length) throw new Error('The agent returned no ideas.');
-        return out;
+        if (!clean.length) throw new Error('Every idea broke Signal\'s content rules (unverifiable claims, timers or "tap to").');
+        return clean;
       },
     },
     deps.agentRunner,

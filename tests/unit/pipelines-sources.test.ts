@@ -145,6 +145,23 @@ describe('ideas (agent)', () => {
     expect(run.steps).toEqual([{ kind: 'ideas', pipeline: P1, ideas: 0, costUsd: 0.25, error: 'The agent returned no ideas.' }]);
     expect(run.costUsd).toBe(0.25);
   });
+  it('never queues an idea that breaks the claims lint', async () => {
+    writePipeline(P1, { steps: { ...SCHED, source: { kind: 'ideas' }, make: IMAGE, review: { enabled: false } } });
+    const gen = fakeGenerator();
+    const bad = [
+      { topic: 'Link', hook: 'Most people miss #2', prompt: 'Picture A', caption: 'Answer below.' },
+      { topic: 'Timer', hook: 'Find the link in 5 seconds', prompt: 'Picture B', caption: 'Go.' },
+      { topic: 'Stat', hook: 'Only 3% of players get this one', prompt: 'Picture C', caption: 'Go.' },
+      { topic: 'Clean', hook: 'Which one would you pick?', prompt: 'Picture D', caption: 'Answer in the comments.' },
+    ];
+    const all = await runProject('manual', { now: NOW, generatePackage: gen.generate, agentRunner: fakeIdeas({ ideas: () => bad.slice(0, 3), costUsd: 0.2 }).runner });
+    expect(all.steps[0]).toMatchObject({ kind: 'ideas', ideas: 0, costUsd: 0.2, error: /content rules/ });
+    expect(gen.calls).toEqual([]);
+    const run = await runProject('manual', { now: NOW + 1000, generatePackage: gen.generate, agentRunner: fakeIdeas({ ideas: () => bad }).runner });
+    expect(run.steps[0]).toMatchObject({ kind: 'ideas', pipeline: P1, ideas: 1 });
+    expect(gen.calls.length).toBeGreaterThan(0);
+    for (const c of gen.calls) expect(c.brief?.caption).toBe('Which one would you pick?\n\nAnswer in the comments.'); // only the clean idea is ever made
+  });
   it('does not call the agent when its cap would pass the daily budget, or when agents are switched off', async () => {
     writePipeline(P1, { steps: { ...SCHED, source: { kind: 'ideas' }, make: IMAGE, review: { enabled: false }, budget: { dailyUsd: 0.5 } } });
     const ideas = fakeIdeas();

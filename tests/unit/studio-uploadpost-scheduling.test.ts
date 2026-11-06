@@ -14,7 +14,7 @@ import { generatePackage } from '@/lib/studio/generate';
 
 const sha = (b: string | Buffer) => createHash('sha256').update(b).digest('hex');
 const NOW = Date.parse('2026-11-04T12:00:00+01:00');
-const TOMORROW_18 = '2026-11-05T17:00:00.000Z'; // 18:00 Amsterdam
+const TOMORROW_18 = '2026-11-05T17:00:00.000Z'; // 18:00 in the test zone
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 let root = '';
 
@@ -37,6 +37,7 @@ beforeEach(() => {
   setTestProjectEnv(path.join(root, 'posts'));
   process.env.SIGNAL_CONFIG_FILE = path.join(root, 'signal.config.json');
   process.env.SIGNAL_PROJECTS_FILE = path.join(root, 'no-projects.json');
+  process.env.SIGNAL_DATA_DIR = path.join(root, 'data');
   process.env.UPLOAD_POST_API_KEY = 'test-key-abcdefghijklmnopqrstuvwxyz0123456789';
   process.env.UPLOAD_POST_PROFILE = 'demo-profile';
   process.env.SIGNAL_ALLOW_PRIVATE_FETCH = '1';
@@ -46,7 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   rmSync(root, { recursive: true, force: true });
-  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'UPLOAD_POST_API_KEY', 'UPLOAD_POST_PROFILE', 'SIGNAL_ALLOW_PRIVATE_FETCH']) delete process.env[k];
+  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'SIGNAL_DATA_DIR', 'UPLOAD_POST_API_KEY', 'UPLOAD_POST_PROFILE', 'SIGNAL_ALLOW_PRIVATE_FETCH']) delete process.env[k];
 });
 
 describe('scheduling on Upload-Post', () => {

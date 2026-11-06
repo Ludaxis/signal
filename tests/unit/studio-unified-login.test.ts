@@ -107,27 +107,27 @@ describe('configuration', () => {
 describe('OAuth state (CSRF)', () => {
   const key = Buffer.from(KEY, 'base64');
   it('accepts the matching state from the same user within 10 minutes, once signed', () => {
-    const { state, cookie } = makeState('example', 'owner@signal.test', key, NOW);
-    expect(checkState(state, cookie, 'owner@signal.test', key, NOW + 60_000).p).toBe('example');
+    const { state, cookie } = makeState('example', 'owner', key, NOW);
+    expect(checkState(state, cookie, 'owner', key, NOW + 60_000).p).toBe('example');
   });
   it('rejects a missing cookie, a wrong state, a forged cookie, another user and an old login', () => {
-    const { state, cookie } = makeState('demo', 'owner@signal.test', key, NOW);
-    expect(() => checkState(state, null, 'owner@signal.test', key, NOW)).toThrow(/missing or expired/);
-    expect(() => checkState('other', cookie, 'owner@signal.test', key, NOW)).toThrow(/state mismatch/);
+    const { state, cookie } = makeState('demo', 'owner', key, NOW);
+    expect(() => checkState(state, null, 'owner', key, NOW)).toThrow(/missing or expired/);
+    expect(() => checkState('other', cookie, 'owner', key, NOW)).toThrow(/state mismatch/);
     const [body] = cookie.split('.');
     const forged = `${Buffer.from(JSON.stringify({ n: state, p: 'demo', u: 'x', e: NOW + 1e9 })).toString('base64url')}.${cookie.split('.')[1]}`;
-    expect(() => checkState(state, forged, 'owner@signal.test', key, NOW)).toThrow(/invalid/);
-    expect(() => checkState(state, `${body}.AAAA`, 'owner@signal.test', key, NOW)).toThrow(/invalid/);
+    expect(() => checkState(state, forged, 'owner', key, NOW)).toThrow(/invalid/);
+    expect(() => checkState(state, `${body}.AAAA`, 'owner', key, NOW)).toThrow(/invalid/);
     expect(() => checkState(state, cookie, 'someone@else.test', key, NOW)).toThrow(/another Signal session/);
-    expect(() => checkState(state, cookie, 'owner@signal.test', key, NOW + 11 * 60_000)).toThrow(/10 minutes/);
-    expect(() => checkState(state, cookie, 'owner@signal.test', randomBytes(32), NOW)).toThrow(/invalid/);
+    expect(() => checkState(state, cookie, 'owner', key, NOW + 11 * 60_000)).toThrow(/10 minutes/);
+    expect(() => checkState(state, cookie, 'owner', randomBytes(32), NOW)).toThrow(/invalid/);
   });
 });
 
 describe('token exchange, storage and account mapping', () => {
   it('exchanges the code once with the App Secret, checks the token, and stores only matching accounts, encrypted', async () => {
     const { f, calls } = fakeMeta({ expiresAt: Math.floor((NOW + 60 * 86_400_000) / 1000) });
-    const r = await finishConnect({ code: 'AQD_code_1234567890', statePayload, by: 'owner@signal.test', fetch: f, now: NOW, projects: PROJECTS });
+    const r = await finishConnect({ code: 'AQD_code_1234567890', statePayload, by: 'owner', fetch: f, now: NOW, projects: PROJECTS });
     expect(r.connected.map((c) => c.username)).toEqual(['signal.demo', 'example.photo']);
     expect(r.ignored).toEqual(['@someone.else']);
     expect(r.missingScopes).toEqual([]);
@@ -174,7 +174,7 @@ describe('token exchange, storage and account mapping', () => {
     };
     let message = '';
     try {
-      await finishConnect({ code, statePayload, by: 'owner@signal.test', fetch: f, now: NOW, projects: PROJECTS });
+      await finishConnect({ code, statePayload, by: 'owner', fetch: f, now: NOW, projects: PROJECTS });
     } catch (e) {
       message = (e as Error).message;
     }

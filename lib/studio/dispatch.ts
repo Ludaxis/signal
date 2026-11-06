@@ -8,12 +8,15 @@
 // - Timeouts, network errors, 5xx and 409 are 'uncertain': nothing is ever re-sent automatically.
 //   You reconcile with the provider status or by checking Instagram.
 // - The Instagram AI label is always requested (is_ai_generated=true); you confirm it is
-//   visible before the next package can be approved.
+//   visible before the next package can be approved, sent or scheduled (assertNoUnlabelled).
+// - Upload-Post's monthly upload quota (usage{count,limit,last_reset}) is remembered from its answers;
+//   Post now and Schedule are refused once it is used up, counting schedules still waiting to go out.
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import {
   ContentError,
   assertDayCapacity,
+  assertNoUnlabelled,
   currentLimits,
   isInstagramPostUrl,
   listPackages,
@@ -29,6 +32,7 @@ import {
 import { featureEnabled, featureOffReason } from '@/lib/server/signalConfig';
 import { currentProject } from './projects';
 import { publishingPaused } from './safety';
+import { noteUsage, providerTime, uploadQuota } from './uploadpost';
 
 export const UPLOAD_POST_BASE = 'https://api.upload-post.com';
 type Fetch = typeof fetch;
@@ -72,6 +76,7 @@ export async function dispatchPackage(id: string, by: string, deps: { fetch?: Fe
   const all = await listPackages();
   const unclear = all.filter((p) => p.id !== id && p.status === 'uncertain');
   if (unclear.length) throw new ContentError(409, `Post ${unclear[0]!.id} has an unclear result. Resolve it first.`);
+  assertNoUnlabelled(all, id);
   const lim = await currentLimits(now);
   const at = deps.scheduleFor ? Date.parse(deps.scheduleFor) : now;
   if (deps.scheduleFor) {
@@ -81,6 +86,7 @@ export async function dispatchPackage(id: string, by: string, deps: { fetch?: Fe
     if (at > now + 365 * 86_400_000) throw new ContentError(400, 'Upload-Post schedules up to 365 days ahead.');
   }
   assertDayCapacity(all, at, lim, id);
+  await assertUploadQuota(now);
 
   // Re-read the exact bytes we are about to send and compare with the approval.
   // Sent media: slides or the video. A cover image is for preview only and is not uploaded.
@@ -130,6 +136,7 @@ export async function dispatchPackage(id: string, by: string, deps: { fetch?: Fe
     return loadPackage(id);
   }
   const body = (await res.json().catch(() => null)) as { success?: boolean; message?: string; error?: string; request_id?: string; job_id?: string } | null;
+  await noteUsage(body, now);
   if (deps.scheduleFor) {
     if ((res.status === 202 || res.ok) && body?.job_id) {
       await writeJsonExclusive(pkgPath(id, 'scheduled.json'), { job_id: String(body.job_id), scheduled_for: new Date(at).toISOString(), scheduled_by: by });
@@ -174,9 +181,28 @@ function findUrl(v: unknown): string | null {
   return null;
 }
 
-async function getJson(doFetch: Fetch, url: string): Promise<{ status: number; body: unknown }> {
+async function getJson(doFetch: Fetch, url: string, now?: number): Promise<{ status: number; body: unknown }> {
   const r = await doFetch(url, { headers: { Authorization: `Apikey ${process.env.UPLOAD_POST_API_KEY}`, Accept: 'application/json' }, signal: AbortSignal.timeout(20_000), cache: 'no-store' });
-  return { status: r.status, body: await r.json().catch(() => null) };
+  const body = await r.json().catch(() => null);
+  await noteUsage(body, now);
+  return { status: r.status, body };
+}
+
+/** Refuses Post now and Schedule once Upload-Post's monthly uploads (incl. waiting schedules) are used up. */
+async function assertUploadQuota(now: number): Promise<void> {
+  const q = await uploadQuota(now);
+  if (!q || q.used < q.limit) return;
+  const waiting = q.scheduled ? `, including ${q.scheduled} scheduled post${q.scheduled === 1 ? '' : 's'} still to go out` : '';
+  const reset = q.resetsAt && !q.stale ? ` It resets around ${q.resetsAt.slice(0, 10)}.` : '';
+  throw new ContentError(429, `Upload-Post's monthly upload limit is used up (${q.used} of ${q.limit}${waiting}).${reset} Nothing was sent.`);
+}
+
+/** When the post went live: Upload-Post's upload_timestamp, else the scheduled time, else the check time. */
+function postedAt(ig: { upload_timestamp?: unknown } | undefined, scheduledFor: string | null, checkedAt: number): string {
+  const t = providerTime(ig?.upload_timestamp);
+  if (t && Date.parse(t) <= checkedAt + 10 * 60_000) return t;
+  if (scheduledFor && Date.parse(scheduledFor) <= checkedAt) return new Date(Date.parse(scheduledFor)).toISOString();
+  return new Date(checkedAt).toISOString();
 }
 
 /** Reads the provider status for a sent package. Never re-sends. */
@@ -189,14 +215,19 @@ export async function checkDispatch(id: string, by: string, deps: { fetch?: Fetc
   const rid = encodeURIComponent(pkg.dispatch.request_id);
   let st: { status: number; body: unknown };
   try {
-    st = await getJson(doFetch, pkg.scheduled ? `${UPLOAD_POST_BASE}/api/uploadposts/status?job_id=${encodeURIComponent(pkg.scheduled.job_id)}` : `${UPLOAD_POST_BASE}/api/uploadposts/status?request_id=${rid}`);
+    st = await getJson(doFetch, pkg.scheduled ? `${UPLOAD_POST_BASE}/api/uploadposts/status?job_id=${encodeURIComponent(pkg.scheduled.job_id)}` : `${UPLOAD_POST_BASE}/api/uploadposts/status?request_id=${rid}`, deps.now);
   } catch {
     throw new ContentError(502, 'Upload-Post did not answer. Try again in a minute.');
   }
-  const b = (st.body ?? {}) as { status?: string; results?: { platform?: string; success?: boolean; message?: string; status?: string }[] };
+  const b = (st.body ?? {}) as { status?: string; results?: { platform?: string; success?: boolean; message?: string; status?: string; upload_timestamp?: unknown }[] };
   const seen = redact(`provider status=${b.status ?? st.status}; instagram=${JSON.stringify((b.results ?? []).find((r) => r.platform === 'instagram') ?? null)}`);
   if (pkg.status === 'scheduled' && (b.status === 'pending' || b.status === 'queued')) return pkg; // Not due yet.
   if (st.status === 404 || b.status === 'not_found') {
+    if (pkg.status === 'scheduled' && pkg.scheduled && Date.parse(pkg.scheduled.scheduled_for) < (deps.now ?? Date.now())) {
+      // Its time has passed and Upload-Post no longer knows the job: it may or may not be on Instagram.
+      await setOutcome(id, { state: 'uncertain', at: new Date().toISOString(), message: `Upload-Post no longer knows this scheduled post (HTTP ${st.status}) and its time (${pkg.scheduled.scheduled_for}) has passed. It may or may not be on Instagram: check Instagram, then paste the link or mark it as not posted.` });
+      return loadPackage(id);
+    }
     if (pkg.status === 'uncertain' || wasFailed || pkg.status === 'scheduled') return pkg; // Unknown to the provider: stays paused until you resolve it.
     await setOutcome(id, { state: 'uncertain', at: new Date().toISOString(), message: 'Upload-Post does not know this request yet. Check again, or check Instagram.' });
     return loadPackage(id);
@@ -206,12 +237,21 @@ export async function checkDispatch(id: string, by: string, deps: { fetch?: Fetc
     let url = findUrl(b);
     if (!url) {
       try {
-        url = findUrl((await getJson(doFetch, `${UPLOAD_POST_BASE}/api/uploadposts/history?request_id=${rid}`)).body);
+        url = findUrl((await getJson(doFetch, `${UPLOAD_POST_BASE}/api/uploadposts/history?request_id=${rid}`, deps.now)).body);
       } catch {
         url = null;
       }
     }
-    const posted: Posted = { url: url && isInstagramPostUrl(url) ? url : null, posted_at: new Date(deps.now ?? Date.now()).toISOString(), ai_label_confirmed: false, recorded_by: by, via: 'upload-post', request_id: pkg.dispatch.request_id };
+    const checkedAt = deps.now ?? Date.now();
+    const posted: Posted & { recorded_at: string } = {
+      url: url && isInstagramPostUrl(url) ? url : null,
+      posted_at: postedAt(ig, pkg.scheduled?.scheduled_for ?? null, checkedAt),
+      recorded_at: new Date(checkedAt).toISOString(),
+      ai_label_confirmed: false,
+      recorded_by: by,
+      via: 'upload-post',
+      request_id: pkg.dispatch.request_id,
+    };
     await writeJsonExclusive(pkgPath(id, 'posted.json'), posted);
     return loadPackage(id);
   }
@@ -271,7 +311,9 @@ async function upSchedule(doFetch: Fetch, method: 'DELETE' | 'PATCH', jobId: str
     signal: AbortSignal.timeout(20_000),
     cache: 'no-store',
   });
-  return { status: r.status, json: (await r.json().catch(() => null)) as Record<string, unknown> | null };
+  const json = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+  await noteUsage(json);
+  return { status: r.status, json };
 }
 
 /** Cancels a scheduled post on Upload-Post; the package goes back to Approved. */
@@ -297,6 +339,8 @@ export async function reschedule(id: string, iso: string, by: string, deps: { fe
   const now = deps.now ?? Date.now();
   const pkg = await loadPackage(id);
   if (pkg.status !== 'scheduled' || !pkg.scheduled) throw new ContentError(409, `Post ${id} is not scheduled.`);
+  const pause = publishingPaused();
+  if (pause.paused) throw new ContentError(403, pause.reason);
   const at = Date.parse(iso);
   if (!(at > now + 10 * 60_000)) throw new ContentError(400, 'Pick a time at least 10 minutes from now.');
   const sched = await schedulingAllowed();

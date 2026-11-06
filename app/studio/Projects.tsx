@@ -266,13 +266,32 @@ const STEPS: [Step, string][] = [
   ['verify', 'Check'],
 ];
 
+/**
+ * The limits step's starting values. "Change limits" starts from the current settings (the limits,
+ * one-click posting and Codex images, and the days left), so nothing is switched off or on by
+ * accident; a new project starts from the defaults. Days 0 means no end date.
+ */
+export function accountDefaults(a: ProjectRow['account'], now = Date.now()) {
+  if (!a) return { days: 0, maxPosts: 30, maxPerDay: 1, posting: false, codexImages: false, confirm: '' };
+  const clamp = (n: number, lo: number, hi: number, dflt: number) => (Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : dflt);
+  const left = a.ends_at === null ? NaN : Math.ceil((Date.parse(a.ends_at) - now) / 86_400_000);
+  return {
+    days: a.ends_at === null ? 0 : a.active ? clamp(left, 1, 365, 0) : 0,
+    maxPosts: clamp(a.max_posts, 1, 1000, 30),
+    maxPerDay: clamp(a.max_per_day, 1, 5, 1),
+    posting: Boolean(a.posting),
+    codexImages: Boolean(a.codex_images),
+    confirm: '',
+  };
+}
+
 function Wizard({ start, onDone }: { start: ProjectRow | null; onDone: (id: string) => void }) {
   const [step, setStep] = useState<Step>(start ? 'account' : 'basics');
   const [via, setVia] = useState<'meta' | 'upload-post'>('meta');
   const [f, setF] = useState({ name: '', id: '', handle: '', uploadPostProfile: '', contentDir: '' });
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [created, setCreated] = useState<{ id: string; handle: string; upload: boolean } | null>(start ? { id: start.id, handle: start.handle, upload: !!start.uploadPostProfile } : null);
-  const [ap, setAp] = useState({ days: 0, maxPosts: 30, maxPerDay: 1, posting: false, codexImages: false, confirm: '' });
+  const [ap, setAp] = useState(() => accountDefaults(start?.account ?? null));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -310,7 +329,18 @@ function Wizard({ start, onDone }: { start: ProjectRow | null; onDone: (id: stri
         <div className="st-stack" style={{ gap: 10 }}>
           <label className="wiz-field">
             Project name
-            <input className="st-input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. My brand" />
+            <input
+              className="st-input"
+              value={f.name}
+              onChange={(e) => {
+                // The project id comes from the name: a new name gets a new id, so a refused id never sticks.
+                const name = e.target.value;
+                setF((x) => ({ ...x, name, id: '' }));
+                setErrs((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== 'name' && k !== 'id')));
+              }}
+              placeholder="e.g. My brand"
+            />
+
             {err('name')}
             {err('id')}
           </label>
@@ -439,6 +469,7 @@ function Wizard({ start, onDone }: { start: ProjectRow | null; onDone: (id: stri
           <More label="What this means">
             <span>The limits are saved locally with the time and apply to every way Signal can post. Every post still needs your OK on the Posts board.</span>
           </More>
+          {start?.account ? <span className="xs st-muted">Filled in from the current limits: change only what should change.</span> : null}
           <div className="row-wrap" style={{ gap: 12 }}>
             <label className="wiz-field wiz-num">
               Days (0 = no end)

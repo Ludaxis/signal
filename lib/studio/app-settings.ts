@@ -31,7 +31,8 @@ export const GROUPS: Group[] = [
     fields: [
       { name: 'R2_ACCOUNT_ID', label: 'Account ID', secret: false, check: /^[a-f0-9]{32}$/, placeholder: '32 characters' },
       { name: 'R2_BUCKET', label: 'Bucket', secret: false, check: /^[a-z0-9][a-z0-9-]{1,62}$/ },
-      { name: 'R2_PUBLIC_BASE', label: 'Public address', secret: false, check: /^https:\/\/[^\s]+$/, placeholder: 'https://pub-….r2.dev' },
+      // Host (and optional port and path) only: no user:password@, no ?query or #fragment (media URLs are built as base + "/" + key).
+      { name: 'R2_PUBLIC_BASE', label: 'Public address', secret: false, check: /^https:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*)?$/, placeholder: 'https://pub-….r2.dev' },
       { name: 'R2_ACCESS_KEY_ID', label: 'Access key ID', secret: true, check: /^[A-Za-z0-9]{16,128}$/ },
       { name: 'R2_SECRET_ACCESS_KEY', label: 'Secret access key', secret: true, check: /^[A-Za-z0-9/+=]{16,256}$/ },
     ],
@@ -74,8 +75,19 @@ const FIELDS = new Map(GROUPS.flatMap((g) => g.fields.map((f) => [f.name, f] as 
 const ALLOWED = new Set<string>([...FIELDS.keys(), ...Object.values(SWITCHES)]);
 
 /** The .env.local values as they were before anything saved here was applied. */
-const g = globalThis as typeof globalThis & { __signalEnvOriginal?: Map<string, string | undefined>; __signalSettingsApplied?: boolean };
+const g = globalThis as typeof globalThis & { __signalEnvOriginal?: Map<string, string | undefined>; __signalSettingsApplied?: boolean; __signalSettingsQueue?: Promise<unknown> };
 const original = () => (g.__signalEnvOriginal ??= new Map());
+
+/**
+ * One change at a time: secret-box rewrites the whole file through one temp name per process, so two
+ * overlapping saves (a key and the Publishing switch, say) would lose one of them on disk or fail the
+ * rename. Kept on globalThis so every module copy in the server shares the queue.
+ */
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const run = (g.__signalSettingsQueue ?? Promise.resolve()).then(fn);
+  g.__signalSettingsQueue = run.catch(() => undefined);
+  return run;
+}
 function setEnv(name: string, value: string | null): void {
   if (!original().has(name)) original().set(name, process.env[name]);
   if (value === null) {
@@ -86,18 +98,30 @@ function setEnv(name: string, value: string | null): void {
 }
 
 /** Applies every saved value to process.env. Runs at server start and before reading status. */
-export async function applySavedSettings(): Promise<number> {
-  if (!tokenKey().ok) return 0;
-  let n = 0;
+export function applySavedSettings(): Promise<number> {
+  return serial(async () => {
+    if (!tokenKey().ok) return 0;
+    let n = 0;
+    for (const name of await listSecretNames(STORE)) {
+      if (!ALLOWED.has(name)) continue;
+      const v = await getSecret(STORE, name);
+      if (v === null) continue;
+      setEnv(name, v);
+      n++;
+    }
+    g.__signalSettingsApplied = true;
+    return n;
+  });
+}
+
+/** Names saved here that this SIGNAL_TOKEN_KEY can actually read (an unreadable value is not in effect). */
+async function readableSavedNames(): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!tokenKey().ok) return out;
   for (const name of await listSecretNames(STORE)) {
-    if (!ALLOWED.has(name)) continue;
-    const v = await getSecret(STORE, name);
-    if (v === null) continue;
-    setEnv(name, v);
-    n++;
+    if (ALLOWED.has(name) && (await getSecret(STORE, name)) !== null) out.add(name);
   }
-  g.__signalSettingsApplied = true;
-  return n;
+  return out;
 }
 export async function ensureSettingsApplied(): Promise<void> {
   if (!g.__signalSettingsApplied) await applySavedSettings();
@@ -117,7 +141,7 @@ const hintOf = (v: string) => (v.length >= 12 ? `…${v.slice(-4)}` : 'set');
 export async function settingsStatus(): Promise<{ ready: boolean; reason: string; groups: GroupStatus[]; switches: Record<SwitchId, { on: boolean; source: 'saved' | 'env' | 'default' }> }> {
   await ensureSettingsApplied();
   const k = tokenKey();
-  const saved = new Set(k.ok ? await listSecretNames(STORE) : []);
+  const saved = await readableSavedNames();
   const groups = GROUPS.map((gr) => {
     const fields = gr.fields.map((f): FieldStatus => {
       const v = (process.env[f.name] ?? '').trim();
@@ -153,23 +177,27 @@ export async function saveGroup(groupId: string, values: Record<string, unknown>
     todo.push([f, f.name === 'R2_PUBLIC_BASE' ? v.replace(/\/+$/, '') : v]);
   }
   if (!todo.length) throw new SettingsError(400, 'Fill in at least one field.');
-  for (const [f, v] of todo) {
-    await putSecret(STORE, f.name, v);
-    setEnv(f.name, v);
-  }
-  return todo.map(([f]) => f.label);
+  return serial(async () => {
+    for (const [f, v] of todo) {
+      await putSecret(STORE, f.name, v);
+      setEnv(f.name, v);
+    }
+    return todo.map(([f]) => f.label);
+  });
 }
 
 /** Removes the values saved here for one group (the .env.local values, if any, apply again). */
 export async function clearGroup(groupId: string): Promise<number> {
   const gr = GROUPS.find((x) => x.id === groupId);
   if (!gr) throw new SettingsError(400, 'Unknown settings group.');
-  let n = 0;
-  for (const f of gr.fields) {
-    if (await deleteSecret(STORE, f.name)) n++;
-    setEnv(f.name, null);
-  }
-  return n;
+  return serial(async () => {
+    let n = 0;
+    for (const f of gr.fields) {
+      if (await deleteSecret(STORE, f.name)) n++;
+      setEnv(f.name, null);
+    }
+    return n;
+  });
 }
 
 /** Turns publishing or autopilot on (active) or off (paused). Takes effect at once. */
@@ -177,6 +205,8 @@ export async function setSwitch(id: SwitchId, on: boolean): Promise<void> {
   const k = tokenKey();
   if (!k.ok) throw new SettingsError(409, k.reason);
   const v = on ? '0' : '1';
-  await putSecret(STORE, SWITCHES[id], v);
-  setEnv(SWITCHES[id], v);
+  await serial(async () => {
+    await putSecret(STORE, SWITCHES[id], v);
+    setEnv(SWITCHES[id], v);
+  });
 }

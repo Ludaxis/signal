@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { notifyChanged } from './sync';
 import { getProjectId } from './Projects';
 import type { Payload, RealPackage } from './RealPosts';
+import type { MetricsFile } from '@/lib/studio/analytics';
 import { TIMEZONE, formatDateTime } from '@/lib/time';
 import { LazyImage, Reveal, ScreenSkeleton } from './loaders';
 import { More } from './More';
@@ -16,6 +17,8 @@ const FORMAT_NAMES: Record<string, string> = {
   other: 'Hand-made',
 };
 const n = (v: number | null | undefined) => (v == null ? '—' : v >= 10_000 ? `${(v / 1000).toFixed(1)}k` : v.toLocaleString());
+/** "Numbers from <fetched_at>, post age <age_hours> h"; old files without age_hours omit the age. */
+const freshness = (f: MetricsFile) => `Numbers from ${formatDateTime(f.fetched_at)}${typeof f.age_hours === 'number' ? `, post age ${f.age_hours} h` : ''}${f.source ? ` (${f.source === 'instagram' ? 'Meta' : 'Upload-Post'})` : ''}${f.complete === false ? ', incomplete' : ''}`;
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 
 export function Results({ data, reload, say }: { data: Payload | null; reload: () => Promise<void>; say: (t: string) => void }) {
@@ -76,7 +79,8 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
           <span className="stat-num" style={{ fontSize: 26 }}>
             {ins?.bestWeekday ?? '—'}
           </span>
-          <span className="st-small st-muted">{ins?.bestHour != null ? `around ${String(ins.bestHour).padStart(2, '0')}:00 ${TIMEZONE}` : 'needs 3+ posts'}</span>
+          <span className="st-small st-muted">{ins?.bestHour != null ? `around ${String(ins.bestHour).padStart(2, '0')}:00 ${TIMEZONE}` : (ins?.bestTimeReason ?? 'needs 3+ posts')}</span>
+          <span className="xs st-muted">based on {ins?.bestTimeSample ?? ins?.measured ?? 0} measured post{(ins?.bestTimeSample ?? ins?.measured ?? 0) === 1 ? '' : 's'}</span>
         </div>
       </div>
 
@@ -110,7 +114,7 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
           <span className="st-small st-muted">No numbers yet.</span>
         )}
         <More label="How this works">
-          <span>Numbers arrive a few hours after a post goes out; press Update numbers to fetch them.</span>
+          <span>Numbers arrive a few hours after a post goes out; press Update numbers to fetch them. Best time needs 3 measured posts and says how many it used. Numbers are never refreshed on their own.</span>
         </More>
       </div>
 
@@ -129,7 +133,7 @@ export function Results({ data, reload, say }: { data: Payload | null; reload: (
                 </span>
                 <span className="xs st-muted">
                   {formatDateTime(p.posted!.posted_at)}
-                  {p.metrics ? ` · updated ${formatDateTime(p.metrics.fetched_at)}` : ''}
+                  {p.metrics?.metrics ? ` · ${freshness(p.metrics as MetricsFile)}` : p.metrics ? ` · checked ${formatDateTime(p.metrics.fetched_at)}` : ''}
                   {p.metrics?.error ? ` · ${p.metrics.error}` : ''}
                 </span>
               </div>

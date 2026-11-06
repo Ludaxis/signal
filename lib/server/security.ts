@@ -1,4 +1,5 @@
 // Request checks for the session and Studio API route handlers.
+import { loginMode } from './auth';
 
 export const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -8,6 +9,27 @@ export interface OriginCheckInput {
   headers: Headers;
   /** SIGNAL_WEB_ORIGIN, when set, is the only accepted origin. */
   allowedOrigin?: string | null;
+  /**
+   * Without SIGNAL_WEB_ORIGIN the accepted origin comes from the request's own Host, which a
+   * DNS-rebinding page controls. With this on, only loopback origins (localhost, 127.0.0.0/8, [::1])
+   * and SIGNAL_DEV_HOST are accepted. Defaults to on in the password-less
+   * local mode (SIGNAL_LOCAL_ONLY_NO_PASSWORD=1 without SIGNAL_OWNER_PASSWORD).
+   */
+  loopbackOnly?: boolean;
+}
+
+/** localhost, *.localhost, 127.0.0.0/8, [::1], or the local HTTPS alias in SIGNAL_DEV_HOST. Exported for tests. */
+export function isLoopbackOrigin(origin: string, devHost = process.env.SIGNAL_DEV_HOST): boolean {
+  let host: string;
+  try {
+    host = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '[::1]') return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  const alias = (devHost ?? '').trim().toLowerCase();
+  return Boolean(alias) && host === alias;
 }
 
 export type OriginCheckResult = { ok: true } | { ok: false; reason: string };
@@ -45,6 +67,9 @@ export function checkSameOrigin(input: OriginCheckInput): OriginCheckResult {
     }
     const fwd = forwardedOrigin(input.headers);
     if (fwd) allowed.add(fwd);
+    if (input.loopbackOnly ?? loginMode().mode === 'open') {
+      for (const o of [...allowed]) if (!isLoopbackOrigin(o)) allowed.delete(o);
+    }
   }
   if (allowed.has(origin)) return { ok: true };
   return { ok: false, reason: `Origin ${origin} is not allowed` };

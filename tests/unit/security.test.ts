@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { checkSameOrigin, isSafeSegment } from '@/lib/server/security';
+import { checkSameOrigin, isLoopbackOrigin, isSafeSegment } from '@/lib/server/security';
 import { shouldUseSecureCookie } from '@/lib/server/session';
 import { buildCsp } from '@/proxy';
 
@@ -31,8 +31,55 @@ describe('cross-origin protection for mutating requests', () => {
   });
   it('accepts the forwarded host when no explicit origin is configured', () => {
     expect(
-      checkSameOrigin({ method: 'POST', url: 'http://10.0.0.5:3000/x', headers: headers({ origin: 'https://signal.example.test', 'x-forwarded-host': 'signal.example.test', 'x-forwarded-proto': 'https' }) }).ok,
+      checkSameOrigin({ method: 'POST', url: 'http://10.0.0.5:3000/x', headers: headers({ origin: 'https://signal.example.test', 'x-forwarded-host': 'signal.example.test', 'x-forwarded-proto': 'https' }), loopbackOnly: false }).ok,
     ).toBe(true);
+  });
+});
+
+describe('loopback default in password-less local mode (DNS rebinding)', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  // A rebinding page at http://evil.test:3000 resolves to 127.0.0.1: its Origin and Host both say evil.test.
+  const rebound = { method: 'POST', url: 'http://evil.test:3000/api/session', headers: headers({ origin: 'http://evil.test:3000', host: 'evil.test:3000', 'sec-fetch-site': 'same-origin' }) };
+  const passwordless = () => {
+    vi.stubEnv('SIGNAL_LOCAL_ONLY_NO_PASSWORD', '1');
+    vi.stubEnv('SIGNAL_OWNER_PASSWORD', '');
+  };
+
+  it('refuses a Host-derived non-loopback origin when SIGNAL_LOCAL_ONLY_NO_PASSWORD=1 and SIGNAL_WEB_ORIGIN is unset', () => {
+    passwordless();
+    expect(checkSameOrigin(rebound)).toEqual({ ok: false, reason: 'Origin http://evil.test:3000 is not allowed' });
+    // A forged X-Forwarded-Host does not help: the browser-set Origin still is not loopback.
+    expect(checkSameOrigin({ ...rebound, headers: headers({ origin: 'http://evil.test:3000', host: 'evil.test:3000', 'x-forwarded-host': 'localhost:3000' }) }).ok).toBe(false);
+  });
+
+  it('still accepts the local origins in password-less mode', () => {
+    passwordless();
+    vi.stubEnv('SIGNAL_DEV_HOST', 'signal-dev.example.test');
+    for (const o of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000', 'https://signal-dev.example.test:3000']) {
+      expect(checkSameOrigin({ method: 'POST', url: `${o}/api/session`, headers: headers({ origin: o, host: new URL(o).host }) }).ok).toBe(true);
+    }
+  });
+
+  it('keeps the Host-derived origin with a password set, and SIGNAL_WEB_ORIGIN always wins', () => {
+    vi.stubEnv('SIGNAL_LOCAL_ONLY_NO_PASSWORD', '');
+    vi.stubEnv('SIGNAL_OWNER_PASSWORD', 'a-long-owner-password');
+    expect(checkSameOrigin(rebound).ok).toBe(true);
+    passwordless();
+    expect(checkSameOrigin({ ...rebound, allowedOrigin: 'http://evil.test:3000' }).ok).toBe(true);
+    expect(checkSameOrigin({ ...rebound, headers: headers({ origin: 'http://127.0.0.1:4321' }), allowedOrigin: 'http://127.0.0.1:4321' }).ok).toBe(true);
+  });
+
+  it('recognises loopback origins only', () => {
+    expect(isLoopbackOrigin('http://localhost:3000', '')).toBe(true);
+    expect(isLoopbackOrigin('http://127.10.0.1:3000', '')).toBe(true);
+    expect(isLoopbackOrigin('http://[::1]:3000', '')).toBe(true);
+    expect(isLoopbackOrigin('http://studio.localhost:3000', '')).toBe(true);
+    expect(isLoopbackOrigin('http://localhost.evil.test:3000', '')).toBe(false);
+    expect(isLoopbackOrigin('http://127.0.0.1.evil.test', '')).toBe(false);
+    expect(isLoopbackOrigin('http://10.0.0.5:3000', '')).toBe(false);
+    expect(isLoopbackOrigin('https://signal-dev.example.test:3000', '')).toBe(false);
+    expect(isLoopbackOrigin('https://signal-dev.example.test:3000', 'signal-dev.example.test')).toBe(true);
+    expect(isLoopbackOrigin('not a url', '')).toBe(false);
   });
 });
 

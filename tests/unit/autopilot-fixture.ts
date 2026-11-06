@@ -2,7 +2,7 @@
 // answers 404 (the route is not built yet). Everything here is marked "Example" in the UI and
 // nothing is saved. The integrator deletes this file and the fallback in useAutopilot().
 import type { AutopilotAction, AutopilotPayload, AutopilotRun, AutopilotSettings } from '@/lib/studio/autopilot/types';
-import { addDays, zonedToUtc, todayInZone } from '@/lib/time';
+import { TIMEZONE, addDays, zonedToUtc, todayInZone } from '@/lib/time';
 
 const at = (date: string, time: string): string => {
   const r = zonedToUtc(date, time);
@@ -79,7 +79,7 @@ export function demoAutopilotPayload(now = Date.now()): AutopilotPayload {
       higgsfield: { enabled: false, reason: 'Higgsfield images are not approved for this account.' },
     },
     paused: { paused: false, reason: '' },
-    schedule: { time: '08:00', timeZone: 'Europe/Amsterdam', window: '08:00–09:00', nextRunAt: at(tomorrow, '08:00'), schedulerRunning: true },
+    schedule: { time: '08:00', timeZone: TIMEZONE, window: '08:00–09:00', nextRunAt: at(tomorrow, '08:00'), schedulerRunning: true },
     campaigns: [
       { id: 'c_holiday', name: 'Holiday puzzles', status: 'active', formats: ['website-card', 'higgsfield-reel', 'codex-post', 'higgsfield-image'], settings: settings('c_holiday', { enabled: true, formats: ['website-card', 'higgsfield-reel', 'codex-post'] }) },
       { id: 'c_launch', name: 'Launch week', status: 'paused', formats: ['higgsfield-reel', 'codex-post'], settings: settings('c_launch') },

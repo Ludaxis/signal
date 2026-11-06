@@ -9,7 +9,7 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   // Keys and switches saved in Connections (encrypted) apply before anything else runs.
   await import('./lib/studio/app-settings').then((m) => m.applySavedSettings()).catch(() => undefined);
-  const g = globalThis as typeof globalThis & { __signalScheduler?: ReturnType<typeof setInterval>; __signalAutopilotScheduler?: ReturnType<typeof setInterval> };
+  const g = globalThis as typeof globalThis & { __signalScheduler?: ReturnType<typeof setInterval>; __signalSchedulerRegistered?: boolean; __signalAutopilotScheduler?: ReturnType<typeof setInterval> };
   if (!g.__signalScheduler) {
     const { tickAll } = await import('./lib/studio/publish-meta');
     const run = () => void tickAll().catch(() => undefined);
@@ -17,6 +17,8 @@ export async function register(): Promise<void> {
     g.__signalScheduler.unref?.();
     setTimeout(run, 5_000).unref?.();
   }
+  // Read by scheduleInSignal: a Signal schedule is only accepted when this timer exists in this process.
+  g.__signalSchedulerRegistered = true;
   if (!g.__signalAutopilotScheduler) {
     // runAll checks the switch, the pause flag and the window itself and skips overlapping calls.
     const { runAll } = await import('./lib/studio/autopilot/runner');

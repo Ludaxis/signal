@@ -66,6 +66,10 @@ beforeEach(() => {
   setTestProjectEnv(path.join(root, 'posts'));
   process.env.SIGNAL_CONFIG_FILE = path.join(root, 'signal.config.json');
   process.env.SIGNAL_PROJECTS_FILE = path.join(root, 'no-projects.json');
+  process.env.SIGNAL_DATA_DIR = path.join(root, 'data');
+  process.env.SIGNAL_SECRETS_DIR = path.join(root, 'secrets');
+  // As instrumentation.ts does when the minute scheduler starts in this process.
+  (globalThis as { __signalSchedulerRegistered?: boolean }).__signalSchedulerRegistered = true;
   process.env[tokenEnvName(currentProject())] = TOKEN;
   Object.assign(process.env, { R2_ACCOUNT_ID: 'acct123', R2_ACCESS_KEY_ID: 'AKIDTEST', R2_SECRET_ACCESS_KEY: 'secret-test', R2_BUCKET: 'signal-media', R2_PUBLIC_BASE: 'https://media.example.test' });
   mkdirSync(path.join(root, 'posts'));
@@ -73,7 +77,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
-  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', tokenEnvName(currentProject()), 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_BASE']) delete process.env[k];
+  delete (globalThis as { __signalSchedulerRegistered?: boolean }).__signalSchedulerRegistered;
+  for (const k of ['SIGNAL_CONTENT_DIR', 'SIGNAL_CONFIG_FILE', 'SIGNAL_PROJECTS_FILE', 'SIGNAL_DATA_DIR', 'SIGNAL_SECRETS_DIR', 'SIGNAL_PUBLISH_PAUSED', tokenEnvName(currentProject()), 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_BASE']) delete process.env[k];
 });
 
 describe('Instagram API posting', () => {
@@ -193,7 +198,7 @@ describe("Signal's own scheduler", () => {
     expect(r.sent).toEqual(['01']);
     expect((await loadPackage('01')).status).toBe('posted');
     // The machine was off from Friday until Saturday morning: post 02 is not sent late.
-    await recordConfirm('01');
+    await recordConfirm('01', f);
     const back = Date.parse('2026-11-07T08:00:00.000Z');
     const before = calls.filter((c) => c.url.endsWith('/media_publish')).length;
     const r2 = await tickProject({ fetch: f, now: back, ...fast });
@@ -205,10 +210,10 @@ describe("Signal's own scheduler", () => {
   });
 });
 
-async function recordConfirm(id: string) {
-  // Label confirmation by the owner after posting (kept separate from the scheduler).
+async function recordConfirm(id: string, f: typeof fetch) {
+  // Label confirmation by the owner after posting (kept separate from the scheduler). It reads the post from the fake Instagram.
   const { confirmLabel } = await import('@/lib/studio/content');
-  await confirmLabel(id, 'owner', NOW);
+  await confirmLabel(id, 'owner', NOW, { fetch: f });
 }
 
 describe('results and comments from Instagram', () => {
