@@ -3,7 +3,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
-import { IN_FLIGHT, goesOutAt, listPackages, type PackageView } from '@/lib/studio/content';
+import { ContentError, IN_FLIGHT, goesOutAt, listPackages, type PackageView } from '@/lib/studio/content';
+
 import { listProjects, withProject } from '@/lib/studio/projects';
 import { TIMEZONE, zonedParts, isValidDate } from '@/lib/time';
 
@@ -31,6 +32,15 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!isValidDate(from) || !isValidDate(to) || from > to) return jsonError(400, 'validation', 'Use from/to as YYYY-MM-DD.');
   // ?project=<id> limits the calendar to one account; without it, every account is shown.
   const only = q.get('project');
+  try {
+    return await build(from, to, only);
+  } catch (e) {
+    // A plain JSON error (never a bare 500) so the Calendar and Today can say what went wrong.
+    return jsonError(500, 'internal', e instanceof ContentError ? `Could not load the calendar: ${e.message}` : 'Could not load the calendar. Try again.');
+  }
+}
+
+async function build(from: string, to: string, only: string | null): Promise<Response> {
   const projects = (await listProjects()).filter((p) => !only || p.id === only);
   const items: CalendarItem[] = [];
   const unplanned: CalendarItem[] = [];

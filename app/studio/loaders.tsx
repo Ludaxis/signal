@@ -259,3 +259,37 @@ export function LoadMoreSentinel({ hasMore, sentinel, more }: { hasMore: boolean
     </div>
   );
 }
+
+/**
+ * A screen whose data did not load: says so, shows the server's message and offers a retry,
+ * instead of a skeleton that never ends.
+ */
+export function LoadError({ title, message, onRetry }: { title: string; message: string; onRetry: () => Promise<void> | void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="screen">
+      <div className="st-card st-stack" role="alert" style={{ padding: 18, gap: 10 }}>
+        <span style={{ fontWeight: 600 }}>{title}</span>
+        <span className="st-small real-error">{message}</span>
+        <div>
+          <button
+            type="button"
+            className="st-btn st-btn-primary st-btn-sm"
+            aria-busy={busy}
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onRetry();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}

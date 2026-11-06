@@ -17,7 +17,8 @@ import { announceProjectsChanged, getProjectId, useFocusTrap, useProjectId, useS
 import { formatDateTime } from '@/lib/time';
 import { ScreenSkeleton } from './loaders';
 import { More } from './More';
-import { UploadPostPicker, useUpProfiles } from './UploadPostPicker';
+import { UploadPostPicker, parseQuota, quotaText, useUpProfiles } from './UploadPostPicker';
+import { desktop } from './desktop';
 import { FigmaPanel, FoldersPanel, Panel, ToolBlock, useWorkspace, type Tool } from './Workspace';
 import { FeaturesSection, KeyForm, settingsCall, useSettings, type GroupStatus, type SwitchId } from './Keys';
 
@@ -28,7 +29,7 @@ interface Payload {
   account: { ready: boolean; reason: string; expiresAt: number | null; maxPerDay: number; automaticPosting: boolean };
   paused: { paused: boolean; reason: string };
   instagram: { unifiedLogin: Gate; api: Gate; mode: 'unified' | 'instagram-login' | null; connection: Conn | null; publish: Gate; comments: Gate; insights: Gate };
-  uploadPost: { profile: string | null; instagram: string | null; verifiedAt: string | null; keySet: boolean; posting: Gate; scheduling: Gate; results: Gate; profileSetup: Gate };
+  uploadPost: { profile: string | null; instagram: string | null; verifiedAt: string | null; keySet: boolean; posting: Gate; scheduling: Gate; results: Gate; profileSetup: Gate; quota?: unknown };
   mediaHost: Gate & { publicHost: string | null };
   scheduler: Gate;
   agents: Gate & { billing?: 'subscription' | 'api-key' };
@@ -193,6 +194,12 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
   const higgsRow = higgs.complete ? { tone: 'ok' as Tone, status: 'Ready', detail: 'Images and Reels, paid per request.' } : { tone: 'idle' as Tone, status: 'Not set up', detail: 'Images and Reels, paid per request.' };
   const folders = ws.d?.folders ?? [];
   const figma = ws.d?.figma;
+  const quota = parseQuota(up.quota);
+  // Meta's sign-in needs this browser's session cookie on the way back; inside the Mac app it opens in the
+  // system browser without it and fails. Until the app has its own sign-in window, connect from a browser
+  // (see docs/instagram-unified-login.md).
+  const inApp = Boolean(desktop());
+  const connectBlocked = inApp ? 'Inside the Mac app, Meta’s sign-in opens in your browser without this session and cannot finish. Open Signal in your browser to connect Instagram (see docs/instagram-unified-login.md).' : '';
 
   return (
     <section className="screen cx" aria-label="Connections">
@@ -308,8 +315,8 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
               <Btn
                 primary
                 aria-busy={busy === 'connect'}
-                disabled={!!busy || !ig.unifiedLogin.enabled}
-                title={ig.unifiedLogin.enabled ? '' : ig.unifiedLogin.reason}
+                disabled={!!busy || !ig.unifiedLogin.enabled || inApp}
+                title={connectBlocked || (ig.unifiedLogin.enabled ? '' : ig.unifiedLogin.reason)}
                 onClick={() =>
                   void run('connect', async () => {
                     const j = await call<{ url: string }>('/api/studio/instagram', { project: getProjectId(), action: 'connect-start' });
@@ -328,7 +335,7 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
                 </Btn>
               ) : null}
             </div>
-            {!ig.unifiedLogin.enabled ? <span className="xs st-muted">{ig.unifiedLogin.reason}</span> : null}
+            {!ig.unifiedLogin.enabled ? <span className="xs st-muted">{ig.unifiedLogin.reason}</span> : connectBlocked ? <span className="xs st-muted">{connectBlocked}</span> : null}
             <ul className="cx-checks">
               {ig.api.enabled ? (
                 <>
@@ -405,6 +412,7 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
               <Check g={up.scheduling} label="Schedule (posts while the Mac is off)" />
               <Check g={up.results} label="Results" />
             </ul>
+            {quota ? <span className="xs st-muted">{quotaText(quota)} (all projects on the plan).</span> : null}
           </div>
         </Panel>
       ) : null}

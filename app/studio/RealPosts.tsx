@@ -5,10 +5,11 @@
 // owner-confirmed send. Nothing is approved or posted automatically.
 import { useRouter } from "next/navigation";
 import { notifyChanged, useOnChanged } from "./sync";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getProjectId, useProjectId } from "./Projects";
 import { Select } from "./Select";
 import { TaskProgress } from "./loaders";
+import { OVERDUE_TEXT, canReject, isOverdue, overdueTimes } from "./posts-rules";
 import { formatDateTime } from "@/lib/time";
 
 export type Status =
@@ -58,6 +59,8 @@ export interface RealPackage {
   pipeline?: { id: string; name: string; slotAt: string } | null;
   /** Set when autopilot made the post. */
   autopilot?: { run: string; campaign: string | null; slot: string; pipeline?: string; madeAt: string; autoApproved: null | { at: string; trustInARow: number; scheduledFor: string | null; via: "meta" | "upload-post" | null } } | null;
+  /** State files that are not valid JSON (the package is then 'invalid'; they are named in problems). */
+  unreadable?: string[];
 }
 interface Account {
   destination: string;
@@ -166,12 +169,14 @@ export function usePackageAct(pkgId: string, { onChange, reload, say }: { onChan
   const [busy, setBusy] = useState(false);
   const [doing, setDoing] = useState("");
   const [err, setErr] = useState("");
+  const lastErr = useRef("");
   const router = useRouter();
   const act = useCallback(
     async (body: Record<string, unknown>, okText: string): Promise<boolean> => {
       setBusy(true);
       setDoing(String(body.action ?? ""));
       setErr("");
+      lastErr.current = "";
       try {
         const r = await fetch(`/api/studio/content/${pkgId}`, {
           method: "POST",
@@ -189,6 +194,7 @@ export function usePackageAct(pkgId: string, { onChange, reload, say }: { onChan
         if (okText) say(okText);
         return true;
       } catch (e) {
+        lastErr.current = (e as Error).message;
         setErr((e as Error).message);
         await reload();
         return false;
@@ -198,7 +204,9 @@ export function usePackageAct(pkgId: string, { onChange, reload, say }: { onChan
     },
     [pkgId, onChange, reload, say, router],
   );
-  return { act, busy, doing, err, setErr };
+  /** The message of the last failed act (also shown as `err`), for callers that run several steps. */
+  const lastError = useCallback(() => lastErr.current, []);
+  return { act, busy, doing, err, setErr, lastError };
 }
 
 /** The big media preview of a package: slides, or the video with its cover as poster. */
@@ -223,8 +231,9 @@ export function PackageMedia({ pkg }: { pkg: RealPackage }) {
   );
 }
 
+// "Check status" asks the provider about a send, so it needs one: a Signal schedule has no dispatch yet.
 const needsCheck = (pkg: RealPackage) =>
-  pkg.status === "sending" || pkg.status === "scheduled" || pkg.status === "submitted" || pkg.status === "uncertain" || (pkg.status === "failed" && !!pkg.dispatch && !pkg.outcome?.message?.startsWith("Upload-Post rejected"));
+  !!pkg.dispatch && (pkg.status === "sending" || pkg.status === "scheduled" || pkg.status === "submitted" || pkg.status === "uncertain" || (pkg.status === "failed" && !pkg.outcome?.message?.startsWith("Upload-Post rejected")));
 const needsResolve = (pkg: RealPackage) => pkg.status === "uncertain" || (pkg.status === "failed" && !!pkg.dispatch && !pkg.outcome?.message?.startsWith("Upload-Post rejected"));
 /** Which short action a board card should offer for a post in Review (besides moving it). */
 export function quickAction(pkg: RealPackage): "check" | "resolve" | "label" | null {
@@ -267,6 +276,17 @@ export function PackageActions({
   const ask = async (message: string, body: Record<string, unknown>, okText: string) => {
     if (await confirm(message)) await act(body, okText);
   };
+  const scheduleQuestion = (iso: string) =>
+    scheduling?.provider === "signal"
+      ? `Schedule post ${pkg.id} for ${formatDateTime(iso)}? Signal sends it at that time while it is running on your machine. If Signal is off then, it waits for you. You can move or cancel it until then.`
+      : `Schedule post ${pkg.id} on Upload-Post for ${formatDateTime(iso)}? It posts at that time even if your machine is off. You can cancel or move it until a minute before.`;
+  const overdue = isOverdue(pkg, openedAt);
+  const times = overdue && pkg.plannedFor ? overdueTimes(pkg.plannedFor, openedAt) : null;
+  /** An overdue post: one confirm, then re-plan to `iso` and schedule it there (only on this click). */
+  const scheduleOverdue = async (iso: string) => {
+    if (!(await confirm(scheduleQuestion(iso)))) return;
+    if (await act({ action: "plan", plannedFor: iso }, "")) await act({ action: "schedule" }, `Post ${pkg.id} scheduled for ${formatDateTime(iso)}`);
+  };
 
   return (
     <div className="st-stack" style={{ gap: 14 }}>
@@ -301,7 +321,12 @@ export function PackageActions({
         </div>
       ) : null}
 
-      {pkg.status === "approved" && pkg.missedAt ? (
+      {overdue ? (
+        <p className="real-outcome st-small real-uncertain" role="status">
+          <strong>{OVERDUE_TEXT}</strong> It was planned for {formatDateTime(pkg.plannedFor)} and nothing was posted
+          {pkg.missedAt ? (pkg.missedReason ? `: ${pkg.missedReason}` : ": Signal was not running") : ": a planned time is not a schedule"}.
+        </p>
+      ) : pkg.status === "approved" && pkg.missedAt ? (
         <p className="real-outcome st-small real-uncertain" role="status">
           Missed its time{pkg.plannedFor ? ` (${formatDateTime(pkg.plannedFor)})` : ""}
           {pkg.missedReason ? `: ${pkg.missedReason}` : " because Signal was not running"}. Nothing was posted. Post it now or pick a new time in the Calendar.
@@ -330,7 +355,25 @@ export function PackageActions({
           <span className="st-small st-muted">
             Approved {formatDateTime(pkg.approval!.approved_at)} by {pkg.approval!.approved_by} · sent once via {live.provider === "meta" ? "Meta" : "Upload-Post"}, never retried
           </span>
-          {pkg.plannedFor && Date.parse(pkg.plannedFor) > openedAt + 10 * 60_000 ? (
+          {times ? (
+            scheduling?.enabled ? (
+              <div className="st-stack" style={{ gap: 6 }}>
+                <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
+                  {times.atPlannedTime ? (
+                    <button aria-busy={busy && (doing === "plan" || doing === "schedule")} type="button" className="st-btn st-btn-dark st-btn-sm" disabled={busy} onClick={() => void scheduleOverdue(times.atPlannedTime!)}>
+                      Schedule at planned time · {formatDateTime(times.atPlannedTime)}
+                    </button>
+                  ) : null}
+                  <button aria-busy={busy && (doing === "plan" || doing === "schedule")} type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={() => void scheduleOverdue(times.soonest)}>
+                    Schedule now · {formatDateTime(times.soonest)}
+                  </button>
+                </div>
+                <span className="xs st-muted">Or pick a new time in the Calendar. Nothing is scheduled until you confirm.</span>
+              </div>
+            ) : (
+              <span className="xs st-muted">{scheduling?.reason ? `${scheduling.reason} ` : ""}Pick a new time in the Calendar, or post it now.</span>
+            )
+          ) : pkg.plannedFor && Date.parse(pkg.plannedFor) > openedAt + 10 * 60_000 ? (
             scheduling?.enabled ? (
               <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
                 <button
@@ -467,7 +510,7 @@ export function PackageActions({
         </details>
       ) : null}
 
-      {["ready", "changed", "invalid", "approved"].includes(pkg.status) ? (
+      {canReject(pkg) ? (
         <div>
           <button
             aria-busy={busy && doing === "discard"}

@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (user instanceof Response) return user;
   const { id, name } = await ctx.params;
   if (!isPackageId(id)) return jsonError(404, 'not_found', 'Not found.');
-  return inProject(req, null, async () => {
+  return inProject(req, null, async (project) => {
     try {
       const f = await readPackageFile(id, name);
       const download = new URL(req.url).searchParams.get('download') === '1';
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
           'Content-Type': f.type,
           'Cache-Control': 'no-store',
           'X-Content-Type-Options': 'nosniff',
-          ...(download ? { 'Content-Disposition': `attachment; filename="signal-post-${id}-${name}"` } : {}),
+          ...(download ? { 'Content-Disposition': `attachment; filename="${downloadName(project.id, id, name)}"` } : {}),
         },
       });
     } catch (e) {
@@ -32,4 +32,11 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
       return jsonError(500, 'internal', 'Could not read the file.');
     }
   });
+}
+
+/** "<project id>-post-<package id>-<file>": names the account the file belongs to, never a fixed prefix. */
+
+export function downloadName(projectId: string, id: string, name: string): string {
+  const slug = projectId.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'signal';
+  return `${slug}-post-${id}-${name}`;
 }

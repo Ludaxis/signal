@@ -673,6 +673,8 @@
 .studio .cal2-item.s-approved .cal2-status { color: #017a50; }
 .studio .cal2-item.s-ready .cal2-status { color: #a05e00; }
 .studio .cal2-item.s-uncertain, .studio .cal2-item.s-failed { border-color: #ff5d52; }
+.studio .cal2-item.is-overdue { border-color: #ffb020; }
+.studio .cal2-item.is-overdue .cal2-status { color: #a05e00; font-weight: 600; }
 .studio .cal2-warn { font-size: 11px; color: #a05e00; }
 .studio .cal2-tray { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .studio .cal2-dst { padding: 10px 14px; border-radius: 12px; background: #fff4dc; color: #a05e00; }
@@ -1031,6 +1033,8 @@
 .studio .pb-card:hover { border-color: #24252666; }
 .studio .pb-card.s-uncertain, .studio .pb-card.s-failed, .studio .pb-card.s-changed, .studio .pb-card.s-invalid { border-color: #ff5d5299; }
 .studio .pb-card.s-discarded { opacity: 0.75; }
+/* Approved, planned time passed, not scheduled: nothing posts it by itself (posts-rules isOverdue). */
+.studio .pb-card.is-overdue { border-color: #ffb020; box-shadow: inset 3px 0 0 #ffb020; }
 .studio .pb-slot { background: #fffaf0; border-style: dashed; }
 .studio .pb-open { all: unset; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; border-radius: 10px; min-width: 0; }
 .studio .pb-open:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 4px; }

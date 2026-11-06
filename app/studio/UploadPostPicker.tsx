@@ -5,6 +5,7 @@
 // /api/studio/upload-post; the API key never reaches the browser.
 import { useCallback, useEffect, useState } from 'react';
 import { More } from './More';
+import { zonedParts, formatDateLabel } from '@/lib/time';
 
 export interface UpProfile { username: string; displayName: string | null; instagram: { handle: string | null; name: string | null; reauth: boolean } | null }
 export interface UpState { allowed: boolean; reason: string; plan?: string | null; limit?: number | null; profiles: UpProfile[] }
@@ -38,6 +39,40 @@ export function useUpProfiles() {
     };
   }, [load]);
   return { state, reload: load };
+}
+
+/** Upload-Post's monthly upload count for the whole plan (GET /api/studio/connections → uploadPost.quota, when the server knows it). */
+export interface UpQuota { used: number; limit: number; resetsAt: string | null }
+export function parseQuota(v: unknown): UpQuota | null {
+  if (!v || typeof v !== 'object') return null;
+  const q = v as { used?: unknown; limit?: unknown; resetsAt?: unknown };
+  if (typeof q.used !== 'number' || typeof q.limit !== 'number' || !Number.isFinite(q.used) || !Number.isFinite(q.limit) || q.limit <= 0) return null;
+  const resets = typeof q.resetsAt === 'string' && Number.isFinite(Date.parse(q.resetsAt)) ? q.resetsAt : null;
+  return { used: Math.max(0, Math.round(q.used)), limit: Math.round(q.limit), resetsAt: resets };
+}
+/** "3 of 10 Upload-Post uploads used this month · resets Tue 1 Dec" */
+export function quotaText(q: UpQuota): string {
+  return `${q.used} of ${q.limit} Upload-Post uploads used this month${q.resetsAt ? ` · resets ${formatDateLabel(zonedParts(q.resetsAt).date)}` : ''}`;
+}
+
+/**
+ * Back from Upload-Post's connect page (/studio?connected=<profile>): reads the profile list again
+ * (the same read-only call as "Check again") and says whether its Instagram is connected now.
+ */
+export async function connectedMessage(profile: string): Promise<string> {
+  const name = profile.slice(0, 60);
+  try {
+    const r = await fetch('/api/studio/upload-post', { cache: 'no-store' });
+    const j = (await r.json().catch(() => null)) as (UpState & { error?: { message: string } }) | null;
+    if (!r.ok || !j) return `Back from Upload-Post, but Signal could not check “${name}”: ${j?.error?.message ?? `request failed (${r.status})`}.`;
+    if (!j.allowed) return `Back from Upload-Post, but Signal could not check “${name}”: ${j.reason}`;
+    const p = j.profiles.find((x) => x.username === name);
+    if (!p) return `Back from Upload-Post, but “${name}” is not on your Upload-Post plan.`;
+    if (p.instagram?.handle) return `Upload-Post “${name}” is connected to Instagram ${p.instagram.handle}${p.instagram.reauth ? ', but it needs reconnecting' : ''}.`;
+    return `Upload-Post “${name}” has no Instagram connected yet. Open Upload-Post in Connections and press Connect Instagram again.`;
+  } catch {
+    return `Back from Upload-Post, but Signal could not check “${name}”. Press Check again in Connections.`;
+  }
 }
 
 export const profileLine = (p: UpProfile) => (p.instagram?.handle ? `Instagram ${p.instagram.handle}${p.instagram.reauth ? ' · needs reconnecting' : ''}` : 'no Instagram yet');
