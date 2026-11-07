@@ -80,7 +80,7 @@
 /* nodes */
 .studio .mem-node { cursor: pointer; transition: transform 0.4s var(--ease); outline: none; }
 .studio .mem-node-in { animation: mem-in 0.45s var(--ease) both; transform-box: fill-box; transform-origin: left center; }
-@keyframes mem-in { from { opacity: 0; transform: translateX(-10px) scale(0.92); } to { opacity: 1; transform: none; } }
+@keyframes mem-in { from { opacity: 0; transform: translateX(calc(-10px * var(--dir))) scale(0.92); } to { opacity: 1; transform: none; } }
 .studio .mem-pill { fill: var(--surface); stroke: var(--rule); stroke-width: 1.2; transition: stroke 0.15s var(--ease), fill 0.15s var(--ease); }
 .studio .mem-node:hover .mem-pill { stroke: var(--ink); }
 .studio .mem-node:focus-visible .mem-pill { stroke: var(--brand-ink); stroke-width: 3; }

@@ -1,10 +1,11 @@
 // Connectors that run on this computer only: Figma export (read-only REST with the owner's own token), the
-// Remotion renderer and ffmpeg loudness. They cost nothing; Remotion's own licence (a company licence above a size
-// threshold) is yours to check; see the render workspace README.
+// Remotion renderer and ffmpeg loudness. Signal charges nothing for them; check Remotion's current licence before
+// commercial renders (render/README.md).
 //
 // - figma: the existing figma.ts import (frames → PNG in the brand folder); test() is the free GET /v1/me check.
-// - remotion: not installed in this checkout yet (brings the render child); status says so and invoke refuses
-//   unless a renderer is injected. Its mock is the same local render ("real (local)").
+// - remotion: comes from the optional render workspace (render/), which installs it for the render child; without
+//   it, status says Not installed and invoke refuses unless a renderer is injected. Its mock is the same local
+//   render ("real (local)").
 // - ffmpeg: the bundled ffmpeg-static; test() runs `-version`; invoke measures loudness with loudnorm (JSON report).
 import { existsSync } from 'node:fs';
 // A namespace import on purpose: webpack rewrites calls of a named `createRequire` import and, with a non-literal
@@ -92,7 +93,7 @@ export function makeRemotion(deps: { render?: Renderer; resolve?: (id: string) =
       { id: 'render.video', source: 'https://www.remotion.dev/docs/ssr-node.md', readAt: READ_AT },
       { id: 'render.audio', source: 'https://www.remotion.dev/docs/media/audio', readAt: READ_AT },
     ],
-    costModel: { ...FREE('licence decision pending (memo); evaluation and mock renders are free') },
+    costModel: { ...FREE('no charge from Signal; check Remotion\'s current licence before commercial renders') },
     attendance: 'any',
     settingsGroup: null,
     feature: 'postmaker',

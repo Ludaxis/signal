@@ -396,4 +396,11 @@ export const enPlan = {
   'connections.apiKey': 'Anthropic API key (optional)',
   'connections.keys': 'Keys',
   'keys.notReady': 'Keys cannot be saved on this computer yet.',
+
+  // Pipelines (Pipelines)
+  'pipelines.remove': 'Remove',
+  'pipelines.remove.title': 'Remove pipeline “{name}”?',
+  'pipelines.remove.body': 'Its posts stay.',
+  'pipelines.remove.confirm': 'Remove pipeline',
+  'pipelines.remove.done': 'Removed.',
 } as const;

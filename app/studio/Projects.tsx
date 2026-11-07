@@ -208,7 +208,8 @@ function ProjectsPanel({ onClose }: { onClose: () => void }) {
                     <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setProjectId(p.id)}>
                       Open
                     </button>
-                    <button type="button" className={`st-btn ${p.account?.active ? 'st-btn-ghost' : 'st-btn-primary'} st-btn-sm`} onClick={() => setWizard({ mode: 'account', project: p })}>
+                    {/* One primary on this screen ("+ New project"); the row actions stay secondary. */}
+                    <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setWizard({ mode: 'account', project: p })}>
                       {p.account?.active ? 'Change limits' : 'Set posting limits'}
                     </button>
                     {p.account?.active ? <VerifyButton id={p.id} onDone={() => void reload()} /> : null}

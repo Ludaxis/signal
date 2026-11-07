@@ -113,3 +113,8 @@ Everything you need for posting can be set in **Connections**, with no file to e
   dev server (`npm run dev:https`, see [instagram-unified-login.md](instagram-unified-login.md)).
   Upload-Post works in the app.
 - No auto-update yet: rebuild to update.
+- **Post maker renders are mock in bundled mode.** The app does not ship the optional render workspace (Remotion and
+  the render child), so videos stay watermarked MOCK stand-ins that can only be accepted as drafts. For real renders,
+  use checkout mode on a Signal folder where `cd render && npm install` has run and a Chrome Headless Shell is set
+  (`SIGNAL_RENDER_BROWSER` in that folder's `.env.local`); check Remotion's current licence before commercial renders.
+  See [postmaker.md](postmaker.md#rendering).

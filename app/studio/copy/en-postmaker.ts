@@ -247,7 +247,7 @@ export const enPostmaker = {
   'pm.notes.save': 'Add note',
   'pm.notes.fix': 'Fix this step',
   'pm.notes.added': 'Note added at {time}.',
-  'pm.notes.addTitle': 'Note at {time}',
+  'pm.notes.addTitle': 'Add a note at {time}',
 
   // Runs (30)
   'pm.runs.filter': 'Filter',

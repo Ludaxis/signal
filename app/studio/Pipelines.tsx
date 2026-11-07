@@ -15,6 +15,7 @@ import { Select } from './Select';
 import { ScreenSkeleton, Spinner } from './loaders';
 import { notifyChanged, useOnChanged } from './sync';
 import { useConfirm } from './ui/Dialog';
+import { t } from './copy/en';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SOURCE: Record<SourceKind, { word: string; hint: string }> = {
@@ -451,10 +452,10 @@ function Card({ p, d, act, say, names }: { p: PipelineRow; d: PipelinesPayload; 
               {d.nextRunAt ? ` Daily run ${formatDateTime(d.nextRunAt)}.` : ''}
             </span>
             <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={async () => {
-              if (!(await confirmBox.confirm({ title: `Remove pipeline “${p.name}”?`, body: 'Its posts stay.', confirmLabel: 'Remove pipeline', destructive: true }))) return;
-              void run(() => act({ action: 'delete', id: p.id }), 'Removed.');
+              if (!(await confirmBox.confirm({ title: t('pipelines.remove.title', { name: p.name }), body: t('pipelines.remove.body'), confirmLabel: t('pipelines.remove.confirm'), destructive: true }))) return;
+              void run(() => act({ action: 'delete', id: p.id }), t('pipelines.remove.done'));
             }}>
-              Remove
+              {t('pipelines.remove')}
             </button>
           </>
         ) : null}

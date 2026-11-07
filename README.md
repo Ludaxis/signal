@@ -12,6 +12,7 @@
 - **Agent team**: nine roles (lead, researcher, strategist, planner, creative producer, motion designer, reviewer, analyst, community manager) on the Claude Agent SDK with hard tool allow-lists and budgets. Nothing in the team can publish.
 - **Autopilot with trust**: once a day, make the planned posts; a format earns trust after five of your approvals in a row and only then may autopilot approve and schedule it, with a daily budget, a backlog limit and a one-click "pull".
 - **Pipelines**: one chain per pipeline (Source → Make → Review → Approve → Schedule, with a budget) that runs inside the daily autopilot run without a campaign: new website pages, your own topic list, AI-written ideas or a campaign's plan, on the days and times you pick.
+- **Post maker** (off by default): drop a reference video, get a recipe and a step pipeline, review the result on Proof, and accept it as one post per language. Persian and English, with a pronunciation layer for Persian voices. Every paid service has its own switch and key; with none on, every step is a watermarked mock that can only be accepted as a draft.
 - **Connections**: every service a project uses on one screen; link or change its Upload-Post profile and flip one-click posting there, without re-entering the posting limits.
 
 ## Screenshots
@@ -43,6 +44,34 @@ Sign in with the owner password, create a project (name + Instagram handle), set
 A pipeline makes posts by itself, on a schedule, without a campaign plan. On the **Pipelines** screen, answer three questions (where ideas come from, what kind of post, how often) and the rest has a working default. Each card shows its chain as chips: **Source** (new website pages, your own topic list, AI-written ideas, or a campaign's planned slots) → **Make** (a post type, with an optional prompt template using `{topic}`, `{brand}`, `{tone}`) → **Review** (the AI reviewer) → **Approve** (ask you, or trusted post types publish by themselves) → **Schedule** (posts per week, days, times in the Studio time zone, make-ahead days), plus a daily budget behind **More**.
 
 Pipelines run inside the daily autopilot run under exactly the same rules: the `autopilot` switch, the pause switches, the budget checked before each step, the backlog limit, trust, and never Codex without a button press (**Run now** on the card runs that one pipeline, Codex included). Every post lands in Review with "Made by autopilot" and the pipeline's name on its card. Pipelines live in `<project folder>/pipelines/<id>.json`; the runner's state (next topic, queued ideas, last result) in `<id>.state.json`. Removing a pipeline archives the file; its posts stay.
+
+### Post maker
+
+Turn on `postmaker` (Connections → Features, or `"postmaker": true` in `signal.config.json`) and the **Post maker** tab
+appears. Drop a reference video or image, choose the languages, length and cap, and press **Make it**: Signal reads the
+reference into a recipe (beats, style, assets), builds a pipeline (script, narration, voice, art, music, motion,
+captions, compose, mix, render, post copy, check) and runs it to **Proof**, where the check scores it on twelve
+criteria. **Accept** writes one ready post package per language to the Posts board; nothing is posted from Post maker.
+
+What is real and what is mock:
+
+- With only `postmaker` on, every step that needs a service runs as a **mock**: placeholder outputs, and a MOCK
+  watermark on every frame of every video. A run with any mock step can only be **accepted as a draft**, which keeps
+  the template and makes no post.
+- Each paid service has its own switch (table below) and key (Connections → Keys), and asks once to accept that
+  service's terms when you turn it on. Every run has a cap, each project a day ceiling, and each connector an optional
+  day cap (`"postmaker": { "dayCapUsd": { "elevenlabs": 5 } }`). `SIGNAL_POSTMAKER_PAUSED=1` stops every Post maker
+  service call.
+- Persian lines are signed by the owner, or a reader they name, before a clean Accept; agents never sign.
+- Real video renders need the optional render workspace: `cd render && npm install`, plus a Chrome Headless Shell
+  (`SIGNAL_RENDER_BROWSER`, or `npm --prefix render run browser:ensure`). Without it, renders stay mock and Connections
+  shows the renderer as Not installed. Remotion has its own licence, which is not MIT: **check Remotion's current
+  licence before commercial renders** ([render/README.md](render/README.md)).
+- `npm run postmaker:slice -- --browser <chrome-headless-shell>` runs the end-to-end check on your computer with every
+  connector off and writes two real 30 s renders and a report to `test-results/`.
+
+Guides: [Post maker](docs/postmaker.md) · [project packs](docs/project-pack-format.md) (art, fonts, voices, templates,
+claims for one project) · [Persian writing guide](docs/persian.md).
 
 For a production build: `npm run build && npm start`.
 
@@ -77,6 +106,17 @@ All **off** by default. Each one is checked at the moment it would matter and th
 | `uploadPostResults` | Read post results from Upload-Post | No |
 | `uploadPostScheduling` | Schedule posts on Upload-Post (posts while your machine is off) | No |
 | `uploadPostProfiles` | Create / inspect Upload-Post profiles from the project wizard | No |
+| `postmaker` | The Post maker tab and every Post maker action (mock steps only, until a service below is on) | No |
+| `postmakerElevenlabs` | ElevenLabs voices for Post maker (`ELEVENLABS_API_KEY`) | Yes |
+| `postmakerAzureSpeech` | Azure Speech voices for Post maker (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`) | Yes |
+| `postmakerSync` | Sync lip-sync for Post maker (`SYNC_API_KEY`) | Yes |
+| `postmakerHedra` | Hedra lip-sync for Post maker (`HEDRA_API_KEY`) | Yes |
+| `postmakerHiggsfieldVideo` | Higgsfield video clips for Post maker b-roll (the Higgsfield keys) | Yes |
+| `postmakerElevenlabsMusic` | ElevenLabs music for Post maker (`ELEVENLABS_API_KEY`) | Yes |
+| `browserAgent` | A browser agent on music sites, only while you watch | Depends on the site |
+
+Optional, beside `features`: `"contentGenerators": [...]` limits which package generators may be approved (absent:
+all of them), and `"postmaker"` holds the per-connector day caps and the terms you accepted.
 
 Per-account limits (posts per day, total posts, optional end date, the one-click posting switch and Codex images) are set in the app under **Manage projects → Set posting limits** after typing the handle, and stored in `data/accounts.json`.
 
@@ -97,6 +137,10 @@ Per-account limits (posts per day, total posts, optional end date, the one-click
 | `NEXT_PUBLIC_SIGNAL_TIME_ZONE` | `UTC` | IANA zone for calendar days, posting times and the autopilot window. Set it before `npm run build`. |
 | `SIGNAL_PUBLISH_PAUSED` | `0` | `1` = nothing is posted or scheduled anywhere (reads still work). |
 | `SIGNAL_AUTOPILOT_PAUSED` | `0` | `1` = no automatic runs and no automatic approvals. |
+| `SIGNAL_POSTMAKER_PAUSED` | `0` | `1` = no Post maker service call (steps run as mocks, or stop where they need a live result). |
+| `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `SYNC_API_KEY`, `HEDRA_API_KEY` | — | Post maker voice and lip-sync services (or save them in Connections → Keys). |
+| `SIGNAL_RENDER_BROWSER` | — | The Chrome Headless Shell program file for real Post maker renders. |
+| `SIGNAL_RENDER_SERVICE_DIR`, `SIGNAL_RENDER_CACHE_DIR` | `./render`, system temp | The render workspace and the render bundle cache. |
 | `META_APP_ID`, `META_APP_SECRET`, `META_LOGIN_CONFIG_ID`, `META_REDIRECT_URI`, `SIGNAL_TOKEN_KEY`, `META_GRAPH_VERSION` | — / `v26.0` | Meta Unified Login; see the provider guide. |
 | `INSTAGRAM_TOKEN_<PROJECT_ID>`, `INSTAGRAM_API_VERSION` | — | Legacy Instagram Login: one long-lived token per project. |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE` | — | Cloudflare R2 for short-lived public media links while posting through Instagram's API. |
@@ -155,7 +199,7 @@ Create API keys on higgsfield.ai and set `HF_API_KEY_ID` / `HF_API_KEY_SECRET`; 
 
 ## Costs
 
-Signal itself is free. What can cost money, and only when switched on: Anthropic API usage (agent team, judge, paid agent runs; budgets per run), Higgsfield requests (per image / video), Upload-Post plans beyond the free tier, Cloudflare R2 (negligible), and your own Claude / Codex subscriptions.
+Signal itself is free. What can cost money, and only when switched on: Anthropic API usage (agent team, judge, paid agent runs; budgets per run), Higgsfield requests (per image / video), Post maker's voice, lip-sync, music and video services (a cap per run, a day ceiling per project), Upload-Post plans beyond the free tier, Cloudflare R2 (negligible), and your own Claude / Codex subscriptions.
 
 ## Limitations
 
@@ -173,12 +217,22 @@ npm test           # vitest (no network; every provider is faked)
 npm run build      # next build (webpack)
 ```
 
-Docs: [architecture](docs/architecture.md) · [memory and agent team](docs/memory-and-agent-team.md) · [autopilot and pipelines](docs/autopilot.md) · [loading states](docs/loading-states.md) · [Instagram Unified Login runbook](docs/instagram-unified-login.md).
+Docs: [architecture](docs/architecture.md) · [Post maker](docs/postmaker.md) · [project packs](docs/project-pack-format.md) · [Persian writing guide](docs/persian.md) · [memory and agent team](docs/memory-and-agent-team.md) · [autopilot and pipelines](docs/autopilot.md) · [loading states](docs/loading-states.md) · [Instagram Unified Login runbook](docs/instagram-unified-login.md).
+
+`npm test` never starts a browser or Remotion: the Post maker compositions are tested as static HTML against a stub,
+and renders use a fake. The real-render suites run only on request (`SIGNAL_RENDER=1`, or `npm run postmaker:slice`).
 
 ## Not affiliated
 
 Signal is an independent open-source project. It is not affiliated with, endorsed by or connected to Meta Platforms, Instagram, or Signal Messenger / Signal Technology Foundation. Instagram and Meta are trademarks of Meta Platforms, Inc.
 
+## Third-party components
+
+- **Fonts** in `public/fonts/` (Vazirmatn, Estedad, Instrument Sans) are under the SIL Open Font License 1.1, not MIT.
+  Each keeps its `OFL.txt` beside it; `public/fonts/fonts.lock.json` pins their files.
+- **Remotion** is not part of Signal's dependencies. The optional `render/` workspace installs it on request; it has
+  its own licence. Check Remotion's current licence before commercial renders.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Third-party components keep their own licences (above).
