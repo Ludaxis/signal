@@ -1,5 +1,5 @@
 'use client';
-// Signal Content Studio: Today, Campaigns, Pipelines, Calendar, Posts (with the Gallery that replaced Library), Results,
+// Signal Content Studio: Today, Post maker (behind its switch), Campaigns, Pipelines, Calendar, Posts (with the Gallery that replaced Library), Results,
 // Comments, Brand, Memory and Connections for the selected project. Everything shown here is real: posts on disk,
 // approvals and plans. No sample data. Today: one Needs you list, Next up, Latest.
 import { useRouter } from 'next/navigation';
@@ -22,10 +22,16 @@ import { formatDateIn, formatWhenIn } from '@/lib/studio/time';
 import { t } from './copy/en';
 import { Button, CountBadge, Drawer, Notice, Pill, useToast } from './ui';
 import { filesChanged, isOverdue, needsYou, needsYouOrder, postedNewestFirst, postStatusWord } from './posts-rules';
-import { useStudioView, useUrlReady, type View } from './url-state';
+import { navigateTo, useStudioView, useUrlReady, type View } from './url-state';
+import { PostMaker } from './postmaker/PostMaker';
+import { pmApi, type PostmakerHome } from './postmaker/api';
+import { useKeys } from './postmaker/keys';
+import { atProof, langName, runWord, runsNeedingYou } from './postmaker/model';
+import { useOnChanged } from './sync';
 
 const TITLES: Record<View, string> = {
   today: t('tab.today'),
+  postmaker: t('tab.postmaker'),
   campaigns: t('tab.campaigns'),
   pipelines: t('tab.pipelines'),
   calendar: t('tab.calendar'),
@@ -55,6 +61,13 @@ const ICONS: Record<View, ReactNode> = {
     <>
       <path d="M3 11l9-7 9 7" />
       <path d="M5 10v10h14V10" />
+    </>
+  ),
+  postmaker: (
+    <>
+      <path d="M4 20l9-9" />
+      <path d="M14 4l1.2 2.8L18 8l-2.8 1.2L14 12l-1.2-2.8L10 8l2.8-1.2z" />
+      <path d="M19 14l.6 1.4L21 16l-1.4.6L19 18l-.6-1.4L17 16l1.4-.6z" />
     </>
   ),
   campaigns: (
@@ -131,7 +144,27 @@ export const NEEDS_YOU_ROWS = 5;
 /** Rows in Next up. */
 const NEXT_UP_ROWS = 3;
 
-export function Studio() {
+/** Runs that need the person, for Today and the Post maker nav badge; null while the switch is off. */
+function usePostmakerNeeds(on: boolean, pid: string | null) {
+  const [home, setHome] = useState<PostmakerHome | null>(null);
+  const load = useCallback(async () => {
+    if (!on || !pid) return;
+    try {
+      setHome(await pmApi.home(pid));
+    } catch {
+      /* Today still shows the posts; the Post maker tab shows its own error */
+    }
+  }, [on, pid]);
+  useEffect(() => {
+    // Off the effect's own turn (the load sets state when it answers).
+    const id = setTimeout(() => void load(), 0);
+    return () => clearTimeout(id);
+  }, [load]);
+  useOnChanged(['content'], load, on ? 30_000 : 0);
+  return on && home ? { home, reload: load } : null;
+}
+
+export function Studio({ postmaker = false }: { postmaker?: boolean }) {
   // The open tab lives in the URL (?tab=), so reload, deep links and Back work.
   const [view, navigate] = useStudioView();
   const ready = useUrlReady();
@@ -205,6 +238,18 @@ export function Studio() {
   const badge = needsYou(posts.data?.packages ?? []).length;
   const openMake = useCallback(() => setMaking(true), []);
   const makePost = openMake;
+  const pm = usePostmakerNeeds(postmaker, pid);
+  const pmBadge = pm ? runsNeedingYou(pm.home.runs).length : 0;
+  const reloadPm = pm?.reload;
+  useEffect(() => {
+    if (!ready || view !== 'today' || !reloadPm) return;
+    const id = setTimeout(() => void reloadPm(), 0);
+    return () => clearTimeout(id);
+  }, [ready, view, reloadPm]);
+  // Global keys: ⌘1…⌘0 go to the nav items in order; ⌘N makes a post (Post maker › Reference when it is on).
+  const order: View[] = ['today', ...(postmaker ? (['postmaker'] as View[]) : []), 'campaigns', 'pipelines', 'calendar', 'posts', 'results', 'comments', 'brand', 'memory', 'connections'];
+  const navKeys: Record<string, () => void> = Object.fromEntries(order.slice(0, 10).map((v, i) => [`⌘${(i + 1) % 10}`, () => navigate(v)]));
+  useKeys({ ...navKeys, '⌘N': () => (postmaker ? navigateTo('postmaker', { params: { s: 'reference' } }) : openMake()) }, ready);
 
   const logout = async () => {
     await fetch('/api/session', { method: 'DELETE' }).catch(() => undefined);
@@ -234,6 +279,7 @@ export function Studio() {
         <ProjectSwitcher />
         <nav aria-label={t('shell.nav')} className="st-stack st-nav-list">
           {nav('today')}
+          {postmaker ? nav('postmaker', <CountBadge count={pmBadge} label={t('pm.badge', { count: pmBadge })} />) : null}
           {nav('campaigns')}
           {nav('pipelines')}
           {nav('calendar')}
@@ -257,18 +303,38 @@ export function Studio() {
             </span>
             <h1 className="page-title">{TITLES[view === 'library' ? 'posts' : view]}</h1>
           </div>
-          {/* One secondary action in the header; each screen's own primary sits in its content. */}
-          <div className="st-header-actions">
-            <Button level="secondary" dense icon={PlusIcon} onClick={makePost}>
-              {t('shell.makePost')}
-            </Button>
-          </div>
+          {/* One secondary action in the header; each screen's own primary sits in its content. On Post maker its own
+              "Make a post" (home) or "Make it" (Reference) is the way in, so the header does not offer a second one. */}
+          {view === 'postmaker' && postmaker ? null : (
+            <div className="st-header-actions">
+              <Button level="secondary" dense icon={PlusIcon} onClick={makePost}>
+                {t('shell.makePost')}
+              </Button>
+            </div>
+          )}
         </header>
 
         {/* Until the URL is read (hydration), no tab mounts: a deep link opens its own tab first. */}
         {!ready ? null : (
           <>
-            {view === 'today' ? posts.error && !posts.data ? <Notice kind="error" title={t('today.couldNotLoad')} details={posts.error} onRetry={() => void posts.reload()} /> : <Today key={pid ?? 'none'} data={posts.data} go={go} onMake={makePost} /> : null}
+            {view === 'today' ? posts.error && !posts.data ? <Notice kind="error" title={t('today.couldNotLoad')} details={posts.error} onRetry={() => void posts.reload()} /> : <Today key={pid ?? 'none'} data={posts.data} go={go} onMake={makePost} pm={pm?.home ?? null} /> : null}
+            {view === 'postmaker' ? (
+              postmaker ? (
+                <PostMaker key={pid ?? 'none'} say={say} openConnections={(service) => go('connections', service ? { service } : undefined)} />
+              ) : (
+                <section className="screen" aria-label={t('tab.postmaker')}>
+                  <Notice
+                    kind="off"
+                    title={t('notice.serviceOff', { service: t('tab.postmaker') })}
+                    action={
+                      <Button level="secondary" dense onClick={() => go('connections')}>
+                        {t('notice.openConnections')}
+                      </Button>
+                    }
+                  />
+                </section>
+              )
+            ) : null}
             {view === 'calendar' ? (
               <section className="screen" aria-label={t('calendar.region')}>
                 <Calendar say={say} onOpenPosts={() => go('posts')} />
@@ -345,8 +411,18 @@ function Thumb({ p }: { p: RealPackage }) {
   return src ? <LazyImage className="today-thumb" src={src} alt="" /> : <span className="today-thumb today-thumb-empty" aria-hidden="true" />;
 }
 
-export function Today({ data, go, onMake }: { data: Data; go: (v: View, params?: Record<string, string>) => void; onMake: () => void }) {
+type PmRun = PostmakerHome['runs'][number];
+
+/** A Today row for a Post maker run that needs the person: "Proof ready", a pause line, or "Run failed". */
+function pmLine(r: PmRun): string {
+  if (r.status === 'failed') return t('pm.today.failed');
+  if (atProof(r)) return t('pm.today.proofReady');
+  return r.pausedFor && r.pausedFor !== 'check' ? t(`pm.pause.${r.pausedFor}`) : t('pm.today.proofReady');
+}
+
+export function Today({ data, go, onMake, pm = null }: { data: Data; go: (v: View, params?: Record<string, string>) => void; onMake: () => void; pm?: PostmakerHome | null }) {
   const [now] = useState(() => Date.now());
+  const pid = useProjectId();
   if (!data) return <ScreenSkeleton variant="cards" count={3} label={t('today.loading')} />;
   const tz = data.project?.timeZone ?? null;
   const pk = data.packages.filter((p) => p.status !== 'discarded');
@@ -360,8 +436,16 @@ export function Today({ data, go, onMake }: { data: Data; go: (v: View, params?:
   const openPost = (id: string) => go('posts', { post: id });
   // A connection that blocks a post within 24 h comes first: it is the most urgent row.
   const blocks = (data.connectionBlocks ?? []).slice(0, NEEDS_YOU_ROWS);
-  const postRows = Math.max(0, NEEDS_YOU_ROWS - blocks.length);
-  const total = blocks.length + needs.length;
+  const pmRuns = runsNeedingYou(pm?.runs ?? []);
+  const pmName = (r: PmRun) => {
+    const tpl = pm?.templates.find((x) => x.id === r.templateId || x.recipeId === r.recipeId);
+    if (tpl) return tpl.name;
+    const rc = pm?.recipes.find((x) => x.id === r.recipeId);
+    return rc ? t('pm.home.draftName', { langs: rc.languages.map(langName).join(' + '), length: `${rc.lengthSec} s` }) : t('tab.postmaker');
+  };
+  const pmRows = Math.max(0, NEEDS_YOU_ROWS - blocks.length);
+  const postRows = Math.max(0, NEEDS_YOU_ROWS - blocks.length - Math.min(pmRuns.length, pmRows));
+  const total = blocks.length + pmRuns.length + needs.length;
 
   return (
     <section className="screen st-stack today-screen" aria-label={t('tab.today')}>
@@ -404,6 +488,22 @@ export function Today({ data, go, onMake }: { data: Data; go: (v: View, params?:
                 </button>
               </li>
             ))}
+            {pmRuns.slice(0, pmRows).map((r) => (
+              <li key={r.id}>
+                <button type="button" className="today-row" data-run={r.id} onClick={() => go('postmaker', { r: r.recipeId, s: atProof(r) ? 'proof' : 'pipeline' })} aria-label={t('pm.today.open', { name: pmName(r) })}>
+                  {r.cover && pid ? <LazyImage className="today-thumb" src={pmApi.mediaUrl(pid, r.recipeId, r.cover)} alt="" /> : <span className="today-thumb today-thumb-empty" aria-hidden="true" />}
+                  <span className="today-row-text">
+                    <span className="today-row-title" data-content>
+                      {pmName(r)}
+                    </span>
+                    <span className="xs st-muted">
+                      {pmLine(r)} <span data-content>· {formatWhenIn(pm?.timeZone ?? tz, r.startedAt, now)}</span>
+                    </span>
+                  </span>
+                  <Pill status={runWord(r.status)} />
+                </button>
+              </li>
+            ))}
             {needs.slice(0, postRows).map((p) => {
               const line = needLine(p, tz, now);
               return (
@@ -427,11 +527,19 @@ export function Today({ data, go, onMake }: { data: Data; go: (v: View, params?:
             })}
           </ul>
         )}
-        {needs.length > postRows ? (
+        {/* Each overflow has its own way out: runs past the limit go to Post maker › Runs, posts to Posts. */}
+        {pmRuns.length > pmRows || needs.length > postRows ? (
           <div>
-            <Button level="tertiary" dense onClick={() => go('posts')}>
-              {t('today.seeAll')}
-            </Button>
+            {pmRuns.length > pmRows ? (
+              <Button level="tertiary" dense onClick={() => go('postmaker', { view: 'runs' })}>
+                {t('pm.today.seeAllRuns')}
+              </Button>
+            ) : null}
+            {needs.length > postRows ? (
+              <Button level="tertiary" dense onClick={() => go('posts')}>
+                {t('today.seeAll')}
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </section>

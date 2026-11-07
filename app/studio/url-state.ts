@@ -4,7 +4,7 @@
 // tab that set them (for example `?tab=connections&service=<id>`) and are dropped when the tab changes.
 import { useCallback, useSyncExternalStore } from 'react';
 
-export const VIEWS = ['today', 'campaigns', 'pipelines', 'calendar', 'posts', 'library', 'results', 'comments', 'brand', 'memory', 'connections'] as const;
+export const VIEWS = ['today', 'postmaker', 'campaigns', 'pipelines', 'calendar', 'posts', 'library', 'results', 'comments', 'brand', 'memory', 'connections'] as const;
 export type View = (typeof VIEWS)[number];
 export const DEFAULT_VIEW: View = 'today';
 
@@ -76,7 +76,7 @@ export function useUrlParam(name: string): string | null {
   return new URLSearchParams(search).get(name);
 }
 
-/** The whole current query string (for tabs with several parameters). */
+/** The whole current query string (for tabs with several parameters, such as Post maker's r, s and step). */
 export function useSearch(): string {
   return useSyncExternalStore(subscribe, snapshot, serverSnapshot);
 }

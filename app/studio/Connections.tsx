@@ -452,7 +452,7 @@ export function Connections({ say, openBrand }: { say: (t: string) => void; open
       {/* Sources and Features sit behind one disclosure, closed by default. */}
       <More className="cx-more" label={moreLabel} openLabel={moreLabel}>
         <Group id="src" title={t('connections.group.sources')} rows={sourceRows} onOpen={(id) => (id === 'brand' ? openBrand() : setOpen(id))} />
-        <Group id="feat" title={t('connections.group.features')} rows={featureRows} onOpen={(id) => (id === 'autopilot' ? navigateTo('campaigns') : id === 'postmaker' ? undefined : setOpen(id))} />
+        <Group id="feat" title={t('connections.group.features')} rows={featureRows} onOpen={(id) => (id === 'autopilot' ? navigateTo('campaigns') : id === 'postmaker' ? navigateTo('postmaker') : setOpen(id))} />
         <FeaturesSection say={say} hide={POSTMAKER_FEATURES} />
       </More>
 
