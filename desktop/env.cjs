@@ -75,7 +75,7 @@ function signalEnvTemplate() {
     '# UPLOAD_POST_API_KEY=',
     '# CLAUDE_BIN=/opt/homebrew/bin/claude',
     '# CODEX_BIN=/opt/homebrew/bin/codex',
-    '# NEXT_PUBLIC_SIGNAL_TIME_ZONE=Europe/Tallinn',
+    '# NEXT_PUBLIC_SIGNAL_TIME_ZONE=Europe/Berlin',
     '# Run a Signal folder (its own .env.local, data and settings) instead of the built-in server:',
     '# SIGNAL_APP_DIR=/path/to/signal',
     "# Sign-in password for a Signal folder (wins over its .env.local). The built-in server makes a one-time password at launch and ignores this.",

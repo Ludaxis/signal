@@ -45,6 +45,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     handle: String(b.handle ?? '').slice(0, 80),
     uploadPostProfile: String(b.uploadPostProfile ?? '').slice(0, 80),
     contentDir: b.contentDir ? String(b.contentDir).slice(0, 500) : undefined,
+    timeZone: b.timeZone ? String(b.timeZone).slice(0, 64) : undefined,
+    packDir: b.packDir ? String(b.packDir).slice(0, 500) : undefined,
   };
   if (b.check) return NextResponse.json({ errors: await checkNewProject(input), id: input.id });
   try {

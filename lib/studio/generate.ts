@@ -16,23 +16,8 @@ import { currentProject, type Project } from './projects';
 import { codexImage } from './codex';
 import { estimateImageCostUsd, estimateVideoCostUsd, HF_IMAGE_MODEL, HF_VIDEO_MODEL, higgsfieldAllowed, higgsfieldClient, HiggsfieldError, type HfClient } from './higgsfield';
 
-/** All formats. */
-export const FORMATS = ['website-card', 'codex-post', 'higgsfield-image', 'higgsfield-reel'] as const;
-export type Format = (typeof FORMATS)[number];
-/** Formats that work for any project. */
-export const ANY_PROJECT_FORMATS: Format[] = [...FORMATS];
-/** Formats made from a written brief ({prompt, headline?, caption?}) rather than from a web page. */
-export const BRIEF_FORMATS: Format[] = ['codex-post', 'higgsfield-image', 'higgsfield-reel'];
-/** Brief formats that put the headline on the image (a Reel gets it on its cover only). */
-export const HEADLINE_FORMATS: Format[] = ['codex-post', 'higgsfield-image'];
-/** Formats that call the paid Higgsfield API (feature switch "higgsfield"). */
-export const HIGGSFIELD_FORMATS: Format[] = ['higgsfield-image', 'higgsfield-reel'];
-export const FORMAT_LABEL: Record<Format, string> = {
-  'codex-post': 'Codex image post',
-  'website-card': 'Website post',
-  'higgsfield-image': 'Higgsfield image',
-  'higgsfield-reel': 'Higgsfield Reel',
-};
+export { ANY_PROJECT_FORMATS, BRIEF_FORMATS, FORMAT_LABEL, FORMATS, HEADLINE_FORMATS, HIGGSFIELD_FORMATS, type Format } from './formats';
+import { FORMAT_LABEL, FORMATS, type Format } from './formats';
 
 export interface Brief { prompt: string; headline?: string; caption?: string }
 
@@ -49,7 +34,8 @@ export interface PackageSource {
   seed: string;
 }
 
-export const hashtag = (s: string) => '#' + s.replace(/&/g, 'And').replace(/[^A-Za-z0-9 ]/g, '').split(' ').filter(Boolean).map((w) => w[0]!.toUpperCase() + w.slice(1)).join('');
+export { hashtag } from './formats';
+import { hashtag } from './formats';
 
 export async function nextPackageId(): Promise<string> {
   let names: string[] = [];

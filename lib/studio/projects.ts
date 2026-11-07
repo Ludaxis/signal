@@ -1,6 +1,7 @@
 // Server-only: Studio projects (one Instagram account each) and their posting settings.
 //
-// A project = name + Instagram handle + optional Upload-Post profile + content folder.
+// A project = name + Instagram handle + optional Upload-Post profile + content folder, plus an optional
+// time zone and an optional read-only project pack (formats, fonts, icon, copy) kept outside the repository.
 // Projects live in <SIGNAL_DATA_DIR>/projects.json (no secrets). Posting settings per account
 // (the one-click posting switch, posts per day, total posts, optional end date) live in
 // <SIGNAL_DATA_DIR>/accounts.json and are set in the app after typing the handle to confirm.
@@ -11,6 +12,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { dataDir } from '@/lib/server/signalConfig';
+import { isTimeZone } from '@/lib/time';
 
 export interface Project {
   id: string;
@@ -19,6 +21,12 @@ export interface Project {
   uploadPostProfile: string; // Upload-Post profile *username* (optional)
   contentDir: string;
   createdAt: string;
+  /** IANA time zone for days, slots and labels; projects without one use DEFAULT_TIME_ZONE (lib/studio/time.ts). */
+  timeZone?: string;
+  /** A read-only project pack outside the repository (formats, fonts, icon, copy, Post maker library). */
+  pack?: { dir: string };
+  /** One line agents use to describe the project (e.g. "neighbourhood bakery"). */
+  description?: string;
 }
 
 /** Posting settings for one account. `endsAt` null = no end date; nothing posts automatically unless `posting` is on. */
@@ -97,7 +105,7 @@ export async function getProject(id: string | null | undefined): Promise<Project
 
 const expand = (p: string) => (p.startsWith('~/') ? path.join(/* turbopackIgnore: true */ home(), p.slice(2)) : p);
 
-export interface NewProject { name: string; id?: string; handle: string; uploadPostProfile: string; contentDir?: string }
+export interface NewProject { name: string; id?: string; handle: string; uploadPostProfile: string; contentDir?: string; timeZone?: string; packDir?: string }
 
 /** Validates the wizard input and returns problems per field (empty when valid). */
 export async function checkNewProject(input: NewProject): Promise<Record<string, string>> {
@@ -116,6 +124,8 @@ export async function checkNewProject(input: NewProject): Promise<Record<string,
     const c = expand(input.contentDir);
     if (!path.isAbsolute(c)) errs.contentDir = 'Use a full folder path.';
   }
+  if (input.timeZone && !isTimeZone(input.timeZone.trim())) errs.timeZone = 'Pick a time zone from the list, like Europe/Berlin.';
+  if (input.packDir && !path.isAbsolute(expand(input.packDir.trim()))) errs.packDir = 'Use a full folder path for the pack.';
   return errs;
 }
 
@@ -146,6 +156,8 @@ export async function createProject(input: NewProject): Promise<Project> {
     uploadPostProfile: (input.uploadPostProfile ?? '').trim(),
     contentDir,
     createdAt: new Date().toISOString(),
+    ...(input.timeZone?.trim() ? { timeZone: input.timeZone.trim() } : {}),
+    ...(input.packDir?.trim() ? { pack: { dir: path.resolve(expand(input.packDir.trim())) } } : {}),
   };
   const all = await listProjects();
   await fs.mkdir(/* turbopackIgnore: true */ contentDir, { recursive: true });

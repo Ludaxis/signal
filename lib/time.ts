@@ -1,6 +1,8 @@
 // Studio time-zone helpers. All calendar dates are YYYY-MM-DD in the Studio's time zone
 // (NEXT_PUBLIC_SIGNAL_TIME_ZONE, default UTC); all instants are ISO 8601 UTC. Never hard-code
-// an offset: zones with daylight saving change offset twice a year.
+// an offset: zones with daylight saving change offset twice a year. The zone-aware helpers take an
+// optional IANA zone (default: the Studio zone, TIMEZONE); Studio code that knows a project goes
+// through lib/studio/time.ts, which passes the project's zone.
 
 function pickZone(): string {
   const z = (process.env.NEXT_PUBLIC_SIGNAL_TIME_ZONE ?? '').trim();
@@ -16,16 +18,40 @@ function pickZone(): string {
 /** The IANA time zone every calendar day, posting time and daily window is expressed in. */
 export const TIMEZONE = pickZone();
 
-const partsFormatter = new Intl.DateTimeFormat('en-GB', {
-  timeZone: TIMEZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function partsFormatter(timeZone: string): Intl.DateTimeFormat {
+  let f = formatters.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    formatters.set(timeZone, f);
+  }
+  return f;
+}
+
+/** True for a time zone name Intl knows (an IANA id such as "Asia/Tehran", or "UTC"). */
+export function isTimeZone(tz: unknown): tz is string {
+  if (typeof tz !== 'string' || !tz || tz.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The place part of a zone id for short labels: "Europe/Berlin" → "Berlin", "America/New_York" → "New York". */
+export function zoneCity(tz: string = TIMEZONE): string {
+  return (tz.split('/').pop() || tz).replace(/_/g, ' ');
+}
 
 export interface ZonedParts {
   date: string;
@@ -42,10 +68,11 @@ function toDate(input: string | Date | number): Date {
   return input instanceof Date ? input : new Date(input);
 }
 
-export function zonedParts(input: string | Date | number): ZonedParts {
+/** Wall-clock parts of an instant in a time zone (default: the Studio zone). */
+export function zonedParts(input: string | Date | number, tz: string = TIMEZONE): ZonedParts {
   const d = toDate(input);
   const map: Record<string, string> = {};
-  for (const p of partsFormatter.formatToParts(d)) map[p.type] = p.value;
+  for (const p of partsFormatter(tz).formatToParts(d)) map[p.type] = p.value;
   const year = Number(map.year);
   const month = Number(map.month);
   const day = Number(map.day);
@@ -67,8 +94,8 @@ export function zonedParts(input: string | Date | number): ZonedParts {
   };
 }
 
-export function offsetMinutesAt(input: string | Date | number): number {
-  return zonedParts(input).offsetMinutes;
+export function offsetMinutesAt(input: string | Date | number, tz: string = TIMEZONE): number {
+  return zonedParts(input, tz).offsetMinutes;
 }
 
 /** "UTC+2", "UTC+1", "UTC+5:30". */
@@ -128,10 +155,10 @@ export type WallToUtcResult =
   | { ok: false; reason: 'gap' | 'fold' | 'invalid'; message: string };
 
 /**
- * Converts wall time in the Studio time zone to UTC. Like the API, rejects a time that does
- * not exist (spring-forward gap) or exists twice (autumn fold).
+ * Converts wall time in a time zone (default: the Studio zone) to UTC. Like the API, rejects a
+ * time that does not exist (spring-forward gap) or exists twice (autumn fold).
  */
-export function zonedToUtc(date: string, time: string): WallToUtcResult {
+export function zonedToUtc(date: string, time: string, tz: string = TIMEZONE): WallToUtcResult {
   const tm = /^(\d{2}):(\d{2})$/.exec(time);
   if (!isValidDate(date) || !tm) {
     return { ok: false, reason: 'invalid', message: 'Enter a valid date and time.' };
@@ -139,28 +166,28 @@ export function zonedToUtc(date: string, time: string): WallToUtcResult {
   const [y, m, d] = parseDate(date);
   const wall = Date.UTC(y, m - 1, d, Number(tm[1]), Number(tm[2]));
   const offsets = new Set([
-    offsetMinutesAt(wall - 86_400_000),
-    offsetMinutesAt(wall),
-    offsetMinutesAt(wall + 86_400_000),
+    offsetMinutesAt(wall - 86_400_000, tz),
+    offsetMinutesAt(wall, tz),
+    offsetMinutesAt(wall + 86_400_000, tz),
   ]);
   const matches: number[] = [];
   for (const off of offsets) {
     const utc = wall - off * 60_000;
-    const back = zonedParts(utc);
+    const back = zonedParts(utc, tz);
     if (back.date === date && back.time === time) matches.push(utc);
   }
   if (matches.length === 0) {
     return {
       ok: false,
       reason: 'gap',
-      message: `${time} does not exist on ${formatDateLabel(date)} in ${TIMEZONE} (clocks go forward). Pick another time.`,
+      message: `${time} does not exist on ${formatDateLabel(date)} in ${tz} (clocks go forward). Pick another time.`,
     };
   }
   if (matches.length > 1) {
     return {
       ok: false,
       reason: 'fold',
-      message: `${time} happens twice on ${formatDateLabel(date)} in ${TIMEZONE} (clocks go back). Pick another time.`,
+      message: `${time} happens twice on ${formatDateLabel(date)} in ${tz} (clocks go back). Pick another time.`,
     };
   }
   return { ok: true, iso: new Date(matches[0]!).toISOString() };
@@ -178,19 +205,19 @@ export interface DstChange {
   toLocal: string;
 }
 
-/** Finds daylight-saving changes on the given calendar dates (Studio time zone). */
-export function dstChanges(dates: string[]): DstChange[] {
+/** Finds daylight-saving changes on the given calendar dates of a time zone (default: the Studio zone). */
+export function dstChanges(dates: string[], tz: string = TIMEZONE): DstChange[] {
   const out: DstChange[] = [];
   for (const date of dates) {
     const [y, m, d] = parseDate(date);
     let lo = Date.UTC(y, m - 1, d, 0, 0) - 3 * 3_600_000;
     let hi = Date.UTC(y, m - 1, d, 23, 59) - 0;
-    const fromOffset = offsetMinutesAt(lo);
-    const toOffset = offsetMinutesAt(hi);
+    const fromOffset = offsetMinutesAt(lo, tz);
+    const toOffset = offsetMinutesAt(hi, tz);
     if (fromOffset === toOffset) continue;
     while (hi - lo > 60_000) {
       const mid = lo + Math.floor((hi - lo) / 2);
-      if (offsetMinutesAt(mid) === fromOffset) lo = mid;
+      if (offsetMinutesAt(mid, tz) === fromOffset) lo = mid;
       else hi = mid;
     }
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -238,16 +265,16 @@ export function formatDateLabel(date: string, long = false): string {
   return (long ? longDayLabel : dayLabel).format(new Date(Date.UTC(y, m - 1, d, 12))).replace(',', '');
 }
 
-/** "18:00" in the Studio time zone. */
-export function formatTime(iso: string | null | undefined): string {
+/** "18:00" in a time zone (default: the Studio zone). */
+export function formatTime(iso: string | null | undefined, tz: string = TIMEZONE): string {
   if (!iso) return '—';
-  return zonedParts(iso).time;
+  return zonedParts(iso, tz).time;
 }
 
-/** "Mon 19 Oct, 18:00" in the Studio time zone. */
-export function formatDateTime(iso: string | null | undefined): string {
+/** "Mon 19 Oct, 18:00" in a time zone (default: the Studio zone). */
+export function formatDateTime(iso: string | null | undefined, tz: string = TIMEZONE): string {
   if (!iso) return '—';
-  const p = zonedParts(iso);
+  const p = zonedParts(iso, tz);
   return `${formatDateLabel(p.date)}, ${p.time}`;
 }
 
@@ -263,9 +290,9 @@ export function formatWeekRange(weekStart: string): string {
   return `${d1} ${month(y1, m1)} ${y1} – ${d2} ${month(y2, m2)} ${y2}`;
 }
 
-/** UTC instant of a wall time in the Studio time zone, throwing on gap/fold (fixtures and defaults only). */
-export function zonedInstant(date: string, time: string): string {
-  const r = zonedToUtc(date, time);
+/** UTC instant of a wall time in a time zone, throwing on gap/fold (fixtures and defaults only). */
+export function zonedInstant(date: string, time: string, tz: string = TIMEZONE): string {
+  const r = zonedToUtc(date, time, tz);
   if (!r.ok) throw new Error(r.message);
   return r.iso;
 }

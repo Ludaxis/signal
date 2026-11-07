@@ -1,7 +1,7 @@
 // Overdue plans in the drawer and the Calendar, the drawer's Check status / Reject gates, the
 // Calendar's confirm before a real schedule moves, and the Upload-Post quota and ?connected= texts.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -128,6 +128,10 @@ describe('Calendar', () => {
   });
 
   it('asks before cancelling a real schedule, labels it "Cancel schedule", and sends nothing on No', async () => {
+    // A Wednesday, so "in two days" stays inside the week the Calendar opens on (any weekday the suite runs).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-04T10:00:00Z'));
+    onTestFinished(() => void vi.useRealTimers());
     const when = new Date(Date.now() + 2 * 86_400_000).toISOString();
     calendarFetch([{ project: 'demo', id: '05', title: 'Post 05', status: 'scheduled', format: 'image', when, kind: 'planned', thumb: null, url: null }]);
     const say = vi.fn();
