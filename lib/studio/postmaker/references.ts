@@ -54,20 +54,26 @@ async function saveRecord(root: string, ref: Reference): Promise<Reference> {
   return ref;
 }
 
+/* * How `receiveFile` types and limits a stream (references and step uploads share it). */
+export interface ReceiveRules<T> {
+  /** The type from the first 16 bytes (magic bytes), or null for a file that is none of the accepted types. */
+  sniff: (head: Buffer) => T | null;
+  /** The byte limit of a sniffed type. */
+  limitOf: (t: T) => number;
+  /** The limit before the type is known (the largest accepted type). */
+  maxBytes: number;
+  /** The refusal over a limit. */
+  tooBig: (limit: number) => PostmakerError;
+  /** The refusal of a file whose type is none of the accepted ones. */
+  unreadable: () => PostmakerError;
+}
+
 /**
- * Streams `body` into a new reference. `declaredBytes` (Content-Length) is checked first when present; the running
- * count is the real limit (a client that lies about its length is cut off at the limit).
+ * Streams `body` into a new temp file in `incoming` with a running byte count (the upload stops at the limit, nothing
+ * is buffered whole) and types it by magic bytes. Answers the temp file; the caller moves or removes it. On any error
+ * the temp file is removed here.
  */
-export async function addReferenceFile(
-  root: string,
-  project: Pick<ProjectLike, 'timeZone'>,
-  body: ReadableStream<Uint8Array> | null,
-  o: { declaredBytes?: number | null; rights?: Rights; by: string; now?: number },
-): Promise<Reference> {
-  if (!body) throw new PostmakerError(400, 'validation', 'Drop a video or an image.');
-  if (o.declaredBytes != null && o.declaredBytes > VIDEO_MAX_BYTES) throw new PostmakerError(400, 'validation', 'Files can be up to 500 MB.');
-  await openStore(root);
-  const incoming = path.join(root, 'refs', '.incoming');
+export async function receiveFile<T>(incoming: string, body: ReadableStream<Uint8Array>, rules: ReceiveRules<T>): Promise<{ tmp: string; type: T; total: number }> {
   await ensureDir(incoming);
   const tmp = path.join(incoming, `${process.pid}-${randomBytes(6).toString('hex')}`);
   const out = createWriteStream(/* turbopackIgnore: true */ tmp, { flags: 'wx', mode: FILE_MODE });
@@ -83,8 +89,8 @@ export async function addReferenceFile(
   };
   let total = 0;
   let head = Buffer.alloc(0);
-  let type: Sniffed | null = null;
-  let limit = VIDEO_MAX_BYTES;
+  let type: T | null = null;
+  let limit = rules.maxBytes;
   const reader = body.getReader();
   try {
     for (;;) {
@@ -96,19 +102,52 @@ export async function addReferenceFile(
       if (!type) {
         head = Buffer.concat([head, Buffer.from(value.subarray(0, 16))]).subarray(0, 16);
         if (head.length >= 16 || total >= 16) {
-          type = sniff(head);
-          if (!type) throw unreadable();
-          limit = type.kind === 'video' ? VIDEO_MAX_BYTES : IMAGE_MAX_BYTES;
+          type = rules.sniff(head);
+          if (!type) throw rules.unreadable();
+          limit = rules.limitOf(type);
         }
       }
-      if (total > limit) throw new PostmakerError(400, 'validation', limit === IMAGE_MAX_BYTES ? 'Images can be up to 20 MB.' : 'Files can be up to 500 MB.');
+      if (total > limit) throw rules.tooBig(limit);
       if (!out.write(value)) await Promise.race([new Promise<void>((r) => out.once('drain', r)), done]);
       stopIfFailed();
     }
     out.end();
     await done;
-    if (!type) type = sniff(head);
-    if (!type || total === 0) throw unreadable();
+    if (!type) type = rules.sniff(head);
+    if (!type || total === 0) throw rules.unreadable();
+    return { tmp, type, total };
+  } catch (e) {
+    await reader.cancel().catch(() => undefined);
+    out.destroy();
+    await fs.unlink(/* turbopackIgnore: true */ tmp).catch(() => undefined);
+    throw e;
+  }
+}
+
+/** The reference rules: MP4/MOV ≤ 500 MB, PNG/JPG/WebP ≤ 20 MB. */
+const REFERENCE_RULES: ReceiveRules<Sniffed> = {
+  sniff,
+  limitOf: (t) => (t.kind === 'video' ? VIDEO_MAX_BYTES : IMAGE_MAX_BYTES),
+  maxBytes: VIDEO_MAX_BYTES,
+  tooBig: (limit) => new PostmakerError(400, 'validation', limit === IMAGE_MAX_BYTES ? 'Images can be up to 20 MB.' : 'Files can be up to 500 MB.'),
+  unreadable,
+};
+
+/**
+ * Streams `body` into a new reference. `declaredBytes` (Content-Length) is checked first when present; the running
+ * count is the real limit (a client that lies about its length is cut off at the limit).
+ */
+export async function addReferenceFile(
+  root: string,
+  project: Pick<ProjectLike, 'timeZone'>,
+  body: ReadableStream<Uint8Array> | null,
+  o: { declaredBytes?: number | null; rights?: Rights; by: string; now?: number },
+): Promise<Reference> {
+  if (!body) throw new PostmakerError(400, 'validation', 'Drop a video or an image.');
+  if (o.declaredBytes != null && o.declaredBytes > VIDEO_MAX_BYTES) throw new PostmakerError(400, 'validation', 'Files can be up to 500 MB.');
+  await openStore(root);
+  const { tmp, type } = await receiveFile(path.join(root, 'refs', '.incoming'), body, REFERENCE_RULES);
+  try {
     const probe = await probeFile(tmp, type);
     const sha = await sha256OfFile(tmp);
     const now = o.now ?? Date.now();
@@ -119,10 +158,6 @@ export async function addReferenceFile(
     await fs.rename(/* turbopackIgnore: true */ tmp, path.join(dir, file));
     await writeOnce(path.join(dir, 'probe.json'), pretty(probe));
     return await saveRecord(root, { schema: 'signal.pm.reference/1', id, kind: type.kind, file, sha256: sha, url: null, probe, rights: o.rights ?? 'third-party-structure-only', addedAt: new Date(now).toISOString(), addedBy: o.by });
-  } catch (e) {
-    await reader.cancel().catch(() => undefined);
-    out.destroy();
-    throw e;
   } finally {
     await fs.unlink(/* turbopackIgnore: true */ tmp).catch(() => undefined);
   }

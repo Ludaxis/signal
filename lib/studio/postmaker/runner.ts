@@ -1,7 +1,7 @@
 // The Post maker engine (-4.8, 5.6-5.8): the actions Run, Regenerate (keep-contracts / allow-breaks, with
 // retries, candidate versions and free adapters), Regenerate from here, Edit (with pause-for-edit during a run),
-// Lock / Unlock, Use version, Skip / Unskip, Choose candidate, Continue / Raise cap / Stop, crash recovery and Resume
-// (vendor jobs listed in pending.json are collected, never submitted twice).
+// Lock / Unlock, Use version, Skip / Unskip, Choose candidate, Pause / Continue / Raise cap / Stop, crash recovery and
+// Resume (vendor jobs listed in pending.json are collected, never submitted twice).
 // Every write action takes the recipe mutex `rc:<recipeId>`; a run takes it only around each commit, so an edit made
 // during a run lands between steps. The store's own locks use `pm-*` keys, so the store is safe to call inside it.
 // Spend: before every paid call the upper bound is reserved against the run cap, the project's day ceiling and the
@@ -24,14 +24,14 @@ import type { FontFile } from './render/fonts';
 import { checkRule, contractDiff } from './graph/contracts';
 import { AGENT_KINDS, KINDS, LOCAL_CONNECTORS } from './graph/kinds';
 import { acquireConnector, holdsRunSlot, PlanExecutor, takeRunSlot, type EditHold, type StartOutcome } from './graph/scheduler';
-import { deriveStatus, gateStateOf, loadGraphState, outputsHash, type GraphState, type NodeStatus } from './graph/status';
+import { deriveStatus, gateStateOf, loadGraphState, outputsHash, RECIPE_READERS, recipeBeatsHash, type GraphState, type NodeStatus } from './graph/status';
 import { topoOrder } from './graph/validate';
 import { cacheKey, lookupCache, recordCache } from './store/cache';
 import { commitVersion } from './store/commit';
 import { lockStep, readHead, setCurrent, setSkipped, unlockStep, updateHead } from './store/heads';
 import { DAY_CEILING_USD_DEFAULT, ledgerTotals, openReservations, release, reserve, settle } from './store/ledger';
 import { withLock } from './store/mutex';
-import { getJson, putBytes, putJson } from './store/objects';
+import { getJson, putBytes, putFile, putJson } from './store/objects';
 import { newRunId } from './store/paths';
 import { readPipeline, readRecipe, readRecipeIndex } from './store/recipes';
 import { appendEvent, createRun, listRunIds, readPending, readRun, updateRun, writePending } from './store/runs';
@@ -60,6 +60,18 @@ import type {
 } from './types';
 
 export const recipeMutexKey = (recipeId: string) => `rc:${recipeId}`;
+
+/** Replace file: a checked upload (uploads.ts) that an Edit puts on one media output port. */
+export interface ReplacementFile {
+  port: string;
+  /** Absolute path of the uploaded file (copied into the object store; the upload itself is kept). */
+  source: string;
+  sha256: string;
+  kind: 'image' | 'video' | 'audio';
+  mime: string;
+  ext: string;
+  meta?: ArtifactRef['meta'];
+}
 
 /** Voice may try 3 takes; agent steps get 2 retries; other steps run once (Q S2). */
 const maxTakes = (kind: PipelineNode['kind']) => (kind === 'voice' ? 3 : AGENT_KINDS.has(kind) ? 3 : 1);
@@ -108,6 +120,8 @@ interface Controller {
   abort: AbortController;
   /** Stop was asked for: no new step or take starts; the step in progress finishes and settles its own spend. */
   stopRequested: boolean;
+  /** Pause was asked for: no new step starts; the steps in progress finish; Continue resumes. */
+  pauseRequested: boolean;
 }
 
 type G = typeof globalThis & { __signalPostmakerActive?: Map<string, Controller> };
@@ -473,7 +487,7 @@ export class PostmakerEngine {
         attended: o.attended,
       });
     }
-    const ctrl: Controller = { runId, recipeId: o.recipeId, plan: o.plan, executor: null, abort: new AbortController(), stopRequested: false };
+    const ctrl: Controller = { runId, recipeId: o.recipeId, plan: o.plan, executor: null, abort: new AbortController(), stopRequested: false, pauseRequested: false };
     active().set(runId, ctrl);
     let cap = run.capUsd;
     const ctx: ExecCtx = { runId, recipe, pipeline, capUsd: () => cap, signal: ctrl.abort.signal, steps, by: o.by, stopped: () => ctrl.stopRequested };
@@ -506,6 +520,7 @@ export class PostmakerEngine {
         });
         ctrl.executor = exec;
         if (ctrl.stopRequested) exec.stop(); // stopped while it waited for a run slot: nothing starts
+        else if (ctrl.pauseRequested) exec.pause(); // paused while it waited: nothing starts, Continue resumes
         const res = await exec.execute();
         if (crashed()) return run;
         const stopped = res.stopped || ctrl.stopRequested;
@@ -593,6 +608,27 @@ export class PostmakerEngine {
     const s = await this.state(run.recipeId);
     const plan = this.planRun(s, run.scope.nodes);
     return this.launch({ recipeId: run.recipeId, plan, scope: run.scope.nodes, estimate: run.estimate, capUsd: run.capUsd, trigger: run.trigger, by: run.by, attended: true, existing: run });
+  }
+
+  /**
+   * Pause: no new step starts; the steps in progress finish and keep their versions, then the
+   * run waits as `needs-you` with `pausedFor: 'paused'` ("Paused" on the Run bar) until Continue run, which re-derives
+   * the plan inside the run's scope, so no finished step runs again. A run that is already paused answers as it is.
+   */
+  async pauseRun(runId: string): Promise<Run> {
+    const run = await readRun(this.root, runId);
+    if (!run) throw new PostmakerError(404, 'not_found', 'Unknown run.');
+    if (run.status === 'done' || run.status === 'stopped') throw new PostmakerError(409, 'finished', 'This run has finished.');
+    const c = active().get(runId);
+    if (!c) {
+      if (run.status === 'needs-you') return run;
+      throw new PostmakerError(409, 'not-running', 'This run is not going.');
+    }
+    if (!c.stopRequested) {
+      c.pauseRequested = true;
+      c.executor?.pause();
+    }
+    return run;
   }
 
   /** Resume after a restart: same as Continue; pending vendor jobs are collected, never submitted again. */
@@ -724,7 +760,9 @@ export class PostmakerEngine {
     // Run reuses an unchanged version; a deterministic node reuses any version with the same key.
     if (!regen) {
       const key = keyOf(baseSeed);
-      if (prev && prev.key === key && prev.status === 'ok') {
+      // A recipe-reading step made from other beats is never reused (its key does not carry the recipe).
+      const recipeMoved = !!prev?.recipe && prev.recipe.beats !== recipeBeatsHash(ctx.recipe);
+      if (prev && prev.key === key && prev.status === 'ok' && !recipeMoved) {
         await this.event(ctx.runId, { kind: 'cache.hit', nodeId, data: { version: prev.n } });
         await this.setStep(ctx, nodeId, { status: 'done', version: prev.n, mode: prev.mode, error: null });
         return { kind: 'done', version: prev.n };
@@ -981,6 +1019,7 @@ export class PostmakerEngine {
       editedByUser: false,
       status: o.status,
       signoffs,
+      ...(RECIPE_READERS.has(node.kind) ? { recipe: { version: ctx.recipe.version, beats: recipeBeatsHash(ctx.recipe) } } : {}),
     };
   }
 
@@ -1157,8 +1196,12 @@ export class PostmakerEngine {
   /**
    * Edit: writes version n+1 `source: 'edit'`, `editedByUser: true`; free adapters run; during a run the
    * steps downstream of the edited one are paused after the step in progress finishes.
+   * Replace file (`output.file`): the port must be a media output of this step of the same kind (an image port
+   * takes an image, a video port a video, a sound port a sound), else 400 `wrong-type`; the file becomes an object
+   * and replaces that output. The dependents become out of date and wait: no adapter runs, because a replaced file
+   * no longer matches what the step's JSON outputs say about it.
    */
-  async edit(o: { recipeId: string; nodeId: string; baseVersion: number; output: { json?: Record<string, unknown> }; by: string }): Promise<{ version: StepVersion; adapted: string[]; paused: string[] }> {
+  async edit(o: { recipeId: string; nodeId: string; baseVersion: number; output: { json?: Record<string, unknown>; file?: ReplacementFile }; by: string }): Promise<{ version: StepVersion; adapted: string[]; paused: string[] }> {
     const { p, node } = await this.nodeOf(o.recipeId, o.nodeId);
     // Held before the write (a descendant must not start on the old output meanwhile); a refused edit lifts the hold.
     const holds = this.pauseForEdit(o.recipeId, p, o.nodeId);
@@ -1171,9 +1214,11 @@ export class PostmakerEngine {
       const prev = await readVersion(this.root, o.recipeId, o.nodeId, o.baseVersion);
       if (!prev) throw new PostmakerError(404, 'version-missing', 'That version does not exist.');
       const data = { ...(await this.jsonPorts(prev)), ...(o.output.json ?? {}) };
+      const replaced = o.output.file ? await this.replacementRef(prev, o.output.file) : null;
       const refs: ArtifactRef[] = [];
       for (const x of prev.outputs) {
-        if (x.kind === 'json' && o.output.json && x.port in o.output.json) {
+        if (replaced && x.port === replaced.port) refs.push(replaced);
+        else if (x.kind === 'json' && o.output.json && x.port in o.output.json) {
           const put = await putJson(this.root, o.output.json[x.port]);
           refs.push({ ...x, sha256: put.sha256, bytes: put.bytes });
         } else refs.push(x);
@@ -1209,8 +1254,22 @@ export class PostmakerEngine {
       throw e;
     }
     for (const h of holds) h.settle(true);
-    const adapted = await this.runAdapters(o.recipeId, p, [o.nodeId]);
+    const adapted = o.output.file ? [] : await this.runAdapters(o.recipeId, p, [o.nodeId]);
     return { version, adapted, paused };
+  }
+
+  /** The output ref a replacement file makes (see `edit`); checks the port type before storing anything. */
+  private async replacementRef(prev: StepVersion, f: ReplacementFile): Promise<ArtifactRef> {
+    const at = prev.outputs.filter((x) => x.port === f.port);
+    if (at.length === 0) throw new PostmakerError(400, 'validation', 'This step has no file there.');
+    if (at.length > 1) throw new PostmakerError(400, 'validation', 'This step has more than one file there.');
+    const ref = at[0]!;
+    if (ref.kind !== 'image' && ref.kind !== 'video' && ref.kind !== 'audio') throw new PostmakerError(400, 'wrong-type', 'Only a picture, a video or a sound can be replaced with a file.');
+    if (ref.kind !== f.kind) throw new PostmakerError(400, 'wrong-type', `This needs ${ref.kind === 'image' ? 'a picture' : ref.kind === 'video' ? 'a video' : 'a sound'}.`);
+    const put = await putFile(this.root, f.source);
+    if (put.sha256 !== f.sha256) throw new PostmakerError(409, 'conflict', 'The file changed while it was saved. Drop it again.');
+    const base = ref.name.replace(/\.[a-z0-9]+$/i, '');
+    return { port: ref.port, name: `${base}.${f.ext}`, kind: ref.kind, mime: f.mime, ...(ref.lang ? { lang: ref.lang } : {}), sha256: put.sha256, bytes: put.bytes, ...(f.meta && Object.keys(f.meta).length ? { meta: f.meta } : {}) };
   }
 
   /** Holds the edited node and its not-yet-started descendants in the recipe's active run until the edit settles. */
@@ -1293,11 +1352,12 @@ function mergeSteps(old: RunStep[], next: Map<string, RunStep>): RunStep[] {
  * dictionary's; the day-limit and sign-off phrases follow its "Needs you · <reason>" form (as "Needs you · missing
  * input") and are not in the dictionary yet. shows them through app/studio/copy/en.ts, keyed by `pausedFor`.
  */
-export const PAUSE_TEXT: Record<'cap' | 'day-ceiling' | 'gate' | 'edit', string> = {
+export const PAUSE_TEXT: Record<'cap' | 'day-ceiling' | 'gate' | 'edit' | 'paused', string> = {
   cap: 'Needs you · cap reached',
   'day-ceiling': 'Needs you · day limit reached',
   gate: 'Needs you · waiting for a sign-off',
   edit: 'Paused for your edit',
+  paused: 'Paused',
 };
 
 const pauseText = (p: keyof typeof PAUSE_TEXT): string => PAUSE_TEXT[p];

@@ -86,6 +86,14 @@ Test zones: tests that need daylight saving use `Europe/Berlin`. Synthetic ids: 
 | `app/studio/postmaker/{Proven,MakePost,Home,PostMaker,Reference,model,api}.tsx` | same | port | The Proven screen, the Repeat drawer (gated on the `autopilot` and `postmakerRepeat` switches, trusted posting on `trustedPublish`), Make a post, Move my pipelines, the four nav groups without Pipelines after the move. |
 | `app/studio/{Studio,Campaigns,Calendar}.tsx`, copy | same | adapt | The nav groups; the slot template drawer; Calendar repeat slots. |
 
+### Engine completions (third step)
+
+| Upstream | Here | Status | Notes |
+|---|---|---|---|
+| `lib/studio/postmaker/uploads.ts`, `app/api/studio/postmaker/uploads/route.ts` | same | port | Step uploads for `step.edit` `replaceFile` (the switch check is awaited). |
+| `lib/studio/postmaker/regenerate-beat.ts`, `runner.ts` (`run.pause`, Replace file), `references.ts`, `graph/{scheduler,status}.ts` | same | port | Pause and Continue, regenerate one beat, a reference read to the asked length. |
+| `lib/studio/claude-agent.ts`, `connectors/cli.ts` (vision on stdin) | same | adapt | The stdin fallback for vision runs; refused unless the runner allows vision. |
+
 ## 2. Mechanisms that differ from upstream
 
 ### 2.1 Feature switches
@@ -131,8 +139,7 @@ sign.
 
 ## 3. Not ported yet (later work)
 
-- Step uploads (Replace file), your own music upload, pausing a run, regenerating one beat, and the creative steps added
-  upstream later (art direction, animation, sound design).
+- Your own music upload and the creative steps added upstream later (art direction, animation, sound design).
 - The end-to-end browser specs (this repository runs unit, route and SSR tests only).
 - Bundling the render workspace into the Mac app (bundled mode renders mock; see `docs/mac-app.md`).
 

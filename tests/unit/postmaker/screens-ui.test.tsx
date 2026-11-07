@@ -53,6 +53,14 @@ describe('Run bar', () => {
     fireEvent.click(within(bar).getByRole('button', { name: 'Continue run' }));
     expect(h.onContinue).toHaveBeenCalled();
   });
+  it('a run the person paused reads "Paused" and Continue run resumes', () => {
+    const h = handlers();
+    render(<RunBar run={run({ status: 'needs-you', pausedFor: 'paused' })} titleOf={(id) => id} {...h} />, studio());
+    const bar = screen.getByRole('status', { name: 'Run progress' });
+    expect(bar.textContent).toContain('Paused');
+    fireEvent.click(within(bar).getByRole('button', { name: 'Continue run' }));
+    expect(h.onContinue).toHaveBeenCalled();
+  });
   it('at the cap: "Needs you · cap reached" with Raise cap and Stop', () => {
     render(<RunBar run={run({ status: 'needs-you', pausedFor: 'cap' })} titleOf={(id) => id} {...handlers()} />, studio());
     const bar = screen.getByRole('status', { name: 'Run progress' });

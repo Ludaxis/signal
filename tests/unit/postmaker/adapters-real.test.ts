@@ -6,7 +6,7 @@
 import './guard';
 import { describe, expect, it } from 'vitest';
 import { ADAPTERS, recomputeCaptions, type AlignmentDoc, type CaptionsDoc, type MotionDoc } from '@/lib/studio/postmaker/graph/adapters';
-import { buildCaptions, captionMeasure, type CaptionsDocX } from '@/lib/studio/postmaker/executors/captions';
+import { buildCaptions, captionMeasure, captionsExecutor, type CaptionsDocX } from '@/lib/studio/postmaker/executors/captions';
 import { composeTimeline, type ComposeParams } from '@/lib/studio/postmaker/executors/compose';
 import { timelineFonts } from '@/lib/studio/postmaker/executors/render-chain';
 import { resolveFonts } from '@/lib/studio/postmaker/render/fonts';
@@ -46,6 +46,35 @@ describe('captions.recompute', () => {
     expect(doc.pages.find((p) => p.beatId === 'b01')!.highlight).not.toBeNull();
     expect(doc.pages.find((p) => p.beatId === 'b02')!.highlight).toBeNull();
   });
+});
+
+describe('captions.recompute equals buildCaptions (golden JSON)', () => {
+  it('the adapter with the bundled faces writes exactly the pinned pages and checks, which are buildCaptions for the same inputs', async () => {
+    const real = ADAPTERS['captions.recompute']!.run({ node: node('captions:en', 'captions'), current: {}, inputs: { alignment }, recipe: recipe as never, fonts: fonts() });
+    const { measure, font } = captionMeasure('en', fonts());
+    const expected = buildCaptions({ lang: 'en', alignment, measure, highlightBeats: new Set(['b01']), emphasisBeats: new Set(), font: { family: font.family, sha256: font.sha256 } });
+    const golden = { captionPages: real.data.captionPages, checks: real.checks };
+    expect(golden).toEqual({ captionPages: expected.doc, checks: expected.checks });
+    await expect(`${JSON.stringify(golden, null, 2)}\n`).toMatchFileSnapshot('./fixtures/captions-recompute.golden.json');
+  });
+
+  it('through the engine: the adapted captions version equals the captions executor run on the new alignment', async () => {
+    const voice = scriptedVoice();
+    const executors = serviceExecutors({ root: tmp.root, render: fakeRenderChain(), claudeCli: null, fakes: { voiceMs: voice.fn }, renderDeps: { ffmpeg: null, workDir: (r, n) => `${tmp.dir}/work/${r}/${n.replace(/:/g, '-')}` } });
+    const { engine, recipeId, recipe: rc } = await setup({ langs: ['en'], build: {}, deps: { executors, adapterFonts: fonts } });
+    await runAll(engine, recipeId);
+    voice.scale['l02:en'] = 1.04;
+    const r = await engine.regenerate({ recipeId, nodeId: 'voice:en', mode: 'keep-contracts' });
+    expect(r.outcome).toBe('ok');
+    const cap = (await readVersion(tmp.root, recipeId, 'captions:en', 2))!;
+    expect(cap.source).toBe('adapt');
+    const v2 = (await readVersion(tmp.root, recipeId, 'voice:en', 2))!;
+    const newAlignment = await getJson<AlignmentDoc>(tmp.root, v2.outputs.find((o) => o.port === 'alignment')!.sha256);
+    const direct = await captionsExecutor({ fonts }).run({ lang: 'en', recipe: rc, byPort: { alignment: newAlignment } } as never);
+    const adapted = await getJson<CaptionsDocX>(tmp.root, cap.outputs.find((o) => o.port === 'captionPages')!.sha256);
+    expect(adapted).toEqual(direct.outputs[0]!.data);
+    expect(cap.checks).toEqual(direct.checks);
+  }, 60_000);
 });
 
 describe('compose.rebuild', () => {

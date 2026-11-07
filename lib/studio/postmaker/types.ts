@@ -385,6 +385,12 @@ export interface StepVersion {
    * objects; only the recipe id, number and recorded input hashes differ). `gatesInherited` compares `hash`.
    */
   forkedFrom?: { recipeId: string; nodeId: string; n: number; hash: string };
+  /**
+   * On a step that reads the recipe's beats (`script`), the recipe version and the hash of its beats the step
+   * was made from. A later recipe whose beats differ makes the step out of date ("The recipe changed"); a version
+   * without it (made before) is never out of date for this reason.
+   */
+  recipe?: { version: number; beats: string };
   hash: string; // sha256(JCS(this without `hash`))
 }
 
@@ -438,7 +444,8 @@ export interface Run {
   reservedUsd: number;
   estimate: Estimate;
   status: 'queued' | 'running' | 'needs-you' | 'done' | 'stopped' | 'failed';
-  pausedFor: 'cap' | 'day-ceiling' | 'edit' | 'check' | 'gate' | 'attended' | null;
+  /** `paused` = a person pressed Pause (`run.pause`); Continue run resumes it. */
+  pausedFor: 'cap' | 'day-ceiling' | 'edit' | 'check' | 'gate' | 'attended' | 'paused' | null;
   steps: RunStep[];
   packageIds: string[];
   attended: boolean;
@@ -687,6 +694,55 @@ export interface CacheEntry {
   version: number;
   hash: string;
   at: string;
+}
+
+// ---- narration-text (moved here from executors/narration-text.ts) ----------------------
+
+/** The registers of a narration line (as amended): fa, and the English set. */
+export type FaRegister = 'colloquial' | 'neutral' | 'formal';
+export type EnRegister = 'casual' | 'neutral' | 'formal';
+
+/** A script line as `narration-text:<lang>` reads it (the script's `lines` output). */
+export interface NarrationScriptLine {
+  id: string;
+  beatId: string;
+  speaker: string;
+  langs: Lang[];
+  fa?: { display: string; register?: FaRegister; allowDiacritics?: number[] } | null;
+  en?: { display: string; register?: EnRegister } | null;
+}
+
+/** An English narration line; the fa line is the Persian guide's `FaLineText`. */
+export interface EnNarrationLine {
+  id: string;
+  beatId: string;
+  speaker: string;
+  display: string;
+  tts: string;
+  register: EnRegister;
+}
+
+/** A linter finding of `narration-text` (errors become required step checks). */
+export interface NarrationCheck {
+  lineId: string;
+  ruleId: string;
+  severity: 'error' | 'warning';
+  message: string;
+  span?: [number, number];
+  suggestion?: string;
+}
+
+/** `NarrationLine`: the per-voice projection of a stored line (spoken = tts[profile], offsets = spans). */
+export interface NarrationLine {
+  id: string;
+  beatId: string;
+  speaker: string;
+  display: string;
+  spoken: string;
+  /** [spokenStart, spokenEnd, displayStart, displayEnd] */
+  offsets: [number, number, number, number][];
+  register: FaRegister | EnRegister;
+  ttsHash: string;
 }
 
 // ---- ledger -----------------------------------------------------------------------------------------------

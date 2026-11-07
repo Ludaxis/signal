@@ -36,6 +36,8 @@ import { edgesOf, validatePipeline } from './graph/validate';
 import { loadProjectPack } from './pack/load';
 import { packPolicy } from './pack/policy';
 import { readReference, referenceSource, saveDetectedText } from './references';
+import { readUpload } from './uploads';
+import { mergeBeat } from './regenerate-beat';
 import { PostmakerEngine, type RunHandle } from './runner';
 import { inheritedSignOff, readSignOffs, recordSignOff, signoffsDep } from './signoffs';
 import { proofProjections } from './checks/proof';
@@ -60,6 +62,8 @@ export interface DeconstructInput {
   reference: Reference;
   options: { languages: Recipe['languages']; lengthSec: number; shape: Recipe['shape']; campaignId?: string | null; capUsd?: number; stopAfterRecipe?: boolean };
   project: ServiceProject;
+  /* * `recipe.regenerate-beat`: the beat read again and the person's note (untrusted data for the agent). */
+  beat?: { id: string; note: string | null };
 }
 /** Turns a reference into a recipe draft (the `analyse` step; deconstructor replaces the mock default). */
 export type Deconstruct = (i: DeconstructInput) => Promise<Omit<RecipeDraft, 'projectId' | 'referenceId'>>;
@@ -191,7 +195,8 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
     if (!src) return mockDeconstruct(input);
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'signal-pm-analyse-'));
     try {
-      const read = (mode: 'live' | 'mock') => analyseReference({ src, workDir, languages: options.languages, lengthSec: options.lengthSec, shape: options.shape, mode, call: o.call, root: o.root, tools: o.tools });
+      const userNotes = input.beat?.note ? [input.beat.note] : undefined;
+      const read = (mode: 'live' | 'mock') => analyseReference({ src, workDir, languages: options.languages, lengthSec: options.lengthSec, shape: options.shape, mode, call: o.call, root: o.root, tools: o.tools, ...(userNotes ? { userNotes } : {}) });
       let note: string | null = o.live && o.vision === false ? VISION_FALLBACK_NOTE : null;
       let r;
       if (o.live && !note) {
@@ -576,8 +581,24 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
       const recipe = await writeRecipeVersion(root, a.recipeId, { ...rest, ...a.patch }, { baseVersion: a.baseVersion });
       return ok({ recipe });
     }
-    case 'recipe.regenerate-beat':
-      throw new PostmakerError(409, 'unavailable', 'Redoing one beat needs the reference reader, which is not connected yet.');
+    case 'recipe.regenerate-beat': {
+      // The deconstructor reads the reference again; only this beat takes the new content (regenerate-beat.ts).
+      const cur = await readRecipe(root, a.recipeId);
+      if (!cur) throw new PostmakerError(404, 'not_found', 'Unknown recipe.');
+      if (!cur.beats.some((b) => b.id === a.beatId)) throw new PostmakerError(404, 'not_found', 'Unknown beat.');
+      const reference = await readReference(root, cur.referenceId);
+      const options = { languages: cur.languages, lengthSec: cur.lengthSec, shape: cur.shape, stopAfterRecipe: true };
+      const fresh = await (deps().deconstruct ?? (await defaultDeconstruct(root)))({ reference, options, project, beat: { id: a.beatId, note: a.note ?? null } });
+      const beats = mergeBeat(cur.beats, fresh.beats, a.beatId, cur.languages);
+      const changed = JSON.stringify(beats) !== JSON.stringify(cur.beats);
+      const { schema: _s, id: _i, version: _v, ...rest } = cur;
+      void _s;
+      void _i;
+      void _v;
+      const recipe = changed ? await writeRecipeVersion(root, a.recipeId, { ...rest, beats }, { baseVersion: cur.version }) : cur;
+      const outOfDate = (await readPipeline(root, a.recipeId)) ? Object.values(await engine.status(a.recipeId)).filter((x) => x.outOfDate).map((x) => x.nodeId) : [];
+      return ok({ recipe, beatId: a.beatId, changed, outOfDate });
+    }
     case 'pipeline.build': {
       const recipe = await readRecipe(root, a.recipeId);
       if (!recipe) throw new PostmakerError(404, 'not_found', 'Unknown recipe.');
@@ -605,7 +626,9 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
     case 'step.regenerate-from-here':
       return launched(await engine.regenerateFromHere({ recipeId: a.recipeId, nodeId: a.nodeId, note: a.note, overwriteEdit: a.overwriteEdit, capUsd: a.capUsd, estimateToken: a.estimateToken, by }));
     case 'step.edit': {
-      if (a.output.replaceFile) throw new PostmakerError(409, 'unavailable', 'Replacing a file comes with step uploads.');
+      // Replace file: an upload (uploads.ts) replaces one media output; the port type is checked by the engine.
+      if (a.output.replaceFile && a.output.json) throw new PostmakerError(400, 'validation', 'Replace the file or edit the text, one at a time.');
+      const up = a.output.replaceFile ? await readUpload(root, a.output.replaceFile.uploadId) : null;
       if (a.params !== undefined || a.instructions !== undefined) {
         const p = await readPipeline(root, a.recipeId);
         if (!p) throw new PostmakerError(404, 'not_found', 'This recipe has no pipeline yet.');
@@ -616,8 +639,9 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
         validatePipeline(next);
         await writePipelineVersion(root, a.recipeId, { builtFrom: p.builtFrom, ...next }, { baseVersion: p.version });
       }
-      if (!a.output.json) return ok({ version: null, adapted: [], paused: [] });
-      const r = await engine.edit({ recipeId: a.recipeId, nodeId: a.nodeId, baseVersion: a.baseVersion, output: { json: a.output.json as Record<string, unknown> }, by });
+      if (!a.output.json && !up) return ok({ version: null, adapted: [], paused: [] });
+      const file = up && a.output.replaceFile ? { port: a.output.replaceFile.port, source: up.path, sha256: up.upload.sha256, kind: up.upload.kind, mime: up.upload.mime, ext: up.upload.ext, meta: up.upload.meta } : undefined;
+      const r = await engine.edit({ recipeId: a.recipeId, nodeId: a.nodeId, baseVersion: a.baseVersion, output: file ? { file } : { json: a.output.json as Record<string, unknown> }, by });
       return ok({ version: r.version, adapted: r.adapted, paused: r.paused });
     }
     case 'step.lock':
@@ -633,7 +657,8 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
     case 'step.choose-candidate':
       return ok(await engine.chooseCandidate(a.recipeId, a.nodeId, a.version, a.accept));
     case 'run.pause':
-      throw new PostmakerError(409, 'unavailable', 'A run cannot pause by itself yet. Stop keeps every finished step.');
+      // No new step starts; the steps in progress finish; Continue run resumes without running a step twice.
+      return ok({ run: await engine.pauseRun(a.runId) });
     case 'run.continue': {
       // A run waiting at Proof has nothing left to run; Continue would only relaunch an empty plan.
       const r = await readRun(root, a.runId);

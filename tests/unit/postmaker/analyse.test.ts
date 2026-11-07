@@ -5,7 +5,8 @@
 // enters the repository: the fixture is generated in a temp folder per run. The network guard stays on; only the
 // bundled ffmpeg (and ffprobe when this machine has one) may be spawned.
 import child_process from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import sharp from 'sharp';
 import ffmpegStatic from 'ffmpeg-static';
@@ -14,6 +15,8 @@ import type { Spawn } from '@/lib/studio/postmaker/connectors/base';
 import { analyseReference, assertLocalSource, buildDenyList, denyHit, mockRecipeProposal, planFrames, preprocess, recipeFields, rescaleBeats, validateRecipeProposal, MAX_FRAMES, type AnalyseTools } from '@/lib/studio/postmaker/executors/analyse';
 import { runnerCall } from '@/lib/studio/postmaker/executors/agent';
 import { isPostmakerError } from '@/lib/studio/postmaker/errors';
+import { addReferenceFile } from '@/lib/studio/postmaker/references';
+import { analyseDeconstruct } from '@/lib/studio/postmaker/service';
 import { tmp } from './guard';
 
 // Captured before the guard is installed (beforeAll), so only these binaries can run.
@@ -103,6 +106,22 @@ describe('pre-processing a synthetic 10 s reference with 3 hard cuts', () => {
     expect(r.proposal).not.toHaveProperty('detectedText');
     expect(r.proposal.tempo).toEqual({ bpm: 110, downbeatMs: 0 }); // from the template, never detected
     expect(r).toMatchObject({ costUsd: 0.5, model: 'fake-opus' });
+  }, 60_000);
+});
+
+describe('Analyse through the service on the 10 s fixture asked for 30 s', () => {
+  it('the recipe beat times are the reference cuts × 3 within ±1 frame; the evidence stays in reference time', async () => {
+    const src = await fixture(tmp.dir);
+    const ref = await addReferenceFile(tmp.root, { timeZone: 'Europe/Berlin' }, Readable.toWeb(createReadStream(src)) as ReadableStream<Uint8Array>, { by: 'owner@example.test', rights: 'own' });
+    const project = { id: 'example-project', handle: '@example', contentDir: path.join(tmp.dir, 'posts'), timeZone: 'Europe/Berlin' };
+    const draft = await analyseDeconstruct({ root: tmp.root, live: false, call: null, tools: tools() })({ reference: ref, options: { languages: ['en'], lengthSec: 30, shape: '9:16' }, project });
+    expect(draft.lengthSec).toBe(30);
+    const want = [0, 2.5, 5, 7.5, 10].map((x) => x * 3);
+    const got = [draft.beats[0]!.start, ...draft.beats.map((b) => b.end)];
+    expect(got).toHaveLength(want.length);
+    got.forEach((t, i) => expect(Math.abs(t - want[i]!) * 30, `boundary ${i}`).toBeLessThanOrEqual(1));
+    expect(draft.beats.at(-1)!.end).toBe(30);
+    expect(draft.evidence.cuts).toEqual([2.5, 5, 7.5]);
   }, 60_000);
 });
 

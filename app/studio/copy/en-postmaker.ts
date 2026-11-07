@@ -216,6 +216,7 @@ export const enPostmaker = {
   'pm.pause.day-ceiling': 'Needs you · day limit reached',
   'pm.pause.gate': 'Needs you · waiting for a sign-off',
   'pm.pause.edit': 'Paused for your edit',
+  'pm.pause.paused': 'Paused',
   'pm.pause.attended': 'Needs you: press Run',
 
   // Proof (45)

@@ -24,6 +24,9 @@
 //   the cwd holds only the files the caller hands over (contact sheets and a timeline). The default runner refuses
 //   it; only `makeClaudeCliRunner({ allowVision: true })` runs it. Re-run the --restricted check after every CLI
 //   upgrade before you allow it.
+//   The fallback (`visionTransport: 'stdin'`, for when `--restricted` confinement cannot be verified) sends the images
+//   as base64 content blocks of one stream-json user message on stdin (`--input-format stream-json`): no file reaches
+//   the cwd and no tool is allowed at all, Read included. Same switch: refused unless the runner allows vision.
 // - Output is a proposal (JSON) checked by the caller's validator; you approve strategies and every post.
 //   Every run is recorded in project memory (runs.jsonl) when the memory switch is on.
 import { spawn } from 'node:child_process';
@@ -160,6 +163,9 @@ export interface VisionFile {
 export const VISION_FILE_RE = /^[a-z0-9][a-z0-9._-]{0,63}\.(jpg|jpeg|png|txt)$/i;
 export const VISION_MAX_FILES = 8;
 
+/** How a vision run hands its files over: in the temp cwd for Read (default), or on stdin (fallback). */
+export type VisionTransport = 'files' | 'stdin';
+
 export interface RunnerOptions {
   web: boolean;
   agent?: AgentId;
@@ -239,14 +245,16 @@ export function cliEnv(billing: Billing, source: NodeJS.ProcessEnv = process.env
  *  maker additions; a Post maker agent takes its turns (and, on API-key billing, its cap) from its envelope.
  *  `vision: true` names Read as the only tool and removes it from the denials; everything else stays denied,
  *  the web included, and --restricted keeps file tools inside the cwd. Exported for tests. */
-export function cliArgs(o: { agent: AgentId; web: boolean; billing: Billing; model?: string; vision?: boolean; kind?: string }): string[] {
+export function cliArgs(o: { agent: AgentId; web: boolean; billing: Billing; model?: string; vision?: boolean; visionTransport?: VisionTransport; kind?: string }): string[] {
   if (o.vision && o.web) throw new AgentError(400, 'A vision run cannot use the web.');
   const env = isPostmakerAgent(o.agent) ? agentEnvelope(o.agent, o.kind) : null;
   const turns = env ? String(env.maxTurns) : o.web ? '30' : '4';
-  const vision = o.vision === true;
+  // The stdin fallback carries the images in the message, so the run needs no tool at all (Read stays denied).
+  const stdin = o.vision === true && o.visionTransport === 'stdin';
+  const vision = o.vision === true && !stdin;
   const denied = [...CLI_DENIED_TOOLS.filter((t) => !vision || !(CLI_VISION_TOOLS as readonly string[]).includes(t)), ...(o.web ? [] : ['WebSearch', 'WebFetch'])];
   const tools = vision ? CLI_VISION_TOOLS.join(',') : o.web ? CLI_WEB_TOOLS.join(',') : '';
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', turns, '--tools', tools, '--disallowedTools', denied.join(',')];
+  const args = ['-p', ...(stdin ? ['--input-format', 'stream-json'] : []), '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', turns, '--tools', tools, '--disallowedTools', denied.join(',')];
   if (o.web) args.push('--allowedTools', CLI_WEB_TOOLS.join(','));
   if (vision) args.push('--allowedTools', CLI_VISION_TOOLS.join(','));
   if (o.billing === 'api-key') args.push('--max-budget-usd', (env ? env.budgetUsd : AGENT_BUDGET_USD[o.agent]).toFixed(2));
@@ -255,16 +263,40 @@ export function cliArgs(o: { agent: AgentId; web: boolean; billing: Billing; mod
   return args;
 }
 
-/** Checks the vision files (plain names, images or a text timeline, at most 8) and writes them into `dir`. */
-export async function placeVisionFiles(dir: string, files: VisionFile[]): Promise<string[]> {
+/** Checks the vision files: plain, unique names of images or a text timeline, 1 to 8 of them. */
+export function checkVisionFiles(files: VisionFile[]): string[] {
   if (files.length === 0 || files.length > VISION_MAX_FILES) throw new AgentError(400, `A vision run takes 1 to ${VISION_MAX_FILES} files.`);
   const names = new Set<string>();
   for (const f of files) {
     if (!VISION_FILE_RE.test(f.name) || names.has(f.name)) throw new AgentError(400, 'A vision file needs a plain, unique image or text file name.');
     names.add(f.name);
   }
-  for (const f of files) await fs.writeFile(/* turbopackIgnore: true */ path.join(dir, f.name), f.data, { flag: 'wx' });
   return [...names];
+}
+
+/** Checks the vision files and writes them into `dir`. */
+export async function placeVisionFiles(dir: string, files: VisionFile[]): Promise<string[]> {
+  const names = checkVisionFiles(files);
+  for (const f of files) await fs.writeFile(/* turbopackIgnore: true */ path.join(dir, f.name), f.data, { flag: 'wx' });
+  return names;
+}
+
+export const VISION_STDIN_NOTE = 'The files named above are attached to this message (images, then the text timeline). There are no files to read.';
+
+/**
+ * Fallback: the stdin of a `--input-format stream-json` run, one user message whose content is the
+ * prompt, a note that the files are attached, then each file: an image as a base64 block (JPEG or PNG by its name),
+ * a text file as a text block headed by its name. The files are checked exactly like `placeVisionFiles`.
+ */
+export function visionStdin(prompt: string, files: VisionFile[]): string {
+  checkVisionFiles(files);
+  const bytes = (d: Uint8Array | string) => (typeof d === 'string' ? Buffer.from(d, 'utf8') : Buffer.from(d));
+  const content: Record<string, unknown>[] = [{ type: 'text', text: `${prompt}\n\n${VISION_STDIN_NOTE}` }];
+  for (const f of files) {
+    if (/\.txt$/i.test(f.name)) content.push({ type: 'text', text: `${f.name}:\n${bytes(f.data).toString('utf8')}` });
+    else content.push({ type: 'image', source: { type: 'base64', media_type: /\.png$/i.test(f.name) ? 'image/png' : 'image/jpeg', data: bytes(f.data).toString('base64') } });
+  }
+  return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`;
 }
 
 function spawnCli(bin: string, args: string[], cwd: string, stdin: string, timeoutMs: number, billing: Billing = 'subscription', onLine?: (line: string) => void): Promise<{ code: number | null; out: string; err: string }> {
@@ -309,7 +341,7 @@ export const isClaudeCliRunner = (r: Runner): boolean => CLI_RUNNERS.has(r);
 
 /** The real runner: `claude -p` with the prompt on stdin, streaming progress events. Vision runs are refused unless
  *  the runner was made with `allowVision: true` (after a security review of the CLI's --restricted mode). */
-export function makeClaudeCliRunner(o: { allowVision?: boolean } = {}): Runner {
+export function makeClaudeCliRunner(o: { allowVision?: boolean; visionTransport?: VisionTransport } = {}): Runner {
   const run: Runner = async (prompt, { web, agent, kind, vision, onEvent }) => {
     if (vision && !o.allowVision) throw new AgentError(403, 'Vision mode needs its security review first.');
     const bin = await cliBin('claude');
@@ -318,7 +350,9 @@ export function makeClaudeCliRunner(o: { allowVision?: boolean } = {}): Runner {
     const billing = await agentBilling();
     const emit = (e: Omit<AgentEvent, 'at'>) => onEvent?.({ ...e, at: new Date().toISOString(), text: redactKey(e.text) });
     try {
-      if (vision) await placeVisionFiles(work, vision.files);
+      const viaStdin = !!vision && o.visionTransport === 'stdin';
+      if (vision && !viaStdin) await placeVisionFiles(work, vision.files);
+      const stdin = vision && viaStdin ? visionStdin(prompt, vision.files) : prompt;
       let cli = 'unknown';
       try {
         cli = (await spawnCli(bin, ['--version'], work, '', 15_000)).out.trim().slice(0, 80) || 'unknown';
@@ -328,11 +362,11 @@ export function makeClaudeCliRunner(o: { allowVision?: boolean } = {}): Runner {
       emit({ kind: 'note', text: `Starting Claude Code ${cli}${billing === 'api-key' ? ' on your API key' : ' on your sign-in'}` });
       const id: AgentId = agent ?? (web ? 'strategist' : 'content-planner');
       const tier = isPostmakerAgent(id) ? agentEnvelope(id, kind).model : billing === 'api-key' ? 'sonnet' : '';
-      const args = cliArgs({ agent: id, web, billing, model: process.env.CLAUDE_AGENT_MODEL || tier, vision: Boolean(vision), kind });
+      const args = cliArgs({ agent: id, web, billing, model: process.env.CLAUDE_AGENT_MODEL || tier, vision: Boolean(vision), ...(viaStdin ? { visionTransport: 'stdin' as const } : {}), kind });
       const state: { chars: number; model?: string } = { chars: 0 };
       let res: CliResult | null = null;
       let lastChars = 0;
-      const r = await spawnCli(bin, args, work, prompt, AGENT_TIMEOUT_MS, billing, (line) => {
+      const r = await spawnCli(bin, args, work, stdin, AGENT_TIMEOUT_MS, billing, (line) => {
         const parsed = parseStreamLine(line, state);
         for (const e of parsed.events) emit(e);
         if (parsed.result) res = parsed.result;

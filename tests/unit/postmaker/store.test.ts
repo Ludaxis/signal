@@ -262,7 +262,7 @@ describe('runs and events', () => {
     expect((await readEvents(tmp.root, ID)).events.map((e) => e.kind)).toEqual(['run.started', 'run.done']);
   });
 
-  it('runs started within the same second list in start order, not by their random suffix (W2-1 integration)', async () => {
+  it('runs started within the same second list in start order, not by their random suffix', async () => {
     // a15f sorts after 0d97 as text, but 0d97 started later in the same second: it is the newest run.
     await createRun(tmp.root, { ...run('run-20261106-142210-a15f'), startedAt: '2026-11-06T13:22:10.444Z' });
     await createRun(tmp.root, { ...run('run-20261106-142210-0d97'), startedAt: '2026-11-06T13:22:10.930Z' });

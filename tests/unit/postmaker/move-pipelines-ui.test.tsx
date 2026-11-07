@@ -84,7 +84,7 @@ describe('Post maker Home: Move my pipelines', () => {
     expect(dlg.textContent).toContain('They pause until Repeat is on.');
     expect(dlg.textContent).toContain('A backup is kept. Undo restores it exactly.');
     expect(dlg.textContent).toContain('Pipelines using a template stay as pipelines.');
-    expect(dlg.textContent).not.toMatch(/Run now|gate|SIGNAL_|W2-|\.json|backup-/);
+    expect(dlg.textContent).not.toMatch(/Run now|gate|SIGNAL_|\.json|backup-/);
     expect(words(dlg), dlg.textContent ?? '').toBeLessThanOrEqual(30);
     expect(dlg.querySelectorAll('.btn-primary')).toHaveLength(1);
     await act(async () => {
