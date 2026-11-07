@@ -42,7 +42,7 @@ const fa = { languages: ['fa', 'en'] } as RecipeView['recipe'];
 describe('URL state', () => {
   it('reads valid parameters and drops malformed ones', () => {
     expect(pmLocation('?tab=postmaker&r=rc-20261106-ab12&s=pipeline&step=voice:fa')).toMatchObject({ r: 'rc-20261106-ab12', s: 'pipeline', step: 'voice:fa', view: 'drafts' });
-    expect(pmLocation('?tab=postmaker&r=../x&s=nope&step=a%20b&view=runs&run=run-1')).toEqual({ r: null, s: null, step: null, view: 'runs', run: null });
+    expect(pmLocation('?tab=postmaker&r=../x&s=nope&step=a%20b&view=runs&run=run-1')).toEqual({ r: null, s: null, step: null, view: 'runs', run: null, t: null });
   });
   it('writes only what is set, step only with a recipe', () => {
     expect(pmParams({ r: 'rc-20261106-ab12', s: 'proof' })).toEqual({ r: 'rc-20261106-ab12', s: 'proof' });

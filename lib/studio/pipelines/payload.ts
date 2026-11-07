@@ -10,7 +10,13 @@ import { spendOfPipeline, ATTENDED_ONLY, HIGGSFIELD_FORMATS } from '../autopilot
 import type { AutopilotRun } from '../autopilot/types';
 import { madeBy } from './runner';
 import { listPipelines, projectFormats, readState, stepProblems, upcomingSlots } from './store';
-import type { Pipeline, PipelineRow, PipelinesPayload } from './types';
+import type { Pipeline, PipelineRow, PipelinesPayload, RepeatRow } from './types';
+import { repeatPipeline } from './runner';
+import { repeatAllowed, slotsMadeBy } from '../postmaker/repeat-state';
+import { postmakerRoot as rootOf } from '../postmaker/store/paths';
+import { listTemplates } from '../postmaker/store/templates';
+import type { PackageView } from '../content';
+import { currentProject } from '../projects';
 
 const touches = (r: AutopilotRun, id: string) => r.pipeline === id || r.steps.some((s) => 'pipeline' in s && s.pipeline === id);
 
@@ -32,6 +38,43 @@ function statusOf(p: Pipeline, g: PipelinesPayload['switches'], paused: Pipeline
   const blocking = problems.some((x) => !x.text.startsWith('Codex') && !x.text.startsWith('Trusted'));
   const text = !p.enabled ? 'Off' : blocking ? 'Waiting' : 'On';
   return { text, problems };
+}
+
+/**
+ * Every proven template with Repeat settings, with its upcoming slots like a pipeline row (the Calendar and
+ * Pipelines screens read the same `next`). A slot a post was started for counts as made: with its package when it
+ * was accepted, in `waiting` when it still waits for the person at Proof.
+ */
+export async function repeatRows(all: PackageView[], todays: AutopilotRun[], now = Date.now()): Promise<RepeatRow[]> {
+  const root = rootOf(currentProject());
+  const sw = await repeatAllowed();
+  const rows: RepeatRow[] = [];
+  for (const t of await listTemplates(root).catch(() => [])) {
+    const p = t.status === 'proven' ? repeatPipeline(t) : null;
+    if (!p) continue;
+    const ids = [...new Set([p.id, t.id])];
+    const made = new Map<string, string>();
+    for (const id of ids) for (const [at, pkg] of madeBy(all, id)) made.set(at, pkg);
+    const ledger = await slotsMadeBy(root, ids);
+    const waiting: string[] = [];
+    for (const [at, e] of ledger) if (!made.has(at)) {
+      if (e.packageIds[0]) made.set(at, e.packageIds[0]);
+      else waiting.push(at);
+    }
+    const next = upcomingSlots(p, made, now);
+    const started = new Set(waiting);
+    rows.push({
+      templateId: t.id,
+      name: t.name,
+      enabled: p.enabled && sw.enabled,
+      reason: !p.enabled ? 'Repeat is off for this template.' : sw.reason,
+      next,
+      nextAt: next.find((s) => !s.packageId && !started.has(s.at))?.at ?? null,
+      waiting: waiting.sort(),
+      spendToday: spendOfPipeline(todays, p.id),
+    });
+  }
+  return rows;
 }
 
 export async function pipelinesPayload(now = Date.now()): Promise<PipelinesPayload> {
@@ -76,6 +119,7 @@ export async function pipelinesPayload(now = Date.now()): Promise<PipelinesPaylo
   const running = runs.find((r) => r.status === 'running') ?? null;
   return {
     pipelines: rows,
+    repeats: await repeatRows(all, todays, now),
     formats: projectFormats().map((id) => ({ id, name: FORMAT_LABEL[id] })),
     campaigns: camps,
     switches,

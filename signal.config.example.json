@@ -14,6 +14,7 @@
     "uploadPostScheduling": false,
     "uploadPostProfiles": false,
     "postmaker": false,
+    "postmakerRepeat": false,
     "postmakerElevenlabs": false,
     "postmakerAzureSpeech": false,
     "postmakerSync": false,

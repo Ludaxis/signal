@@ -33,7 +33,7 @@ import { DAY_CEILING_USD_DEFAULT, ledgerTotals, openReservations, release, reser
 import { withLock } from './store/mutex';
 import { getJson, putBytes, putJson } from './store/objects';
 import { newRunId } from './store/paths';
-import { readPipeline, readRecipe } from './store/recipes';
+import { readPipeline, readRecipe, readRecipeIndex } from './store/recipes';
 import { appendEvent, createRun, listRunIds, readPending, readRun, updateRun, writePending } from './store/runs';
 import { listVersionNumbers, readVersion } from './store/versions';
 import type {
@@ -43,6 +43,7 @@ import type {
   ContractMode,
   Estimate,
   EventLine,
+  GateId,
   Lang,
   PackLock,
   Pipeline,
@@ -83,6 +84,12 @@ export interface EngineDeps {
   adapterFonts?: () => FontFile[];
   /** The connector's own day cap (signal.config.json postmaker.dayCapUsd); null = none. Default: none. */
   connectorDayCapUsd?: (connector: string) => Promise<number | null> | number | null;
+  /**
+   * A repeat run's gate that its own records leave unsigned still lets paid steps below
+   * it run when this answers true: the version is the very text or voice a named person passed on the template
+   * (verified by origin hash in signoffs.ts). Only the daily run's repeat engine sets it; it writes no sign-off.
+   */
+  inheritedGate?: (recipeId: string, nodeId: string, gate: GateId, v: StepVersion) => Promise<boolean>;
   now?: () => number;
 }
 
@@ -347,10 +354,11 @@ export class PostmakerEngine {
   }
 
   /** Run: requires the token of the confirmed estimate; a third run in the project waits (`queued`). */
-  async run(o: { recipeId: string; scope: Scope; capUsd?: number; estimateToken: string; trigger?: Run['trigger']; by?: string; attended?: boolean }): Promise<RunHandle> {
+  /** `fixedCap` (the daily run): the cap is a budget's remainder and is never raised by the re-estimate. */
+  async run(o: { recipeId: string; scope: Scope; capUsd?: number; estimateToken: string; trigger?: Run['trigger']; by?: string; attended?: boolean; fixedCap?: boolean }): Promise<RunHandle> {
     const { estimate, plan, capUsd } = await this.estimate(o.recipeId, o.scope);
     assertEstimateToken(estimate, o.estimateToken);
-    return this.launch({ recipeId: o.recipeId, plan, scope: plan, estimate, capUsd: o.capUsd ?? capUsd, trigger: o.trigger ?? 'run', by: o.by ?? 'signal-postmaker', attended: o.attended ?? true });
+    return this.launch({ recipeId: o.recipeId, plan, scope: plan, estimate, capUsd: o.capUsd ?? capUsd, trigger: o.trigger ?? 'run', by: o.by ?? 'signal-postmaker', attended: o.attended ?? true, fixedCap: o.fixedCap });
   }
 
   /** Regenerate from here: the node, then every unlocked downstream node in order. */
@@ -427,6 +435,7 @@ export class PostmakerEngine {
     trigger: Run['trigger'];
     by: string;
     attended: boolean;
+    fixedCap?: boolean;
     regenerate?: Map<string, NonNullable<ExecOpts['regenerate']>>;
     outcomes?: Map<string, NodeOutcome>;
     existing?: Run;
@@ -434,6 +443,8 @@ export class PostmakerEngine {
     const recipe = await this.recipeOf(o.recipeId);
     const pipeline = await this.pipelineOf(o.recipeId);
     const runId = o.existing?.id ?? newRunId(this.deps.project, this.now());
+    // Every run on a fork records the template and variant it was made from (Accept reads the recipe's forkOf).
+    const forkOf = o.existing ? null : ((await readRecipeIndex(this.root, o.recipeId))?.forkOf ?? null);
     const slot = takeRunSlot(runId, this.deps.project.id, o.recipeId);
     const steps = new Map<string, RunStep>(o.plan.map((id) => [id, { nodeId: id, version: null, status: 'queued', usd: 0, seconds: 0, mode: 'mock', error: null }]));
     let run: Run;
@@ -444,8 +455,8 @@ export class PostmakerEngine {
         schema: 'signal.pm.run/1',
         id: runId,
         recipeId: o.recipeId,
-        templateId: null,
-        variantId: null,
+        templateId: forkOf?.templateId ?? null,
+        variantId: forkOf?.variantId ?? null,
         trigger: o.trigger,
         scope: { nodes: o.scope },
         startedAt: this.iso(),
@@ -487,7 +498,7 @@ export class PostmakerEngine {
             o.outcomes?.set(id, r);
             if (!reestimated && r.kind === 'done' && textSteps.includes(id) && textSteps.every((x) => steps.get(x)?.status === 'done')) {
               reestimated = true;
-              cap = await this.reestimate(ctx, o.plan, o.estimate, cap, id);
+              cap = await this.reestimate(ctx, o.plan, o.estimate, cap, id, o.fixedCap === true);
             }
             if (r.kind === 'pause') return { pause: r.pausedFor };
             return r.kind === 'done' || r.kind === 'contract-break' ? 'done' : r.kind;
@@ -535,7 +546,7 @@ export class PostmakerEngine {
    * The re-estimate after the script (see the header): done steps count at what they cost, the others at a fresh
    * upper bound from the outputs that exist now. Raises the run cap within the day ceiling; returns the cap in force.
    */
-  private async reestimate(ctx: ExecCtx, plan: string[], confirmed: Estimate, cap: number, after: string): Promise<number> {
+  private async reestimate(ctx: ExecCtx, plan: string[], confirmed: Estimate, cap: number, after: string, fixedCap = false): Promise<number> {
     const s = await this.state(ctx.recipe.id, ctx.pipeline, { overlay: false });
     let spent = 0;
     let rest = 0;
@@ -556,7 +567,7 @@ export class PostmakerEngine {
     const usdHigh = (spent + rest) / 1e6;
     const ceiling = this.deps.dayCeilingUsd ?? DAY_CEILING_USD_DEFAULT;
     const wanted = defaultCapUsd(usdHigh);
-    const chosen = cap !== defaultCapUsd(confirmed.usdHigh);
+    const chosen = fixedCap || cap !== defaultCapUsd(confirmed.usdHigh);
     const capUsd = chosen || wanted <= cap ? cap : Math.max(cap, Math.min(wanted, ceiling));
     if (capUsd !== cap) await updateRun(this.root, ctx.runId, (r) => ({ ...r, capUsd: Math.max(r.capUsd, capUsd) }));
     await this.event(ctx.runId, {
@@ -663,12 +674,15 @@ export class PostmakerEngine {
     return updateRun(this.root, ctx.runId, (r) => ({ ...r, steps: mergeSteps(r.steps, new Map([[id, st]])) }));
   }
 
-  private gateBlocks(p: Pipeline, s: GraphState, nodeId: string): string | null {
+  private async gateBlocks(p: Pipeline, s: GraphState, recipeId: string, nodeId: string): Promise<string | null> {
     for (const a of this.ancestorsOf(p, nodeId)) {
       const n = p.nodes.find((x) => x.id === a)!;
       if (n.gate?.blocks !== 'before-paid-downstream') continue;
       const g = gateStateOf(n, s.current[a] ?? null, s.signoffs);
-      if (!g?.signed) return a;
+      if (g?.signed) continue;
+      const v = s.current[a] ?? null;
+      if (v && n.gate && this.deps.inheritedGate && (await this.deps.inheritedGate(recipeId, a, n.gate.id, v))) continue;
+      return a;
     }
     return null;
   }
@@ -728,7 +742,7 @@ export class PostmakerEngine {
 
     const paid = mode === 'live' && est.usdHigh > 0;
     if (paid) {
-      const gate = this.gateBlocks(p, s, nodeId);
+      const gate = await this.gateBlocks(p, s, ctx.recipe.id, nodeId);
       if (gate) {
         await this.event(ctx.runId, { kind: 'gate.waiting', nodeId, text: `Waiting for the sign-off of ${gate}` });
         return { kind: 'pause', pausedFor: 'gate' };

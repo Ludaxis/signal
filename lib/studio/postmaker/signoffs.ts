@@ -123,3 +123,22 @@ export async function recordSignOff(root: string, i: SignOffInput): Promise<{ si
   await withLock(`pm-signoffs:${file}`, () => appendLine(file, JSON.stringify(signoff)));
   return { signoff, version: v };
 }
+
+/**
+ * The named person's pass a fork's version inherits from its template, or null. Only a
+ * version made by the fork (`source: 'fork'`) with the very outputs of the template version it names (`forkedFrom`,
+ * checked by hash and by output hashes) inherits, and only a person's last record on that exact template version
+ * counts (mock and agent records never do). Nothing is written: the record stays the template's, naming the template
+ * version, so it can never be read as a sign-off of the fork's own version.
+ */
+export async function inheritedSignOff(root: string, v: StepVersion, gate: GateId): Promise<SignOff | null> {
+  const from = v.forkedFrom;
+  if (!from || v.source !== 'fork' || from.nodeId !== v.nodeId) return null;
+  const origin = await readVersion(root, from.recipeId, from.nodeId, from.n).catch(() => null);
+  if (!origin || origin.hash !== from.hash) return null;
+  const same = (a: StepVersion) => JSON.stringify(a.outputs.map((o) => [o.port, o.sha256]));
+  if (same(origin) !== same(v)) return null;
+  const records = [...origin.signoffs, ...(await readSignOffs(root, from.recipeId))].filter((s) => s.gate === gate && s.nodeId === origin.nodeId && s.version === origin.n && s.hash === origin.hash && !isAgentIdentity(s.by) && !isAgentIdentity(s.name));
+  const last = records.at(-1) ?? null;
+  return last && last.verdict === 'pass' ? last : null;
+}

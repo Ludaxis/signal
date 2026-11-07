@@ -23,7 +23,8 @@ import { higgsfieldAllowed } from '../higgsfield';
 import { ATTENDED_ONLY, AUTOPILOT_BY, BACKLOG_LIMIT, HIGGSFIELD_FORMATS, PLAN_CAP_USD, REVIEW_CAP_USD, iso, makeCostEstimate, maybeAutoApprove, msg, reviewStep, spendOf, waitingInReview, type RunnerDeps } from './steps';
 import { agentSpendOf } from '../claude-agent';
 import { listPipelines } from '../pipelines/store';
-import { runPipelines } from '../pipelines/runner';
+import { repeatTemplates, runPipelines, runRepeatTemplates } from '../pipelines/runner';
+import { repeatAllowed } from '../postmaker/repeat-state';
 
 // The job steps (review, trusted approval), cost helpers and deps live in ./steps.ts and are shared with pipelines.
 export { AUTOPILOT_BY, BACKLOG_LIMIT, TRUSTED_APPROVER, makeCostEstimate, spendOf, spendOfPipeline, type RunnerDeps } from './steps';
@@ -102,6 +103,19 @@ export function nextRunAt(now: number, runs: AutopilotRun[]): string {
 type G = typeof globalThis & { __signalAutopilotLocks?: Set<string>; __signalAutopilotAllRunning?: boolean };
 const locks = () => ((globalThis as G).__signalAutopilotLocks ??= new Set<string>());
 export const runInProgress = (project = currentProject().id) => locks().has(project);
+/**
+ * Runs `fn` while holding the project's run lock (the pipelines move): refused with 409 while a run is in
+ * progress, and no run starts until `fn` ends.
+ */
+export async function withRunLock<T>(fn: () => Promise<T>, project = currentProject().id, busy = 'A run is going. Try again when it ends.'): Promise<T> {
+  if (locks().has(project)) throw new ContentError(409, busy);
+  locks().add(project);
+  try {
+    return await fn();
+  } finally {
+    locks().delete(project);
+  }
+}
 
 // ---- one run ------------------------------------------------------------------------------------------
 /** One run for the current project. Throws (and writes nothing) when the gate is off, autopilot is paused,
@@ -174,6 +188,8 @@ async function execute(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDe
   if (!scope.pipeline) await executeCampaigns(run, todays, all.filter((p) => p.campaign).map((p) => [p.id, p.campaign!.id] as const), deps, now);
   // Pipelines share the run, its rules and the run-wide lock; a scoped run does only its one pipeline.
   await runPipelines(run, todays, deps, now, scope);
+  // Templates with Repeat on, after the pipelines (only while the Repeat switch is on; off by default).
+  if (!scope.pipeline) await runRepeatTemplates(run, todays, deps, now);
   if (!run.steps.length) run.note = scope.pipeline ? 'Nothing to do: every upcoming slot of this pipeline has a post already.' : 'Nothing to do: no planned slot inside the horizon of a campaign with autopilot on, and no pipeline slot to make.';
 }
 
@@ -266,7 +282,8 @@ async function executeCampaigns(run: AutopilotRun, todays: AutopilotRun[], owner
 // ---- every project (the instrumentation tick) ---------------------------------------------------------
 async function anythingOn(): Promise<boolean> {
   for (const c of await listCampaigns()) if (c.status === 'active' && (await readSettings(c.id)).enabled) return true;
-  return (await listPipelines()).some((p) => p.enabled);
+  if ((await listPipelines()).some((p) => p.enabled)) return true;
+  return (await repeatAllowed()).enabled && (await repeatTemplates()).length > 0;
 }
 
 /** One pass over every project: runs the daily run where it is due. Safe to call every minute; overlapping calls are skipped. */

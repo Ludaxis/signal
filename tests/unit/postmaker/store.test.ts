@@ -23,7 +23,7 @@ import {
   versionFile,
 } from '@/lib/studio/postmaker/store/paths';
 import { createRecipe, openStore, readPipeline, readRecipe, readRecipeIndex, writePipelineVersion, writeRecipeVersion, type RecipeDraft } from '@/lib/studio/postmaker/store/recipes';
-import { _forgetEventSeqs, appendEvent, createRun, readEvents, readRun, updateRun } from '@/lib/studio/postmaker/store/runs';
+import { _forgetEventSeqs, appendEvent, createRun, listRunIds, readEvents, readRun, updateRun } from '@/lib/studio/postmaker/store/runs';
 import { createTemplate, listTemplates, readTemplate, updateTemplate } from '@/lib/studio/postmaker/store/templates';
 import { readVersion, versionHash, writeVersion } from '@/lib/studio/postmaker/store/versions';
 import type { Run, Template } from '@/lib/studio/postmaker/types';
@@ -262,6 +262,15 @@ describe('runs and events', () => {
     expect((await readEvents(tmp.root, ID)).events.map((e) => e.kind)).toEqual(['run.started', 'run.done']);
   });
 
+  it('runs started within the same second list in start order, not by their random suffix (W2-1 integration)', async () => {
+    // a15f sorts after 0d97 as text, but 0d97 started later in the same second: it is the newest run.
+    await createRun(tmp.root, { ...run('run-20261106-142210-a15f'), startedAt: '2026-11-06T13:22:10.444Z' });
+    await createRun(tmp.root, { ...run('run-20261106-142210-0d97'), startedAt: '2026-11-06T13:22:10.930Z' });
+    await createRun(tmp.root, { ...run('run-20261106-142209-ffff'), startedAt: '2026-11-06T13:22:09.990Z' });
+    await createRun(tmp.root, { ...run('run-20261106-142211-0000'), startedAt: '2026-11-06T13:22:11.010Z' });
+    expect(await listRunIds(tmp.root)).toEqual(['run-20261106-142209-ffff', 'run-20261106-142210-a15f', 'run-20261106-142210-0d97', 'run-20261106-142211-0000']);
+  });
+
   it('run ids are checked before any path is built', async () => {
     await rejects(readRun(tmp.root, '../../etc'), 'not_found');
   });
@@ -281,7 +290,7 @@ const template = (id: string): Template => ({
   pack: null,
   campaignIds: [],
   inputs: { kind: 'brief', lockedNodes: ['art'] },
-  variants: [{ id: 'var-9c1e', label: '30 s', params: { lengthSec: 30 }, status: 'draft', provenRunId: null }],
+  variants: [{ id: 'var-9c1e', label: '30 s', params: { lengthSec: 30 }, status: 'draft', provenRunId: null, premiumStreak: 0, skipProofForRepeats: false }],
   repeat: null,
   skipProofForRepeats: false,
   premiumStreak: 0,

@@ -4,6 +4,7 @@
 // authority for every rule; errors keep its short message and machine reason.
 import type { PostmakerHome } from '@/lib/studio/postmaker/service';
 import type { PostmakerAction, Recipe, RecipeOnlyView, RecipeView, Reference, RunView } from '@/lib/studio/postmaker/types';
+import type { PlannedSlot } from './model';
 
 export class PmError extends Error {
   constructor(
@@ -55,3 +56,22 @@ export const pmApi = {
 };
 
 export type MakeItAnswer = { runId?: string; recipeId: string; recipe?: Recipe; status?: string };
+
+// ---- what the Proven screen reads from the other tabs (read-only GETs; the server is the authority) --------
+
+/** The campaigns list as Make a post and the campaign selectors read it: names, status and planned slots. */
+export interface CampaignList {
+  campaigns: { id: string; name: string; status: string }[];
+  plans: Record<string, { slots: PlannedSlot[] } | undefined>;
+}
+
+export const studioApi = {
+  campaigns: (pid: string) => get<CampaignList>(`/api/studio/campaigns?${q(pid)}`),
+  /** Results › By template rows (`template:<id>` keys). */
+  results: (pid: string) => get<{ byTemplate?: { key: string; name: string | null; posts: number; avgViews: number | null }[] }>(`/api/studio/results?${q(pid)}`),
+  /** Whether repeating by itself (Autopilot and Repeat) and trusted posting are switched on. */
+  async automation(pid: string): Promise<{ repeat: boolean; trusted: boolean }> {
+    const j = await get<{ switches?: { autopilot?: { enabled?: boolean }; repeat?: { enabled?: boolean }; trustedPublish?: { enabled?: boolean } } }>(`/api/studio/autopilot?${q(pid)}`);
+    return { repeat: j.switches?.autopilot?.enabled === true && j.switches?.repeat?.enabled === true, trusted: j.switches?.trustedPublish?.enabled === true };
+  },
+};

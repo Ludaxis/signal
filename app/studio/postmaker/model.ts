@@ -5,7 +5,8 @@
 import type { StatusWord } from '../ui/status';
 import { KINDS, LOCAL_CONNECTOR_LABELS, roleLabel } from '@/lib/studio/postmaker/graph/kinds';
 import { runVerdict } from '@/lib/studio/postmaker/verdict-rule';
-import type { ConnectorRow, Lang, PmNote, ProofProjection, RecipeBeat, RecipeView, RecipeViewNode, Run, Shape, SignOff, StepKind } from '@/lib/studio/postmaker/types';
+import { CORE_TEMPLATE_LIMITS, REPEAT_LIMITS } from '@/lib/studio/postmaker/template-rules';
+import type { ConnectorRow, Lang, PmNote, ProofProjection, RecipeBeat, RecipeView, RecipeViewNode, RepeatInput, RepeatSettings, Run, Shape, SignOff, StepKind, TemplateSummary, VariantParams } from '@/lib/studio/postmaker/types';
 
 // ---- URL state -----------------------------------------------------------------------------------------
 
@@ -25,11 +26,14 @@ export interface PmLocation {
   view: HomeView;
   /** run id of the open run drawer (`run`) */
   run: string | null;
+  /** Template id of the Proven screen (`t`) */
+  t?: string | null;
 }
 
 const RECIPE_RE = /^rc-\d{8}-[0-9a-f]{4}$/;
 const RUN_RE = /^run-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const NODE_RE = /^[a-z][a-z-]{1,23}(?::[a-z]{2})?(?:#[1-9]\d{0,2})?$/;
+const TEMPLATE_RE = /^tpl-\d{8}-[0-9a-f]{4}$/;
 
 /** Reads the Post maker part of a query string; malformed values are dropped (never echoed into a fetch). */
 export function pmLocation(search: string): PmLocation {
@@ -39,17 +43,21 @@ export function pmLocation(search: string): PmLocation {
   const step = q.get('step');
   const view = q.get('view');
   const run = q.get('run');
+  const tpl = q.get('t');
   return {
     r: r && RECIPE_RE.test(r) ? r : null,
     s: (SCREENS as readonly string[]).includes(s ?? '') ? (s as Screen) : null,
     step: step && NODE_RE.test(step) ? step : null,
     view: (HOME_VIEWS as readonly string[]).includes(view ?? '') ? (view as HomeView) : 'drafts',
     run: run && RUN_RE.test(run) ? run : null,
+    t: tpl && TEMPLATE_RE.test(tpl) && !(r && RECIPE_RE.test(r)) ? tpl : null,
   };
 }
 
-/** The `params` for navigateTo('postmaker', …): only what is set, in a fixed order. */
+/** The `params` for navigateTo('postmaker', …): only what is set, in 's order. */
 export function pmParams(l: Partial<PmLocation>): Record<string, string> {
+  // The Proven screen is its own place (`&t=<templateId>`): nothing else rides along.
+  if (l.t && !l.r) return { t: l.t };
   const p: Record<string, string> = {};
   if (l.view && l.view !== 'drafts' && !l.r) p.view = l.view;
   if (l.run && !l.r) p.run = l.run;
@@ -113,7 +121,7 @@ export function bytes(n: number): string {
 // ---- template limits -------------------------------------------------------------------------------------
 
 /** The core template's limits when no pack template says otherwise (project pack format §10: story-spine@1). */
-export const CORE_TEMPLATE = { id: 'story-spine@1', durationSec: { min: 30, max: 90 }, canvases: ['9:16'] as Shape[] };
+export const CORE_TEMPLATE = { id: CORE_TEMPLATE_LIMITS.builder, durationSec: CORE_TEMPLATE_LIMITS.durationSec, canvases: CORE_TEMPLATE_LIMITS.canvases };
 export const LENGTH_CHIPS = [15, 30, 60] as const;
 export const SHAPES: Shape[] = ['9:16', '4:5', '1:1'];
 
@@ -126,7 +134,7 @@ export function defaultLength(refSec: number | null, t = CORE_TEMPLATE): number 
   return lengthAllowed(30, t) ? 30 : t.durationSec.min;
 }
 
-/** The suggested cap: estimate × 1.25 rounded up to the next $0.50 (0 stays 0). */
+/** Estimate × 1.25 rounded up to the next $0.50 (0 stays 0). */
 export const capFor = (usdHigh: number): number => (usdHigh <= 0 ? 0 : Math.ceil((usdHigh * 1.25) / 0.5) * 0.5);
 
 // ---- cards and lanes -------------------------------------------------------------------------------------
@@ -377,7 +385,7 @@ export const runNeedsYou = (r: Pick<Run, 'status' | 'packageIds'>): boolean => (
 
 /**
  * Runs that need the person now: the latest run of each recipe (runs newest first, as Home lists them) when it needs
- * them. An older run of a recipe that ran again is superseded: its Proof is no longer the recipe's.
+ * them. An older run of a recipe that ran again is superseded: its Proof is no longer the recipe's (integration).
  */
 export function runsNeedingYou<R extends Pick<Run, 'recipeId' | 'status' | 'packageIds'>>(runs: readonly R[]): R[] {
   const seen = new Set<string>();
@@ -390,3 +398,161 @@ export function runsNeedingYou<R extends Pick<Run, 'recipeId' | 'status' | 'pack
 
 /** The proof projection of one language, or the first. */
 export const proofFor = (proof: ProofProjection[], lang: Lang | null): ProofProjection | null => proof.find((p) => p.lang === lang) ?? proof[0] ?? null;
+
+// ---- Proven ------------------------------------------------------------------------------------
+
+/**
+ * A template moved from a pipeline that has no Post maker proof of its own yet. It is stored as
+ * Proven, but it makes posts on its schedule only (Make a post and variants are refused), so it is shown as Moved.
+ */
+export const isMoved = (x: Pick<TemplateSummary, 'status' | 'migratedFrom' | 'provenRunId'>): boolean => !!x.migratedFrom && x.status === 'proven' && !x.provenRunId;
+
+/** The template's status word: Moved stands where Proven would for a moved pipeline. */
+export const templateStatusWord = (x: Pick<TemplateSummary, 'status' | 'migratedFrom' | 'provenRunId'>): StatusWord => (isMoved(x) ? 'Moved' : templateWord(x.status));
+
+/** The template's pills: its status word, plus Repeats while Repeat is on (Repeats is a modifier). */
+export function templatePills(x: Pick<TemplateSummary, 'status' | 'repeat'> & Partial<Pick<TemplateSummary, 'migratedFrom' | 'provenRunId'>>): StatusWord[] {
+  const out: StatusWord[] = [templateStatusWord({ status: x.status, migratedFrom: x.migratedFrom ?? null, provenRunId: x.provenRunId ?? null })];
+  if (x.status !== 'retired' && x.repeat?.enabled) out.push('Repeats');
+  return out;
+}
+
+// ---- Move my pipelines and the nav (release 2) ---------------------------
+
+/** What the Post maker home says about pipelines (`PostmakerHome.migration`). */
+export type MigrationState = { pending: number; kept?: number; undo: string | null } | null | undefined;
+
+/**
+ * Whether the nav still shows Pipelines: while any live pipeline is left (one a move would take, or one that makes
+ * posts from a template and stays), and whenever Post maker cannot say (switch off, not loaded, an older
+ * server): release 1 keeps the tab.
+ */
+export const pipelinesInNav = (m: MigrationState): boolean => !m || m.pending + (m.kept ?? 0) > 0;
+
+/** The nav: 4 groups; Pipelines sits after Post maker in Work while it is shown. */
+export type NavGroup = 'work' | 'plan' | 'learn' | 'setup';
+export type NavView = 'today' | 'postmaker' | 'pipelines' | 'posts' | 'calendar' | 'campaigns' | 'brand' | 'results' | 'comments' | 'memory' | 'connections';
+export function navGroups(o: { postmaker: boolean; pipelines: boolean }): { group: NavGroup; items: NavView[] }[] {
+  const work: NavView[] = ['today', ...(o.postmaker ? (['postmaker'] as NavView[]) : []), ...(o.pipelines ? (['pipelines'] as NavView[]) : []), 'posts', 'calendar'];
+  return [
+    { group: 'work', items: work },
+    { group: 'plan', items: ['campaigns', 'brand'] },
+    { group: 'learn', items: ['results', 'comments', 'memory'] },
+    { group: 'setup', items: ['connections'] },
+  ];
+}
+
+/**
+ * A moved pipeline keeps the pipeline ranges: its daily budget may be $0 to $20 (equal to the server's
+ * LEGACY_REPEAT_LIMITS.dailyUsd.min; a test pins it). A Post maker template starts at REPEAT_LIMITS.dailyUsd.min.
+ */
+export const MOVED_MIN_USD = 0;
+
+/** What a variant makes when a parameter is left out: the template's own (its source recipe). */
+export interface VariantBase {
+  languages: Lang[];
+  lengthSec: number | null;
+  shape: Shape | null;
+}
+
+/** "Persian · 30 s · 9:16": the language, length and shape a variant (or the default, `{}`) makes. */
+export function variantLine(params: VariantParams, base: VariantBase): string {
+  const langs = params.lang ? [params.lang] : base.languages;
+  const length = params.lengthSec ?? base.lengthSec;
+  const shape = params.shape ?? base.shape;
+  return [langs.map(langName).join(' + '), length !== null ? duration(length) : null, shape].filter(Boolean).join(' · ');
+}
+
+/** The length chips of Add variant: 15, 30, 60 s and the template's own length, each with whether it can be made. */
+export function variantLengths(baseSec: number | null, t = CORE_TEMPLATE): { sec: number; ok: boolean }[] {
+  const all = [...new Set([...LENGTH_CHIPS, ...(baseSec !== null ? [Math.round(baseSec)] : [])])].sort((a, b) => a - b);
+  return all.map((sec) => ({ sec, ok: lengthAllowed(sec, t) }));
+}
+
+/** The Repeat drawer's form: numbers stay text while typed, so a range error can be shown under its field. */
+export interface RepeatForm {
+  enabled: boolean;
+  perWeek: string;
+  /** 0 = Monday … 6 = Sunday (the Pipelines convention, so a moved pipeline keeps its days). */
+  days: number[];
+  times: string[];
+  makeAheadDays: string;
+  dailyUsd: string;
+  approve: 'ask' | 'trusted';
+}
+export type RepeatField = 'perWeek' | 'days' | 'times' | 'makeAheadDays' | 'dailyUsd';
+
+/** Off, 3 a week on Mon, Wed and Fri at 18:00, 3 days ahead, $2.00 a day, Ask me. */
+export const REPEAT_DEFAULT: RepeatForm = { enabled: false, perWeek: '3', days: [0, 2, 4], times: ['18:00'], makeAheadDays: '3', dailyUsd: '2.00', approve: 'ask' };
+
+export function repeatForm(r: RepeatSettings | null): RepeatForm {
+  if (!r) return { ...REPEAT_DEFAULT, days: [...REPEAT_DEFAULT.days], times: [...REPEAT_DEFAULT.times] };
+  return { enabled: r.enabled, perWeek: String(r.perWeek), days: [...r.days], times: [...r.times], makeAheadDays: String(r.makeAheadDays), dailyUsd: r.dailyUsd.toFixed(2), approve: r.approve };
+}
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const whole = (s: string, lo: number, hi: number): number | null => {
+  const t = s.trim();
+  if (!/^\d{1,3}$/.test(t)) return null;
+  const n = Number(t);
+  return n >= lo && n <= hi ? n : null;
+};
+const dollars = (s: string, min: number = REPEAT_LIMITS.dailyUsd.min): number | null => {
+  const t = s.trim().replace(/^\$/, '');
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(t)) return null;
+  const n = Number(t);
+  return n >= min && n <= REPEAT_LIMITS.dailyUsd.max ? n : null;
+};
+
+/** The fields that are out of range (the server checks the same ranges, template-rules.checkRepeat). */
+export function repeatErrors(f: RepeatForm, o: { moved?: boolean } = {}): Partial<Record<RepeatField, true>> {
+  const L = REPEAT_LIMITS;
+  const e: Partial<Record<RepeatField, true>> = {};
+  if (whole(f.perWeek, L.perWeek.min, L.perWeek.max) === null) e.perWeek = true;
+  if (f.days.length < 1 || f.days.length > 7 || new Set(f.days).size !== f.days.length || !f.days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) e.days = true;
+  if (f.times.length < 1 || f.times.length > L.times || new Set(f.times).size !== f.times.length || !f.times.every((x) => HHMM.test(x))) e.times = true;
+  if (whole(f.makeAheadDays, L.makeAheadDays.min, L.makeAheadDays.max) === null) e.makeAheadDays = true;
+  if (dollars(f.dailyUsd, o.moved ? MOVED_MIN_USD : undefined) === null) e.dailyUsd = true;
+  return e;
+}
+
+/** The `template.repeat.set` body, or null while a field is out of range. */
+export function repeatInput(f: RepeatForm, o: { moved?: boolean } = {}): RepeatInput | null {
+  if (Object.keys(repeatErrors(f, o)).length) return null;
+  return { enabled: f.enabled, perWeek: Number(f.perWeek.trim()), days: [...f.days].sort((a, b) => a - b), times: [...f.times].sort(), makeAheadDays: Number(f.makeAheadDays.trim()), dailyUsd: dollars(f.dailyUsd, o.moved ? MOVED_MIN_USD : undefined)!, approve: f.approve };
+}
+
+/** Same settings (a saved drawer re-opens with equal values). */
+export const sameRepeat = (a: RepeatInput | null, b: RepeatSettings | null): boolean =>
+  !!a && !!b && a.enabled === b.enabled && a.perWeek === b.perWeek && a.makeAheadDays === b.makeAheadDays && a.dailyUsd === b.dailyUsd && a.approve === b.approve && a.days.join() === b.days.join() && a.times.join() === b.times.join();
+
+/** A planned campaign slot as the campaigns list sends it (only what Make a post reads). */
+export interface PlannedSlot {
+  id: string;
+  at: string;
+  status: 'planned' | 'made' | 'skipped';
+  templateId?: string | null;
+  angle?: string;
+  hook?: string;
+  pillar?: string;
+  captionLead?: string;
+}
+
+/**
+ * The next planned slot of the campaigns a template is attached to (Make a post prefills from it): planned,
+ * not yet passed, naming no other template; the earliest first. Null when there is none.
+ */
+export function nextSlot(templateId: string, campaignIds: readonly string[], plans: Record<string, { slots: PlannedSlot[] } | undefined>, now: number): { campaignId: string; slot: PlannedSlot; topic: string } | null {
+  let best: { campaignId: string; slot: PlannedSlot; topic: string } | null = null;
+  for (const cid of campaignIds) {
+    for (const s of plans[cid]?.slots ?? []) {
+      if (s.status !== 'planned' || (s.templateId && s.templateId !== templateId)) continue;
+      const at = Date.parse(s.at);
+      if (!Number.isFinite(at) || at < now) continue;
+      if (best && Date.parse(best.slot.at) <= at) continue;
+      const topic = (s.angle || s.hook || s.pillar || s.captionLead || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      best = { campaignId: cid, slot: s, topic };
+    }
+  }
+  return best;
+}

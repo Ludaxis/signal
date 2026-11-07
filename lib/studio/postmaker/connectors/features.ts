@@ -9,6 +9,7 @@ export { POSTMAKER_PAUSED_ENV };
 /** The feature ids Post maker reads: its own switches plus the existing ones it reuses. */
 export const FEATURES = [
   'postmaker',
+  'postmakerRepeat',
   'postmakerElevenlabs',
   'postmakerAzureSpeech',
   'postmakerSync',

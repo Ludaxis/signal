@@ -74,7 +74,7 @@ export function cleanSteps(raw: unknown, base: PipelineSteps = defaultSteps(), f
 
   return {
     source: { kind, list, campaign },
-    make: { format, template: str(mk.template, 800), captionStyle: str(mk.captionStyle, 200) },
+    make: { format, template: str(mk.template, 800), captionStyle: str(mk.captionStyle, 200), ...cleanFromTemplate(mk.fromTemplate) },
     review: { enabled: rv.enabled !== false },
     approve: { mode: ap.mode === 'trusted' ? 'trusted' : 'ask' },
     schedule: {
@@ -87,13 +87,21 @@ export function cleanSteps(raw: unknown, base: PipelineSteps = defaultSteps(), f
   };
 }
 
+/** A pipeline that makes its posts with a Post maker template keeps a valid `{id, variant}` only. */
+function cleanFromTemplate(v: unknown): { fromTemplate?: { id: string; variant: string | null } } {
+  const o = (v && typeof v === 'object' ? v : null) as { id?: unknown; variant?: unknown } | null;
+  if (!o || typeof o.id !== 'string' || !/^tpl-\d{8}-[0-9a-f]{4}$/.test(o.id)) return {};
+  const variant = typeof o.variant === 'string' && /^var-[0-9a-f]{4}$/.test(o.variant) ? o.variant : null;
+  return { fromTemplate: { id: o.id, variant } };
+}
+
 /** Checks a pipeline's source can work at all; returns problems in plain words (empty = fine). */
 export function stepProblems(p: Pick<Pipeline, 'steps'>): string[] {
   const out: string[] = [];
   const s = p.steps.source;
   if (s.kind === 'list' && !s.list.length) out.push('The list is empty. Add a topic.');
   if (s.kind === 'campaign' && !s.campaign) out.push('Pick a campaign.');
-  if ((s.kind === 'list' || s.kind === 'ideas') && p.steps.make.format === 'website-card') out.push('Website posts come from pages, not topics. Pick another post type.');
+  if ((s.kind === 'list' || s.kind === 'ideas') && p.steps.make.format === 'website-card' && !p.steps.make.fromTemplate) out.push('Website posts come from pages, not topics. Pick another post type.');
   return out;
 }
 

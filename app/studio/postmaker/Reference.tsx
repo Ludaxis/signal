@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import type { Lang, Recipe, Reference as Ref, Shape } from '@/lib/studio/postmaker/types';
 import { t } from '../copy/en';
 import { Button, Chip, ChipRow } from '../ui';
-import { pmApi, type MakeItAnswer } from './api';
+import { pmApi, studioApi, type MakeItAnswer } from './api';
 import { inTextField, useKeys } from './keys';
 import { bytes, capFor, clock, CORE_TEMPLATE, defaultLength, LENGTH_CHIPS, lengthAllowed, money, SHAPES } from './model';
 
@@ -40,6 +40,19 @@ export function Reference({ pid, recipe, reference: initial, estimate = null, on
   // The recipe's own cap, else the estimate × 1.25 rounded up to $0.50; a new recipe starts at 0 (the server's default).
   const [cap, setCap] = useState(recipe && recipe.capUsd > 0 ? String(recipe.capUsd) : estimate ? String(capFor(estimate.usdHigh)) : '0');
   const [stop, setStop] = useState(false);
+  // The campaign the post is for, sent as options.campaignId; shown when there are any.
+  const [campaignId, setCampaignId] = useState<string>(recipe?.campaignId ?? '');
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    studioApi
+      .campaigns(pid)
+      .then((c) => alive && setCampaigns(c.campaigns.filter((x) => x.status !== 'done' || x.id === recipe?.campaignId)))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [pid, recipe?.campaignId]);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement | null>(null);
   const linkInput = useRef<HTMLInputElement | null>(null);
@@ -85,7 +98,7 @@ export function Reference({ pid, recipe, reference: initial, estimate = null, on
       const a = await pmApi.action<MakeItAnswer>(pid, {
         action: 'make-it',
         referenceId: ref.id,
-        options: { languages: langsOf(lang), lengthSec, shape, stopAfterRecipe: stop, ...(Number.isFinite(capUsd) && capUsd > 0 ? { capUsd } : {}) },
+        options: { languages: langsOf(lang), lengthSec, shape, stopAfterRecipe: stop, ...(campaignId ? { campaignId } : {}), ...(Number.isFinite(capUsd) && capUsd > 0 ? { capUsd } : {}) },
       });
       onMade(a, stop);
     } catch (e) {
@@ -159,7 +172,7 @@ export function Reference({ pid, recipe, reference: initial, estimate = null, on
               {file && file.size ? ` · ${bytes(file.size)}` : ''}
             </span>
             {uploading ? <span className="xs pm-muted"> · {t('pm.ref.uploading')}</span> : null}
-            {/* Replace: a new file takes the place of this one. */}
+            {/*  [Replace]: a new file takes the place of this one. */}
             {ref && !uploading ? (
               <Button dense level="tertiary" onClick={() => input.current?.click()}>
                 {t('pm.ref.replace')}
@@ -205,6 +218,20 @@ export function Reference({ pid, recipe, reference: initial, estimate = null, on
             })}
           </ChipRow>
         </div>
+        {campaigns.length ? (
+          <label className="pm-opt">
+            <span className="pm-label">{t('pm.ref.campaign')}</span>
+            {/* The options are the project's campaign names (content); a select's text always includes every option. */}
+            <select className="pm-input pm-select" data-content value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
+              <option value="">{t('pm.ref.noCampaign')}</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id} data-content>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="pm-opt pm-cap">
           <span className="pm-label">{t('pm.ref.cap')}</span>
           <span data-content>$</span>

@@ -9,7 +9,7 @@ import { en } from '@/app/studio/copy/en';
 
 const STUDIO = path.resolve(__dirname, '../../app/studio');
 /** Verbs a dialog title may start with ("title = verb + object"). Add one here when a new dialog needs it. */
-const VERBS = new Set(['Accept', 'Add', 'Delete', 'Discard', 'Disconnect', 'End', 'Make', 'Mark', 'Move', 'Post', 'Pull', 'Raise', 'Regenerate', 'Reject', 'Remove', 'Retire', 'Run', 'Schedule', 'Unschedule']);
+const VERBS = new Set(['Accept', 'Add', 'Delete', 'Discard', 'Disconnect', 'End', 'Make', 'Mark', 'Move', 'Post', 'Pull', 'Raise', 'Regenerate', 'Reject', 'Remove', 'Retire', 'Run', 'Schedule', 'Undo', 'Unschedule']);
 const MAX_TITLE_WORDS = 6;
 /** Two short lines in the 28rem dialog. */
 const MAX_BODY_WORDS = 24;

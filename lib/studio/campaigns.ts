@@ -70,6 +70,8 @@ export interface Slot {
   articleUrl: string | null;
   packageId: string | null;
   status: 'planned' | 'made' | 'skipped';
+  /** The Post maker template chosen for this slot; null or missing = no template yet. */
+  templateId?: string | null;
 }
 export interface CampaignPlan { madeAt: string | null; meta: AgentMeta | null; slots: Slot[] }
 
@@ -585,6 +587,36 @@ export async function skipSlot(id: string, slotId: string): Promise<CampaignPlan
   const next: CampaignPlan = { ...plan, slots: plan.slots.map((s) => (s.id === slotId && s.status === 'planned' ? { ...s, status: 'skipped' as const } : s)) };
   await savePlan(id, next);
   return next;
+}
+
+/** Template ids as the Post maker store writes them (postmaker/store/paths.ts TEMPLATE_ID_RE). */
+const SLOT_TEMPLATE_RE = /^tpl-\d{8}-[0-9a-f]{4}$/;
+
+/**
+ * Records which template a planned slot uses, or clears it with null. The caller checks that the template exists
+ * and is not retired; this only refuses malformed ids and slots that already have a post.
+ */
+export async function setSlotTemplate(id: string, slotId: string, templateId: string | null): Promise<CampaignPlan> {
+  if (templateId !== null && !SLOT_TEMPLATE_RE.test(templateId)) throw new ContentError(400, 'Unknown template.');
+  const plan = await getPlan(id);
+  const slot = plan.slots.find((s) => s.id === slotId);
+  if (!slot) throw new ContentError(404, 'Unknown slot.');
+  if (slot.status !== 'planned') throw new ContentError(409, 'This slot already has a post.');
+  const next: CampaignPlan = { ...plan, slots: plan.slots.map((s) => (s.id === slotId ? { ...s, templateId } : s)) };
+  await savePlan(id, next);
+  return next;
+}
+
+/**
+ * A Post maker post made for a planned slot was accepted as `packageId`; the slot becomes `made` with it, so
+ * it is never made twice. A slot that is no longer planned (made, skipped or gone) is left as it is (returns false).
+ */
+export async function markSlotMade(id: string, slotId: string, packageId: string): Promise<boolean> {
+  const plan = await getPlan(id);
+  const slot = plan.slots.find((s) => s.id === slotId);
+  if (!slot || slot.status !== 'planned') return false;
+  await savePlan(id, { ...plan, slots: plan.slots.map((s) => (s.id === slotId ? { ...s, packageId, status: 'made' as const } : s)) });
+  return true;
 }
 
 /** Campaign view for the dashboard: campaign, plan and its own results. */

@@ -3,7 +3,7 @@
 // GET  /api/studio/campaigns?project=&id=&progress=1   live progress of the campaign's agent run
 // POST /api/studio/campaigns {project, action, …}
 //   create {campaign} | update {id, patch} | strategy {id, notes} | approve-strategy {id}
-//   plan {id} | make-post {id, slotId} | skip-slot {id, slotId}
+//   plan {id} | make-post {id, slotId} | skip-slot {id, slotId} | slot-template {id, slotId, templateId|null}
 // Agents (strategy, plan) and post generation run only on the owner's button press.
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
@@ -11,10 +11,13 @@ import { inProject } from '@/lib/server/studioProject';
 import { jsonError } from '@/lib/server/security';
 import { ContentError } from '@/lib/studio/content';
 import { AgentError, claudeAgentsAllowed } from '@/lib/studio/claude-agent';
-import { GOALS, approveStrategy, campaignView, getProgress, createCampaign, getCampaign, getPlan, listCampaigns, makePlan, makeSlotPost, proposeStrategy, skipSlot, updateCampaign } from '@/lib/studio/campaigns';
+import { GOALS, approveStrategy, campaignView, getProgress, createCampaign, getCampaign, getPlan, listCampaigns, makePlan, makeSlotPost, proposeStrategy, setSlotTemplate, skipSlot, updateCampaign } from '@/lib/studio/campaigns';
+import type { Project } from '@/lib/studio/projects';
 import { projectTimeZone } from '@/lib/studio/time';
 import { loadPackFormats } from '@/lib/studio/formats';
 import { recordEvent } from '@/lib/studio/memory/store';
+import { listTemplates } from '@/lib/studio/postmaker/store/templates';
+import { postmakerRoot } from '@/lib/studio/postmaker/store/paths';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,6 +26,15 @@ export const maxDuration = 600;
 function fail(e: unknown): Response {
   if (e instanceof ContentError || e instanceof AgentError) return jsonError(e.status, e.status === 409 ? 'conflict' : e.status === 403 ? 'forbidden' : 'validation', e.message);
   return jsonError(500, 'internal', String((e as Error)?.message ?? e).slice(0, 200));
+}
+
+/** Post maker templates a slot may use: id, name and status. An unreadable store gives none. */
+async function slotTemplates(project: Project): Promise<{ id: string; name: string; status: string }[]> {
+  try {
+    return (await listTemplates(postmakerRoot(project))).filter((x) => x.status !== 'retired').map((x) => ({ id: x.id, name: x.name, status: x.status }));
+  } catch {
+    return [];
+  }
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -38,7 +50,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       // Post types under the project pack's names when it has a formats.json (the built-in set otherwise).
       const set = await loadPackFormats(project);
       const formats = set.formats.map((f) => ({ id: f, name: set.labels[f] }));
-      return NextResponse.json({ campaigns, plans, agents: await claudeAgentsAllowed(), goals: GOALS, formats, timeZone: projectTimeZone(project) }, { headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json({ campaigns, plans, agents: await claudeAgentsAllowed(), goals: GOALS, formats, timeZone: projectTimeZone(project), templates: await slotTemplates(project) }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (e) {
       return fail(e);
     }
@@ -54,7 +66,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch {
     return jsonError(400, 'validation', 'Bad request.');
   }
-  return inProject(req, b.project, async () => {
+  return inProject(req, b.project, async (project) => {
     try {
       const id = typeof b.id === 'string' ? b.id : '';
       const slotId = typeof b.slotId === 'string' ? b.slotId.slice(0, 60) : '';
@@ -95,6 +107,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
         case 'skip-slot':
           return NextResponse.json({ plan: await skipSlot(id, slotId) });
+        case 'slot-template': {
+          const templateId = typeof b.templateId === 'string' ? b.templateId : null;
+          if (templateId && !(await slotTemplates(project)).some((x) => x.id === templateId)) return jsonError(404, 'not_found', 'Unknown template.');
+          return NextResponse.json({ plan: await setSlotTemplate(id, slotId, templateId) });
+        }
         default:
           return jsonError(400, 'validation', 'Unknown action.');
       }

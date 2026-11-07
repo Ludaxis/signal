@@ -17,6 +17,11 @@ export const en = {
   'shell.signOut': 'Sign out',
   'shell.makePost': 'Make a post',
   'shell.postsBadge': '{count, plural, one {# needs you} other {# need you}}',
+  // Nav groups (10 items in 4 groups; labels add no words to the main view)
+  'shell.group.work': 'Work',
+  'shell.group.plan': 'Plan',
+  'shell.group.learn': 'Learn',
+  'shell.group.setup': 'Setup',
 
   // Tab titles (one per screen, also the page title)
   'tab.today': 'Today',
@@ -223,6 +228,9 @@ export const en = {
   'calendar.allPlanned': 'Everything is planned.',
   'calendar.nothingPlanned': 'Nothing planned',
   'calendar.twoPosts': 'More than one post',
+  // A slot a Repeat template will fill; the status word is the dictionary's "Repeats"
+  'calendar.repeats': 'Repeats',
+  'calendar.repeatSlot': '{name}, repeats at {time}',
   'calendar.clocksBack': 'Clocks go back on {day}.',
   'calendar.clocksForward': 'Clocks go forward on {day}.',
   'calendar.ownAccount': 'A post moves within its own account only.',

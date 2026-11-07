@@ -119,13 +119,14 @@ export const CAMPAIGNS_FIXTURE = {
     { id: 'c-20261001-bbbb', name: 'Old test', goal: 'awareness', brief: '', formats: ['website-card'], startDate: '2026-10-01', endDate: '2026-10-20', perWeek: 2, priority: 3, status: 'done', strategy: null, proposal: null },
   ],
   plans: {
-    'c-20261101-aaaa': { madeAt: '2026-11-01T10:00:00.000Z', slots: [slot(1), slot(2), slot(3), slot(4), slot(5), slot(6), slot(7)] },
+    'c-20261101-aaaa': { madeAt: '2026-11-01T10:00:00.000Z', slots: [slot(1, { templateId: 'tpl-20261101-abcd' }), slot(2), slot(3), slot(4), slot(5), slot(6), slot(7)] },
     'c-20261001-bbbb': { madeAt: null, slots: [] },
   },
   agents: { enabled: true, reason: '' },
   goals: ['awareness', 'engagement'],
   formats: [{ id: 'website-card', name: 'Website post' }],
   timeZone: 'Europe/Berlin',
+  templates: [{ id: 'tpl-20261101-abcd', name: 'Question card', status: 'proven' }],
 };
 
 /** A Persian comment and an English one on one post. */

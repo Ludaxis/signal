@@ -44,6 +44,8 @@ export const FEATURES = {
   uploadPostProfiles: 'Manage Upload-Post profiles from the project wizard',
   /** Post maker: reference videos, recipes and step-by-step video posts. Mock steps until a service is on. */
   postmaker: 'Post maker: make video posts from a reference',
+  /** Proven templates with Repeat on make their posts in the daily autopilot run (persistent automation). */
+  postmakerRepeat: 'Repeat: proven templates make posts in the daily run',
   /** Post maker voice through ElevenLabs (paid per character). */
   postmakerElevenlabs: 'ElevenLabs voice for Post maker (paid)',
   /** Post maker backup voice through Azure Speech (paid above the free tier). */

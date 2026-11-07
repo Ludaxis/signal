@@ -47,8 +47,27 @@ export function updateRun(root: string, id: string, change: (run: Run) => Run): 
   });
 }
 
+/**
+ * Run ids, oldest first. An id carries its start time to the second only and then a random suffix, so runs started
+ * within the same second are ordered by their recorded `startedAt` (then id): the newest run stays last even when its
+ * suffix sorts lower (Home, Today › Needs you and the latest run of a recipe read this order).
+ */
 export async function listRunIds(root: string): Promise<string[]> {
-  return (await listDir(path.join(root, 'runs'))).filter((f) => RUN_ID_RE.test(f)).sort();
+  const ids = (await listDir(path.join(root, 'runs'))).filter((f) => RUN_ID_RE.test(f)).sort();
+  const second = (id: string) => id.slice(0, -5); // run-YYYYMMDD-HHMMSS without "-xxxx"
+  const out: string[] = [];
+  for (let i = 0; i < ids.length; ) {
+    let j = i + 1;
+    while (j < ids.length && second(ids[j]!) === second(ids[i]!)) j++;
+    if (j - i === 1) out.push(ids[i]!);
+    else {
+      const group = await Promise.all(ids.slice(i, j).map(async (id) => ({ id, at: (await readRun(root, id).catch(() => null))?.startedAt ?? '' })));
+      group.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1));
+      out.push(...group.map((g) => g.id));
+    }
+    i = j;
+  }
+  return out;
 }
 
 // ---- events ----------------------------------------------------------------------------------------------------

@@ -9,6 +9,8 @@ import { schedulerAllowed } from '../meta';
 import { notePackageChange } from '../memory/hooks';
 import type { AgentRunRecord } from '../memory/types';
 import { currentProject } from '../projects';
+import { repeatRunsWaiting } from '../postmaker/repeat-state';
+import { postmakerRoot } from '../postmaker/store/paths';
 import { metaLive, scheduleInSignal } from '../publish-meta';
 import { reviewPackage } from '../team/reviewer';
 import { teamAllowed } from '../team/runtime';
@@ -82,9 +84,11 @@ export function spendOfPipeline(runs: AutopilotRun[], pipeline: string): number 
   return Math.round(total * 10000) / 10000;
 }
 
-/** Autopilot-made posts you have not looked at yet (campaign and pipeline posts alike). */
+/** Autopilot-made posts you have not looked at yet (campaign, pipeline and repeat-template posts alike), plus
+ *  repeat-template posts still waiting for you at Proof (they are posts nobody looked at either). */
 export async function waitingInReview(): Promise<number> {
-  return (await listPackages()).filter((p) => p.autopilot && !p.autopilot.autoApproved && (p.status === 'ready' || p.status === 'changed')).length;
+  const posts = (await listPackages()).filter((p) => p.autopilot && !p.autopilot.autoApproved && (p.status === 'ready' || p.status === 'changed')).length;
+  return posts + (await repeatRunsWaiting(postmakerRoot(currentProject())).catch(() => 0));
 }
 
 /** What one job needs after its post exists. */

@@ -4,6 +4,7 @@
 // without a time zone use the default zone, so older projects see exactly the days they saw before.
 // The Studio's "All accounts" grid sends ?scope=all: its days are always counted in the default zone, and each
 // project's chips are labelled in that project's own zone.
+// `repeats` lists the open slots Repeat templates will fill (only while Repeat is on).
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { jsonError } from '@/lib/server/security';
@@ -13,6 +14,8 @@ import { listCampaigns } from '@/lib/studio/campaigns';
 import { isValidDate } from '@/lib/time';
 import { comparePackageIds } from '@/lib/studio/package-id';
 import { DEFAULT_TIME_ZONE, partsIn, projectTimeZone, timeZoneLabel } from '@/lib/studio/time';
+import { addDays } from '@/lib/time';
+import { repeatSlotsIn } from '@/lib/studio/postmaker/repeat-calendar';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,6 +32,14 @@ interface CalendarItem {
   url: string | null;
   /** The campaign the post was made for (Calendar's `?campaign=<id>` filter). */
   campaign: { id: string; name: string } | null;
+}
+
+/** An open slot a Repeat template will fill (read only; listed only while Repeat is on). */
+interface CalendarRepeat {
+  project: string;
+  template: string;
+  name: string;
+  when: string;
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -58,6 +69,7 @@ async function build(from: string, to: string, only: string | null, allGrid = fa
   const unplanned: CalendarItem[] = [];
   // Campaign names for the filter chip, even in a week where the campaign has no post (a broken store lists none).
   const campaigns: { id: string; project: string; name: string }[] = [];
+  const repeats: CalendarRepeat[] = [];
   for (const p of projects) {
     for (const c of await withProject(p, () => listCampaigns()).catch(() => [])) campaigns.push({ id: c.id, project: p.id, name: c.name });
     const pkgs = await withProject(p, () => listPackages());
@@ -85,11 +97,17 @@ async function build(from: string, to: string, only: string | null, allGrid = fa
       const day = partsIn(timezone, when).date;
       if (day >= from && day <= to) items.push({ ...base, when, kind: k.posted || inFlight ? 'posted' : 'planned' });
     }
+    // Repeat templates' open slots (a day either side: the grid's zone may differ from the project's own).
+    const open = await withProject(p, () => repeatSlotsIn(p, addDays(from, -1), addDays(to, 1), pkgs)).catch(() => []);
+    for (const r of open) {
+      const day = partsIn(timezone, r.at).date;
+      if (day >= from && day <= to) repeats.push({ project: p.id, template: r.template, name: r.name, when: r.at });
+    }
   }
   // Same instant: by project, then package number (numeric, so 99 comes before 100).
   items.sort((a, b) => (a.when! < b.when! ? -1 : a.when! > b.when! ? 1 : a.project < b.project ? -1 : a.project > b.project ? 1 : comparePackageIds(a.id, b.id)));
   return NextResponse.json(
-    { timezone, timeZoneLabel: timeZoneLabel(timezone), projects: projects.map((p) => ({ id: p.id, name: p.name, handle: p.handle, timeZone: projectTimeZone(p) })), items, unplanned, campaigns },
+    { timezone, timeZoneLabel: timeZoneLabel(timezone), projects: projects.map((p) => ({ id: p.id, name: p.name, handle: p.handle, timeZone: projectTimeZone(p) })), items, unplanned, campaigns, repeats },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }

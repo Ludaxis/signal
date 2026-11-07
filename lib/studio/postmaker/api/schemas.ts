@@ -129,22 +129,23 @@ const note = text(2000);
 const perLine = z.array(z.strictObject({ lineId: z.string().regex(/^[a-z]\d{1,4}$/), ok: z.boolean(), note: text(500).optional() })).max(500);
 const stepRef = { recipeId, nodeId };
 
+// A variant as the client sends it (status, streak and proof are the server's); only the declared parameters.
+// Ranges here are coarse type bounds; template-rules.ts (`checkVariantDraft`, `checkRepeat`) gives the plain reasons.
 const variantSchema = z.strictObject({
-  id: variantId,
+  id: variantId.optional(),
   label: z.string().min(1).max(60),
-  params: z.strictObject({ lang, lengthSec: z.number().int().min(5).max(300), shape, hook: text(200), voice: text(80), music: text(80), dualCaptions: z.boolean() }).partial(),
-  status: z.enum(['draft', 'proven']),
-  provenRunId: runId.nullable(),
+  params: z.strictObject({ lang, lengthSec: z.number().int().min(1).max(300), shape, hook: text(200), voice: text(80), music: text(80), dualCaptions: z.boolean() }).partial(),
 });
 const repeatSchema = z.strictObject({
-  enabled: z.boolean(),
-  perWeek: z.number().int().min(0).max(21),
+  enabled: z.boolean().optional(),
+  perWeek: z.number().int().min(0).max(100),
   days: z.array(z.number().int().min(0).max(6)).max(7),
-  times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(6),
-  makeAheadDays: z.number().int().min(0).max(14),
+  times: z.array(z.string().max(5)).max(24),
+  makeAheadDays: z.number().int().min(0).max(100),
   dailyUsd: usd,
   approve: z.enum(['ask', 'trusted']),
 });
+const campaignId = z.string().regex(/^c-\d{8}-[0-9a-z]{4}$/, 'Unknown campaign.');
 
 export const PostmakerActionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('make-it'), referenceId, options: makeOptions }),
@@ -179,10 +180,19 @@ export const PostmakerActionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('note.add'), runId, atSec: z.number().finite().min(0).max(300), box: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)]).optional(), text: z.string().min(1).max(1000), nodeId: nodeId.optional() }),
   z.strictObject({ action: z.literal('proof.accept'), runId, asDraft: z.boolean(), templateName: z.string().trim().min(1).max(TEMPLATE_NAME_MAX) }),
   z.strictObject({ action: z.literal('proof.score'), runId, lang, scores: z.array(z.strictObject({ criterion: z.enum(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12']), score: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]), note: z.string().trim().min(1).max(140) })).min(1).max(12) }),
-  z.strictObject({ action: z.literal('template.make-post'), templateId, variantId: variantId.optional(), brief: z.strictObject({ topic: z.string().min(1).max(200), hook: text(200).optional(), notes: text(2000).optional() }), campaignSlot: z.strictObject({ campaignId: z.string().regex(/^c-\d{8}-[0-9a-z]{4}$/), slotId: z.string().regex(/^[0-9a-z:-]{1,40}$/) }).optional() }),
+  z
+    .strictObject({ action: z.literal('template.make-post'), templateId, variantId: variantId.optional(), brief: z.strictObject({ topic: z.string().trim().min(1).max(200), hook: text(200).optional(), notes: text(2000).optional() }).optional(), campaignSlot: z.strictObject({ campaignId, slotId: z.string().regex(/^[0-9a-z:-]{1,40}$/, 'Unknown slot.') }).optional(), capUsd: usd.optional() })
+    .refine((a) => a.brief !== undefined || a.campaignSlot !== undefined, 'Give the post a topic.'),
   z.strictObject({ action: z.literal('template.variant.save'), templateId, variant: variantSchema }),
   z.strictObject({ action: z.literal('template.repeat.set'), templateId, repeat: repeatSchema }),
+  z.strictObject({ action: z.literal('template.skip-proof.set'), templateId, variantId: variantId.nullable(), on: z.boolean() }),
+  z.strictObject({ action: z.literal('template.campaign.attach'), templateId, campaignId }),
+  z.strictObject({ action: z.literal('template.campaign.detach'), templateId, campaignId }),
+  z.strictObject({ action: z.literal('template.duplicate'), templateId, name: z.string().trim().min(1).max(TEMPLATE_NAME_MAX).optional() }),
   z.strictObject({ action: z.literal('template.retire'), templateId }),
+  // The pipelines move and its undo (the newest move unless one is named).
+  z.strictObject({ action: z.literal('postmaker.migrate') }),
+  z.strictObject({ action: z.literal('postmaker.migrate.undo'), migrationId: z.string().regex(/^mig-\d{8}T\d{9}Z-[0-9a-f]{4}$/, 'Unknown move.').optional() }),
 ]);
 
 // Compile-time guards: what the schemas accept is assignable to the types (and so to the engine).

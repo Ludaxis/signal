@@ -13,6 +13,7 @@ import { brandDir, discoverArticles, fetchImage, loadBrand, readArticle } from '
 import sharp from 'sharp';
 import { normaliseReel } from './reel';
 import { currentProject, type Project } from './projects';
+import { nextPackageIdAfter, PACKAGE_IDS_USED_UP } from './package-id';
 import { codexImage } from './codex';
 import { estimateImageCostUsd, estimateVideoCostUsd, HF_IMAGE_MODEL, HF_VIDEO_MODEL, higgsfieldAllowed, higgsfieldClient, HiggsfieldError, type HfClient } from './higgsfield';
 
@@ -44,9 +45,9 @@ export async function nextPackageId(): Promise<string> {
   } catch {
     names = [];
   }
-  const next = names.reduce((m, n) => Math.max(m, Number(n)), 0) + 1;
-  if (next > 99) throw new ContentError(409, 'Package numbers are used up (99).');
-  return String(next).padStart(2, '0');
+  const next = nextPackageIdAfter(names);
+  if (!next) throw new ContentError(409, PACKAGE_IDS_USED_UP);
+  return next;
 }
 
 const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');

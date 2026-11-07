@@ -4,6 +4,8 @@
 // post still needs approval on Posts. A scheduled post really goes out at its time, so moving or unscheduling it
 // asks first (shared Dialog). "All accounts" counts days in the default zone and labels
 // each project's chips in that project's own zone. Times are 24-hour HH:MM; the zone is named once per screen.
+// Open slots of Repeat templates show as "Repeats" chips (only while Repeat is on); a click opens the
+// template on Post maker › Proven. They cannot be dragged: the schedule lives on the template.
 import { useRouter } from 'next/navigation';
 import { notifyChanged, useOnChanged } from './sync';
 import { navigateTo, useUrlParam } from './url-state';
@@ -43,6 +45,14 @@ interface CalData {
   unplanned: CalItem[];
   /** Campaign names of the shown projects (the filter chip names one even in a week without its posts). */
   campaigns?: { id: string; project: string; name: string }[];
+  /** Open slots Repeat templates will fill (only while Repeat is on). Read only; opens the template. */
+  repeats?: CalRepeat[];
+}
+export interface CalRepeat {
+  project: string;
+  template: string;
+  name: string;
+  when: string;
 }
 
 /** Calendar data for a range: one project (`project`), or every account (`project` null; `all` asks for the default-zone grid). */
@@ -248,6 +258,35 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
   };
 
   const cell = (project: string, date: string) => shownItems.filter((i) => i.project === project && i.when && partsIn(tz, i.when).date === date);
+  // Repeat slots belong to no campaign, so a campaign filter hides them.
+  const repeatsOn = (date: string, project?: string) => (campaign ? [] : (cal.data?.repeats ?? []).filter((r) => (!project || r.project === project) && partsIn(tz, r.when).date === date));
+  const repeatChip = (r: CalRepeat) => {
+    const time = formatTime(r.when, zoneOf(r.project));
+    return (
+      <button
+        key={`${r.project}/${r.template}/${r.when}`}
+        type="button"
+        className="cal2-item cal2-repeat"
+        data-repeat={r.template}
+        onClick={() => {
+          if (r.project !== pid) setProjectId(r.project);
+          navigateTo('postmaker', { params: { t: r.template } });
+        }}
+        aria-label={t('calendar.repeatSlot', { name: r.name, time })}
+      >
+        <span className="cal2-noimg" />
+        <span className="cal2-meta">
+          <span className="cal2-time" data-content>
+            {time}
+          </span>
+          <span className="cal2-title" data-content>
+            {r.name}
+          </span>
+          <span className="cal2-status">{t('calendar.repeats')}</span>
+        </span>
+      </button>
+    );
+  };
 
   return (
     <div className="st-stack cal-screen">
@@ -365,6 +404,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
                         }}
                       >
                         {items.map(chip)}
+                        {repeatsOn(d, p.id).map(repeatChip)}
                         {items.filter((i) => i.kind !== 'unplanned').length > 1 ? <span className="cal2-warn">{t('calendar.twoPosts')}</span> : null}
                       </div>
                     );
@@ -398,12 +438,13 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           <div className="cal2-list">
             {days.map((d) => {
               const items = shownItems.filter((i) => i.when && partsIn(tz, i.when).date === d);
+              const reps = repeatsOn(d);
               return (
                 <section key={d} className="st-stack cal-list-day" aria-label={formatDateLabel(d, true)}>
                   <span className="cal-list-date" data-content>
                     {formatDateLabel(d)}
                   </span>
-                  {items.length ? items.map(chip) : <span className="xs st-muted">{t('calendar.nothingPlanned')}</span>}
+                  {items.length || reps.length ? [...items.map(chip), ...reps.map(repeatChip)] : <span className="xs st-muted">{t('calendar.nothingPlanned')}</span>}
                 </section>
               );
             })}
