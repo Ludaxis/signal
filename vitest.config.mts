@@ -14,6 +14,6 @@ export default defineConfig({
     setupFiles: ['tests/unit/setup.ts'],
     restoreMocks: true,
     // The fixtures assume a European zone with daylight saving (DST weeks are part of the tests).
-    env: { TZ: 'UTC', NEXT_PUBLIC_SIGNAL_TIME_ZONE: 'Europe/Amsterdam' },
+    env: { TZ: 'UTC', NEXT_PUBLIC_SIGNAL_TIME_ZONE: 'Europe/Berlin' },
   },
 });
