@@ -1,0 +1,64 @@
+{
+  "schema": "signal.fa-fixture/bidi-1",
+  "note": "Mixed-direction lines with a synthetic Latin name (Zentrix) and acronyms. kinds lists the expected token kinds.",
+  "items": [
+    {
+      "display": "Zentrix رو نصب کن",
+      "kinds": [
+        "latin",
+        "word",
+        "word",
+        "word"
+      ]
+    },
+    {
+      "display": "نسخه\u200cی iOS 18 اومد",
+      "kinds": [
+        "word",
+        "latin",
+        "word"
+      ]
+    },
+    {
+      "display": "با AI یه ویدیو ساختم",
+      "kinds": [
+        "word",
+        "latin",
+        "word",
+        "word",
+        "word"
+      ]
+    },
+    {
+      "display": "تا ۵۰٪ تخفیف، فقط امروز!",
+      "kinds": [
+        "word",
+        "number",
+        "word",
+        "punct",
+        "word",
+        "word",
+        "punct"
+      ]
+    },
+    {
+      "display": "آدرس: www.example.com",
+      "kinds": [
+        "word",
+        "punct",
+        "url"
+      ]
+    },
+    {
+      "display": "POV: شب بازی با Zentrix",
+      "kinds": [
+        "latin",
+        "punct",
+        "word",
+        "word",
+        "word",
+        "latin"
+      ]
+    }
+  ]
+}

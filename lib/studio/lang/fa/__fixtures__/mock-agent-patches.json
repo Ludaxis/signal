@@ -1,0 +1,28 @@
+{
+  "schema": "signal.fa-fixture/agent-patches-1",
+  "note": "Mock language-editor outputs. «valid» adds vowels only; «letterChange» changes a letter inside a marked span and must be rejected with PRON_INVARIANT.",
+  "line": "امشب نوبت شماست",
+  "valid": [
+    {
+      "spanIndex": 0,
+      "vowels": "اِمشَب"
+    },
+    {
+      "spanIndex": 1,
+      "vowels": "نُوبَت",
+      "ezafeAfter": true
+    }
+  ],
+  "letterChange": [
+    {
+      "spanIndex": 1,
+      "vowels": "نُوبِه"
+    }
+  ],
+  "badReading": [
+    {
+      "spanIndex": 0,
+      "reading": "nope"
+    }
+  ]
+}

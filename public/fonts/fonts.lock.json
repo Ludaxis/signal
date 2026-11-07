@@ -1,0 +1,92 @@
+{
+  "$description": "Core faces bundled with Signal (Persian text and display faces and a Latin face). Every file below is pinned by sha256; tests/unit/fonts-lock.test.ts recomputes the hashes. A face comes either from its project's official GitHub release (`release`, `archive`) or from an installed npm package (`npm`: package, version, the package-lock integrity and the sha256 of the file inside the package); no network is used to bundle either. Brand and display faces beyond these come from a project pack, never from the core.",
+  "fetchedAt": "2026-11-06",
+  "fonts": [
+    {
+      "family": "Vazirmatn",
+      "role": "text",
+      "version": "v33.003",
+      "licence": "OFL-1.1",
+      "reservedFontName": false,
+      "release": "https://github.com/rastikerdar/vazirmatn/releases/tag/v33.003",
+      "archive": {
+        "url": "https://github.com/rastikerdar/vazirmatn/releases/download/v33.003/vazirmatn-v33.003.zip",
+        "sha256": "0a9afd41967e6f57096a56a181a23f81a2b999b62f1f2a4e4b26736580854fdb"
+      },
+      "files": [
+        {
+          "path": "vazirmatn/Vazirmatn-Variable.woff2",
+          "from": "fonts/webfonts/Vazirmatn[wght].woff2",
+          "url": "https://github.com/rastikerdar/vazirmatn/releases/download/v33.003/vazirmatn-v33.003.zip",
+          "sha256": "4e3fa217d38fdafc1fea4414ceb58ca5e662cf0ab5fa735a8c8c20e8b42cad92",
+          "bytes": 111152,
+          "weights": "100 900"
+        },
+        {
+          "path": "vazirmatn/OFL.txt",
+          "from": "OFL.txt at tag v33.003",
+          "url": "https://raw.githubusercontent.com/rastikerdar/vazirmatn/v33.003/OFL.txt",
+          "sha256": "17e355067c8284f47743a1ee3b1ef7ff684ff0601eda357f9353b10b3016ab31",
+          "bytes": 4391
+        }
+      ]
+    },
+    {
+      "family": "Estedad",
+      "role": "display",
+      "version": "8.5",
+      "licence": "OFL-1.1",
+      "reservedFontName": false,
+      "release": "https://github.com/aminabedi68/Estedad/releases/tag/8.5",
+      "archive": {
+        "url": "https://github.com/aminabedi68/Estedad/releases/download/8.5/Estedad-v8.5.zip",
+        "sha256": "e780f2c9527e9d9f673b61f1e093c17d6e217c1e4be15a957bb287e13344728e"
+      },
+      "files": [
+        {
+          "path": "estedad/Estedad-Variable.woff2",
+          "from": "Estedad-v8.5/Estedad[wght].woff2",
+          "url": "https://github.com/aminabedi68/Estedad/releases/download/8.5/Estedad-v8.5.zip",
+          "sha256": "b40ce2504e442a79e8adddf1d7b27bc4bd171bb94c9e7c93e0732d095bc051b0",
+          "bytes": 120924,
+          "weights": "100 900"
+        },
+        {
+          "path": "estedad/OFL.txt",
+          "from": "OFL.txt at tag 8.5",
+          "url": "https://raw.githubusercontent.com/aminabedi68/Estedad/8.5/OFL.txt",
+          "sha256": "b0672e6521cd32ca77db2127e23c134719efb0e5d0cf11c2dfc2b23d05b365ce",
+          "bytes": 4388
+        }
+      ]
+    },
+    {
+      "family": "Instrument Sans",
+      "role": "latin",
+      "version": "5.2.8",
+      "licence": "OFL-1.1",
+      "reservedFontName": false,
+      "npm": {
+        "package": "@fontsource/instrument-sans",
+        "version": "5.2.8",
+        "integrity": "sha512-TJRYVbjZPx4DGMMU5lb5eFKrP3iLe9h7rz8Pk+dP958IZKiyHjYGXXwQZapVbBXcQN+YOiviVhAWxrjv8g6Z6g==",
+        "upstream": "https://github.com/Instrument/instrument-sans"
+      },
+      "files": [
+        {
+          "path": "instrument-sans/InstrumentSans-Latin-700.woff2",
+          "from": "files/instrument-sans-latin-700-normal.woff2",
+          "sha256": "bcf650536cae57403741af193e1e237c245f8929b936f03601279079a64fd699",
+          "bytes": 17012,
+          "weights": "700"
+        },
+        {
+          "path": "instrument-sans/OFL.txt",
+          "from": "LICENSE",
+          "sha256": "c27a3c53c3beed7f5c26853afa15991478ff7145d3754a36b0382f84e10c0d03",
+          "bytes": 4538
+        }
+      ]
+    }
+  ]
+}

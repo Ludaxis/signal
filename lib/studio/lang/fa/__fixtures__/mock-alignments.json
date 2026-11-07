@@ -1,0 +1,45 @@
+{
+  "schema": "signal.fa-fixture/alignments-1",
+  "note": "Mock character alignments (40 ms per character, shorter than two frames at 30 fps).",
+  "items": [
+    {
+      "text": "بیا پیش ما",
+      "characters": [
+        "ب",
+        "ی",
+        "ا",
+        " ",
+        "پ",
+        "ی",
+        "ش",
+        " ",
+        "م",
+        "ا"
+      ],
+      "startMs": [
+        0,
+        40,
+        80,
+        120,
+        160,
+        200,
+        240,
+        280,
+        320,
+        360
+      ],
+      "endMs": [
+        40,
+        80,
+        120,
+        160,
+        200,
+        240,
+        280,
+        320,
+        360,
+        400
+      ]
+    }
+  ]
+}

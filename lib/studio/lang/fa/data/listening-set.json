@@ -1,0 +1,868 @@
+{
+  "schema": "fa-listening-set/1",
+  "status": "proposed",
+  "note": "Generic listening-test corpus. No project, brand, product, person or place names. Pack names are added in a pack-only extension. Every pron and roman is a proposal until the owner, or a reader they name, signs it.",
+  "groups": {
+    "homographs": 15,
+    "ezafe": 10,
+    "numbers": 10,
+    "loanwords": 10,
+    "verbs": 5,
+    "questions": 5,
+    "long": 5
+  },
+  "items": [
+    {
+      "id": "hg-01",
+      "group": "homographs",
+      "display": "یکی هندونه می\u200cبره",
+      "pron": "یِکی هِندونه می\u200cبُره",
+      "roman": "yeki hendune mi-bore",
+      "targets": [
+        {
+          "token": "می\u200cبره",
+          "roman": "mi-bore"
+        }
+      ]
+    },
+    {
+      "id": "hg-02",
+      "group": "homographs",
+      "display": "بابا کیفشو می\u200cبره",
+      "pron": "بابا کیفِشو می\u200cبَره",
+      "roman": "baabaa kifesho mi-bare",
+      "targets": [
+        {
+          "token": "می\u200cبره",
+          "roman": "mi-bare"
+        }
+      ]
+    },
+    {
+      "id": "hg-03",
+      "group": "homographs",
+      "display": "ولی تو چی؟",
+      "pron": "وَلی تُو چی؟",
+      "roman": "vali to chi?",
+      "targets": [
+        {
+          "token": "تو",
+          "roman": "to"
+        }
+      ]
+    },
+    {
+      "id": "hg-04",
+      "group": "homographs",
+      "display": "کلید تو کیفمه",
+      "pron": "کِلید تو کیفَمه",
+      "roman": "kelid tu kifame",
+      "targets": [
+        {
+          "token": "تو",
+          "roman": "tu"
+        }
+      ]
+    },
+    {
+      "id": "hg-05",
+      "group": "homographs",
+      "display": "کی میای خونه؟",
+      "pron": "کِی میای خونه؟",
+      "roman": "key miaay khune?",
+      "targets": [
+        {
+          "token": "کی",
+          "roman": "key"
+        }
+      ]
+    },
+    {
+      "id": "hg-06",
+      "group": "homographs",
+      "display": "کی گفت؟",
+      "pron": "کی گُفت؟",
+      "roman": "ki goft?",
+      "targets": [
+        {
+          "token": "کی",
+          "roman": "ki"
+        }
+      ]
+    },
+    {
+      "id": "hg-07",
+      "group": "homographs",
+      "display": "اون کتابو بده",
+      "pron": "اون کِتابو بِده",
+      "roman": "un ketaabo bede",
+      "targets": [
+        {
+          "token": "بده",
+          "roman": "bede"
+        }
+      ]
+    },
+    {
+      "id": "hg-08",
+      "group": "homographs",
+      "display": "هوا خیلی بده",
+      "pron": "هَوا خِیلی بَده",
+      "roman": "havaa kheyli bade",
+      "targets": [
+        {
+          "token": "بده",
+          "roman": "bade"
+        }
+      ]
+    },
+    {
+      "id": "hg-09",
+      "group": "homographs",
+      "display": "یه چیزی بهم بگو",
+      "pron": "یه چیزی بِهِم بِگو",
+      "roman": "ye chizi behem begu",
+      "targets": [
+        {
+          "token": "بهم",
+          "roman": "behem"
+        }
+      ]
+    },
+    {
+      "id": "hg-10",
+      "group": "homographs",
+      "display": "همه\u200cچی بهم ریخت",
+      "pron": "هَمه\u200cچی بِهَم ریخت",
+      "roman": "hame-chi beham rikht",
+      "targets": [
+        {
+          "token": "بهم",
+          "roman": "beham"
+        }
+      ]
+    },
+    {
+      "id": "hg-11",
+      "group": "homographs",
+      "display": "اون مرد اومد",
+      "pron": "اون مَرد اومَد",
+      "roman": "un mard umad",
+      "targets": [
+        {
+          "token": "مرد",
+          "roman": "mard"
+        }
+      ]
+    },
+    {
+      "id": "hg-12",
+      "group": "homographs",
+      "display": "یه گل قشنگ چیدم",
+      "pron": "یه گُلِ قَشَنگ چیدَم",
+      "roman": "ye gol-e ghashang chidam",
+      "targets": [
+        {
+          "token": "گل",
+          "roman": "gol"
+        }
+      ]
+    },
+    {
+      "id": "hg-13",
+      "group": "homographs",
+      "display": "چایی با شکر می\u200cخوری؟",
+      "pron": "چایی با شِکَر می\u200cخوری؟",
+      "roman": "chaayi baa shekar mi-khori?",
+      "targets": [
+        {
+          "token": "شکر",
+          "roman": "shekar"
+        }
+      ]
+    },
+    {
+      "id": "hg-14",
+      "group": "homographs",
+      "display": "دیروز رفتم بازار",
+      "pron": "دیروز رَفتَم بازار",
+      "roman": "diruz raftam baazaar",
+      "targets": [
+        {
+          "token": "رفتم",
+          "roman": "raftam"
+        }
+      ]
+    },
+    {
+      "id": "hg-15",
+      "group": "homographs",
+      "display": "تا حالا اونجا رفتم",
+      "pron": "تا حالا اونجا رَفتَم",
+      "roman": "taa haalaa unjaa RAF-tam",
+      "targets": [
+        {
+          "token": "رفتم",
+          "roman": "RAF-tam"
+        }
+      ]
+    },
+    {
+      "id": "ez-01",
+      "group": "ezafe",
+      "display": "بازی جدید ما",
+      "pron": "بازیِ جَدیدِ ما",
+      "roman": "baazi-ye jadid-e maa",
+      "targets": [
+        {
+          "token": "بازی",
+          "roman": "baazi-ye"
+        },
+        {
+          "token": "جدید",
+          "roman": "jadid-e"
+        }
+      ]
+    },
+    {
+      "id": "ez-02",
+      "group": "ezafe",
+      "display": "خونه\u200cی مامان\u200cبزرگ",
+      "pron": "خونه\u200cیِ مامان\u200cبُزُرگ",
+      "roman": "khune-ye maamaan-bozorg",
+      "targets": [
+        {
+          "token": "خونه\u200cی",
+          "roman": "khune-ye"
+        }
+      ]
+    },
+    {
+      "id": "ez-03",
+      "group": "ezafe",
+      "display": "صدای ما",
+      "pron": "صدایِ ما",
+      "roman": "sedaa-ye maa",
+      "targets": [
+        {
+          "token": "صدای",
+          "roman": "sedaa-ye"
+        }
+      ]
+    },
+    {
+      "id": "ez-04",
+      "group": "ezafe",
+      "display": "کیف قرمز من",
+      "pron": "کیفِ قِرمِزِ من",
+      "roman": "kif-e ghermez-e man",
+      "targets": [
+        {
+          "token": "کیف",
+          "roman": "kif-e"
+        },
+        {
+          "token": "قرمز",
+          "roman": "ghermez-e"
+        }
+      ]
+    },
+    {
+      "id": "ez-05",
+      "group": "ezafe",
+      "display": "دست راست",
+      "pron": "دَستِ راست",
+      "roman": "dast-e raast",
+      "targets": [
+        {
+          "token": "دست",
+          "roman": "dast-e"
+        }
+      ]
+    },
+    {
+      "id": "ez-06",
+      "group": "ezafe",
+      "display": "شب آخر سال",
+      "pron": "شَبِ آخِرِ سال",
+      "roman": "shab-e aakher-e saal",
+      "targets": [
+        {
+          "token": "شب",
+          "roman": "shab-e"
+        },
+        {
+          "token": "آخر",
+          "roman": "aakher-e"
+        }
+      ]
+    },
+    {
+      "id": "ez-07",
+      "group": "ezafe",
+      "display": "لباس نو",
+      "pron": "لِباسِ نو",
+      "roman": "lebaas-e no",
+      "targets": [
+        {
+          "token": "لباس",
+          "roman": "lebaas-e"
+        }
+      ]
+    },
+    {
+      "id": "ez-08",
+      "group": "ezafe",
+      "display": "کلمه\u200cی بعدی",
+      "pron": "کَلَمه\u200cیِ بَعدی",
+      "roman": "kalame-ye badi",
+      "targets": [
+        {
+          "token": "کلمه\u200cی",
+          "roman": "kalame-ye"
+        }
+      ]
+    },
+    {
+      "id": "ez-09",
+      "group": "ezafe",
+      "display": "موی بلند",
+      "pron": "مویِ بُلَند",
+      "roman": "mu-ye boland",
+      "targets": [
+        {
+          "token": "موی",
+          "roman": "mu-ye"
+        }
+      ]
+    },
+    {
+      "id": "ez-10",
+      "group": "ezafe",
+      "display": "من کتاب خوندم",
+      "pron": "مَن کِتاب خوندَم",
+      "roman": "man ketaab khundam",
+      "targets": [
+        {
+          "token": "کتاب",
+          "roman": "ketaab"
+        }
+      ]
+    },
+    {
+      "id": "nm-01",
+      "group": "numbers",
+      "display": "۱۵ تا",
+      "pron": "پونزده تا",
+      "roman": "punzda taa",
+      "targets": [
+        {
+          "token": "۱۵",
+          "roman": "punzda"
+        }
+      ]
+    },
+    {
+      "id": "nm-02",
+      "group": "numbers",
+      "display": "۱۶ نفر",
+      "pron": "شونزده نَفَر",
+      "roman": "shunzda nafar",
+      "targets": [
+        {
+          "token": "۱۶",
+          "roman": "shunzda"
+        }
+      ]
+    },
+    {
+      "id": "nm-03",
+      "group": "numbers",
+      "display": "۱۸ سالشه",
+      "pron": "هیجده سالِشه",
+      "roman": "hijda saaleshe",
+      "targets": [
+        {
+          "token": "۱۸",
+          "roman": "hijda"
+        }
+      ]
+    },
+    {
+      "id": "nm-04",
+      "group": "numbers",
+      "display": "۲۵ امتیاز",
+      "pron": "بیست و پَنج اِمتیاز",
+      "roman": "bist-o panj emtiyaaz",
+      "targets": [
+        {
+          "token": "۲۵",
+          "roman": "bist-o panj"
+        }
+      ]
+    },
+    {
+      "id": "nm-05",
+      "group": "numbers",
+      "display": "۱۰۰ مرحله",
+      "pron": "صَد مَرحَله",
+      "roman": "sad marhale",
+      "targets": [
+        {
+          "token": "۱۰۰",
+          "roman": "sad"
+        }
+      ]
+    },
+    {
+      "id": "nm-06",
+      "group": "numbers",
+      "display": "سال ۱۴۰۵",
+      "pron": "سالِ هِزار و چارصَد و پَنج",
+      "roman": "saal-e hezaar-o chaarsad-o panj",
+      "targets": [
+        {
+          "token": "۱۴۰۵",
+          "roman": "hezaar-o chaarsad-o panj"
+        }
+      ]
+    },
+    {
+      "id": "nm-07",
+      "group": "numbers",
+      "display": "۳۰ آذر",
+      "pron": "سیِ آذَر",
+      "roman": "si-ye aazar",
+      "targets": [
+        {
+          "token": "۳۰ آذر",
+          "roman": "si-ye aazar"
+        }
+      ]
+    },
+    {
+      "id": "nm-08",
+      "group": "numbers",
+      "display": "ساعت ۱۰:۳۰",
+      "pron": "ساعَتِ دَه و نیم",
+      "roman": "saat-e dah-o nim",
+      "targets": [
+        {
+          "token": "۱۰:۳۰",
+          "roman": "dah-o nim"
+        }
+      ]
+    },
+    {
+      "id": "nm-09",
+      "group": "numbers",
+      "display": "۴۹ هزار تومان",
+      "pron": "چِهِل و نُه هِزار تومَن",
+      "roman": "chehel-o noh hezaar toman",
+      "targets": [
+        {
+          "token": "۴۹ هزار تومان",
+          "roman": "chehel-o noh hezaar toman"
+        }
+      ]
+    },
+    {
+      "id": "nm-10",
+      "group": "numbers",
+      "display": "۵۰٪ تخفیف",
+      "pron": "پَنجاه دَرصَد تَخفیف",
+      "roman": "panjaah darsad takhfif",
+      "targets": [
+        {
+          "token": "۵۰٪",
+          "roman": "panjaah darsad"
+        }
+      ]
+    },
+    {
+      "id": "bl-01",
+      "group": "loanwords",
+      "display": "یه استوری گذاشتم",
+      "pron": "یه اِستوری گُذاشتَم",
+      "roman": "ye estori gozaashtam",
+      "targets": [
+        {
+          "token": "استوری",
+          "roman": "es-to-ri"
+        }
+      ]
+    },
+    {
+      "id": "bl-02",
+      "group": "loanwords",
+      "display": "چلنج امروز سخته",
+      "pron": "چالِنجِ اِمروز سَخته",
+      "roman": "chaalenj-e emruz sakhte",
+      "targets": [
+        {
+          "token": "چلنج",
+          "roman": "chaa-lenj"
+        }
+      ]
+    },
+    {
+      "id": "bl-03",
+      "group": "loanwords",
+      "display": "این کار با AI انجام شده",
+      "pron": "این کار با اِی\u200cآی اَنجام شُده",
+      "roman": "in kaar baa ey-aay anjaam shode",
+      "targets": [
+        {
+          "token": "AI",
+          "roman": "ey-aay"
+        }
+      ]
+    },
+    {
+      "id": "bl-04",
+      "group": "loanwords",
+      "display": "یه لایک بزن",
+      "pron": "یه لایک بِزَن",
+      "roman": "ye laayk bezan",
+      "targets": [
+        {
+          "token": "لایک",
+          "roman": "laayk"
+        }
+      ]
+    },
+    {
+      "id": "bl-05",
+      "group": "loanwords",
+      "display": "آپدیت جدید اومد",
+      "pron": "آپدِیتِ جَدید اومَد",
+      "roman": "aapdeyt-e jadid umad",
+      "targets": [
+        {
+          "token": "آپدیت",
+          "roman": "aap-deyt"
+        }
+      ]
+    },
+    {
+      "id": "bl-06",
+      "group": "loanwords",
+      "display": "IQ بالایی داره",
+      "pron": "آی\u200cکیوِ بالایی داره",
+      "roman": "aay-kyu-ye baalaayi daare",
+      "targets": [
+        {
+          "token": "IQ",
+          "roman": "aay-kyu"
+        }
+      ]
+    },
+    {
+      "id": "bl-07",
+      "group": "loanwords",
+      "display": "با PC بازی می\u200cکنی؟",
+      "pron": "با پی\u200cسی بازی می\u200cکُنی؟",
+      "roman": "baa pi-si baazi mi-koni?",
+      "targets": [
+        {
+          "token": "PC",
+          "roman": "pi-si"
+        }
+      ]
+    },
+    {
+      "id": "bl-08",
+      "group": "loanwords",
+      "display": "یه کامنت بذار",
+      "pron": "یه کامِنت بِذار",
+      "roman": "ye kaament bezaar",
+      "targets": [
+        {
+          "token": "کامنت",
+          "roman": "kaa-ment"
+        }
+      ]
+    },
+    {
+      "id": "bl-09",
+      "group": "loanwords",
+      "display": "ویدیو رو ببین",
+      "pron": "ویدیو رو بِبین",
+      "roman": "vi-de-yo ro bebin",
+      "targets": [
+        {
+          "token": "ویدیو",
+          "roman": "vi-de-yo"
+        }
+      ]
+    },
+    {
+      "id": "bl-10",
+      "group": "loanwords",
+      "display": "همه\u200cچی OK شد",
+      "pron": "هَمه\u200cچی اوکی شُد",
+      "roman": "hame-chi o-key shod",
+      "targets": [
+        {
+          "token": "OK",
+          "roman": "o-key"
+        }
+      ]
+    },
+    {
+      "id": "cv-01",
+      "group": "verbs",
+      "display": "داره میاد",
+      "pron": "داره میاد",
+      "roman": "daare miaad",
+      "targets": [
+        {
+          "token": "میاد",
+          "roman": "miaad"
+        }
+      ]
+    },
+    {
+      "id": "cv-02",
+      "group": "verbs",
+      "display": "ما می\u200cخوایم بریم",
+      "pron": "ما می\u200cخوایم بِریم",
+      "roman": "maa mi-khaaym berim",
+      "targets": [
+        {
+          "token": "می\u200cخوایم",
+          "roman": "mi-khaaym"
+        }
+      ]
+    },
+    {
+      "id": "cv-03",
+      "group": "verbs",
+      "display": "اونا نمی\u200cتونن بیان",
+      "pron": "اونا نِمی\u200cتونَن بیان",
+      "roman": "unaa nemi-tunan biaan",
+      "targets": [
+        {
+          "token": "نمی\u200cتونن",
+          "roman": "nemi-tunan"
+        }
+      ]
+    },
+    {
+      "id": "cv-04",
+      "group": "verbs",
+      "display": "رفیقم همیشه پایه\u200cست",
+      "pron": "رَفیقَم هَمیشه پایه\u200cست",
+      "roman": "rafigham hamishe paaye-st",
+      "targets": [
+        {
+          "token": "پایه\u200cست",
+          "roman": "paaye-st"
+        }
+      ]
+    },
+    {
+      "id": "cv-05",
+      "group": "verbs",
+      "display": "منو صدا کن",
+      "pron": "مَنو صِدا کُن",
+      "roman": "mano sedaa kon",
+      "targets": [
+        {
+          "token": "منو",
+          "roman": "mano"
+        }
+      ]
+    },
+    {
+      "id": "qv-01",
+      "group": "questions",
+      "display": "فردا میای؟",
+      "pron": "فَردا میای؟",
+      "roman": "fardaa miaay?",
+      "targets": [
+        {
+          "token": "میای",
+          "roman": "miaay"
+        }
+      ]
+    },
+    {
+      "id": "qv-02",
+      "group": "questions",
+      "display": "اسمش چیه؟",
+      "pron": "اِسمِش چیه؟",
+      "roman": "esmesh chi-e?",
+      "targets": [
+        {
+          "token": "چیه",
+          "roman": "chi-e"
+        }
+      ]
+    },
+    {
+      "id": "qv-03",
+      "group": "questions",
+      "display": "پسر! بیا اینجا",
+      "pron": "پِسَر! بیا اینجا",
+      "roman": "PE-sar! biaa injaa",
+      "targets": [
+        {
+          "token": "پسر",
+          "roman": "PE-sar"
+        }
+      ]
+    },
+    {
+      "id": "qv-04",
+      "group": "questions",
+      "display": "عمه\u200cجون! کجایی؟",
+      "pron": "عَمّه\u200cجون! کُجایی؟",
+      "roman": "AM-me-jun! kojaa-i?",
+      "targets": [
+        {
+          "token": "عمه\u200cجون",
+          "roman": "AM-me-jun"
+        }
+      ]
+    },
+    {
+      "id": "qv-05",
+      "group": "questions",
+      "display": "چرا نیومدی؟",
+      "pron": "چِرا نَیومَدی؟",
+      "roman": "cheraa nayumadi?",
+      "targets": [
+        {
+          "token": "نیومدی",
+          "roman": "nayumadi"
+        }
+      ]
+    },
+    {
+      "id": "lm-01",
+      "group": "long",
+      "display": "امشب ساعت ۹ با بچه\u200cهای کلاس یه بازی جدید رو با AI امتحان می\u200cکنیم.",
+      "pron": "اِمشَب ساعَتِ نُه با بَچّه\u200cهایِ کِلاس یه بازیِ جَدید رو با اِی\u200cآی اِمتِحان می\u200cکُنیم.",
+      "roman": "emshab saat-e noh baa bachche-haa-ye kelaas ye baazi-ye jadid ro baa ey-aay emtehaan mi-konim.",
+      "targets": [
+        {
+          "token": "۹",
+          "roman": "noh"
+        },
+        {
+          "token": "AI",
+          "roman": "ey-aay"
+        },
+        {
+          "token": "ساعت",
+          "roman": "saat-e"
+        },
+        {
+          "token": "بازی",
+          "roman": "baazi-ye"
+        }
+      ]
+    },
+    {
+      "id": "lm-02",
+      "group": "long",
+      "display": "هفته\u200cی پیش ۱۲ نفر از دوستام اومدن خونه\u200cی ما و تا صبح با PC بازی کردیم.",
+      "pron": "هَفته\u200cیِ پیش دَوازده نَفَر اَز دوستام اومَدَن خونه\u200cیِ ما و تا صُبح با پی\u200cسی بازی کَردیم.",
+      "roman": "hafte-ye pish davaazda nafar az dustaam umadan khune-ye maa o taa sobh baa pi-si baazi kardim.",
+      "targets": [
+        {
+          "token": "۱۲",
+          "roman": "davaazda"
+        },
+        {
+          "token": "PC",
+          "roman": "pi-si"
+        },
+        {
+          "token": "هفته\u200cی",
+          "roman": "hafte-ye"
+        },
+        {
+          "token": "خونه\u200cی",
+          "roman": "khune-ye"
+        }
+      ]
+    },
+    {
+      "id": "lm-03",
+      "group": "long",
+      "display": "قیمت بسته\u200cی جدید ۴۹ هزار تومان شده و توی استوری امروز یه کد VIP هم گذاشتیم.",
+      "pron": "قیمَتِ بَسته\u200cیِ جَدید چِهِل و نُه هِزار تومَن شُده و توی اِستوریِ اِمروز یه کُدِ وی\u200cآی\u200cپی هَم گُذاشتیم.",
+      "roman": "gheymat-e baste-ye jadid chehel-o noh hezaar toman shode o tuye estori-ye emruz ye kod-e vi-aay-pi ham gozaashtim.",
+      "targets": [
+        {
+          "token": "۴۹ هزار تومان",
+          "roman": "chehel-o noh hezaar toman"
+        },
+        {
+          "token": "VIP",
+          "roman": "vi-aay-pi"
+        },
+        {
+          "token": "قیمت",
+          "roman": "gheymat-e"
+        },
+        {
+          "token": "بسته\u200cی",
+          "roman": "baste-ye"
+        }
+      ]
+    },
+    {
+      "id": "lm-04",
+      "group": "long",
+      "display": "روز ۱۵ آبان مسابقه\u200cی بزرگ ما شروع می\u200cشه و جایزه\u200cی اول یه PC نوئه.",
+      "pron": "روزِ پونزدهِ آبان مُسابِقه\u200cیِ بُزُرگِ ما شُروع می\u200cشه و جایزه\u200cیِ اَوَّل یه پی\u200cسیِ نوئه.",
+      "roman": "ruz-e punzda-ye aabaan mosaabeghe-ye bozorg-e maa shoru mi-she o jaayeze-ye avval ye pi-si-ye no-e.",
+      "targets": [
+        {
+          "token": "۱۵ آبان",
+          "roman": "punzda-ye aabaan"
+        },
+        {
+          "token": "PC",
+          "roman": "pi-si-ye"
+        },
+        {
+          "token": "روز",
+          "roman": "ruz-e"
+        },
+        {
+          "token": "مسابقه\u200cی",
+          "roman": "mosaabeghe-ye"
+        }
+      ]
+    },
+    {
+      "id": "lm-05",
+      "group": "long",
+      "display": "توی ۳۰ ثانیه\u200cی اول ویدیو یه لایک بزن و کامنت دوستت رو بخون.",
+      "pron": "توی سی ثانیه\u200cیِ اَوَّلِ ویدیو یه لایک بِزَن و کامِنتِ دوستِت رو بِخون.",
+      "roman": "tuye si saaniye-ye avval-e vi-de-yo ye laayk bezan o kaament-e dustet ro bekhun.",
+      "targets": [
+        {
+          "token": "۳۰",
+          "roman": "si"
+        },
+        {
+          "token": "ثانیه\u200cی",
+          "roman": "saaniye-ye"
+        },
+        {
+          "token": "اول",
+          "roman": "avval-e"
+        },
+        {
+          "token": "کامنت",
+          "roman": "kaament-e"
+        }
+      ]
+    }
+  ]
+}

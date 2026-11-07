@@ -1,0 +1,378 @@
+{
+  "schema": "signal.fa-fixture/pack-script-1",
+  "note": "[Pack example] An original example script (\"Yalda at Grandma's\") used as the fixture pack script. The brand «حرفینو» / Harfino is fictional and lives only in this fixture pack lexicon, never in core data. Every pron and roman is proposed until the owner, or a reader they name, signs. No reference transcript is in the repository.",
+  "packLexicon": {
+    "schema": "signal.fa-lexicon/1",
+    "scope": "pack",
+    "packId": "fixture-word-game",
+    "version": 1,
+    "entries": [
+      {
+        "id": "lx-pack-brand",
+        "kind": "brand",
+        "match": {
+          "display": [
+            "حرفینو",
+            "Harfino"
+          ],
+          "mode": "word",
+          "inflects": true
+        },
+        "display": {
+          "fa": "حرفینو",
+          "en": "Harfino"
+        },
+        "hashtags": {
+          "fa": "#حرفینو",
+          "en": "#Harfino"
+        },
+        "pron": "حَرفینو",
+        "roman": "har-fi-no",
+        "source": "editor",
+        "status": "proposed",
+        "approvedBy": null,
+        "approvedAt": null
+      }
+    ]
+  },
+  "narrated": [
+    {
+      "id": "l01",
+      "beatId": "b01",
+      "speaker": "narrator",
+      "display": "شب یلداست، خونه\u200cی مامان\u200cبزرگ غوغاست.",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "شَب",
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "یَلداست",
+          "roman": "yaldaa-st"
+        },
+        {
+          "spanIndex": 2,
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 3,
+          "vowels": "مامان\u200cبُزُرگ"
+        },
+        {
+          "spanIndex": 4,
+          "roman": "ghoghaa-st"
+        }
+      ],
+      "junctions": [
+        0,
+        2
+      ],
+      "pron": "شَبِ یَلداست، خونه\u200cیِ مامان\u200cبُزُرگ غوغاست.",
+      "roman": "shab-e yaldaa-st, khune-ye maamaan-bozorg ghoghaa-st.",
+      "en": "Grandma's house is loud tonight."
+    },
+    {
+      "id": "l02",
+      "beatId": "b02",
+      "speaker": "narrator",
+      "display": "همه دور کرسی\u200cان، یکی هندونه می\u200cبره، یکی فال می\u200cگیره.",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "roman": "hame"
+        },
+        {
+          "spanIndex": 1,
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 2,
+          "vowels": "کُرسی\u200cاَن"
+        },
+        {
+          "spanIndex": 3,
+          "vowels": "یِکی"
+        },
+        {
+          "spanIndex": 4,
+          "vowels": "هِندونه"
+        },
+        {
+          "spanIndex": 6,
+          "vowels": "یِکی"
+        }
+      ],
+      "junctions": [
+        1
+      ],
+      "pron": "همه دُورِ کُرسی\u200cاَن، یِکی هِندونه می\u200cبُره، یِکی فال می\u200cگیره.",
+      "roman": "hame dor-e korsi-an, yeki hendune mi-bore, yeki faal mi-gire.",
+      "en": "Someone's slicing pie, someone's telling fortunes,"
+    },
+    {
+      "id": "l03",
+      "beatId": "b03",
+      "speaker": "narrator",
+      "display": "منم این\u200cور، غرق بازی\u200cام.",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "مَنَم"
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "این\u200cوَر"
+        },
+        {
+          "spanIndex": 2,
+          "vowels": "غَرق",
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 3,
+          "vowels": "بازی\u200cاَم"
+        }
+      ],
+      "junctions": [
+        2
+      ],
+      "pron": "مَنَم این\u200cوَر، غَرقِ بازی\u200cاَم.",
+      "roman": "manam in-var, ghargh-e baazi-am.",
+      "en": "and I'm deep in a game."
+    },
+    {
+      "id": "l04",
+      "beatId": "b05",
+      "speaker": "elder",
+      "display": "بیا یه فال حافظ برات بگیرم!",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "roman": "biaa"
+        },
+        {
+          "spanIndex": 2,
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 3,
+          "vowels": "حافِظ"
+        },
+        {
+          "spanIndex": 4,
+          "vowels": "بَرات"
+        },
+        {
+          "spanIndex": 5,
+          "vowels": "بِگیرَم"
+        }
+      ],
+      "junctions": [
+        2
+      ],
+      "pron": "بیا یه فالِ حافِظ بَرات بِگیرَم!",
+      "roman": "biaa ye faal-e haafez baraat begiram!",
+      "en": "\"Come here, let me read your palm!\""
+    },
+    {
+      "id": "l05",
+      "beatId": "b06",
+      "speaker": "lead",
+      "display": "الان عمه\u200cجون! دارم یه کلمه\u200cی هفت\u200cحرفی می\u200cسازم!",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "اَلان"
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "عَمّه\u200cجون",
+          "roman": "AM-me-jun"
+        },
+        {
+          "spanIndex": 2,
+          "vowels": "دارَم"
+        },
+        {
+          "spanIndex": 4,
+          "vowels": "کَلَمه\u200cی",
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 5,
+          "vowels": "هَفت\u200cحَرفی"
+        },
+        {
+          "spanIndex": 6,
+          "vowels": "می\u200cسازَم"
+        }
+      ],
+      "junctions": [
+        4
+      ],
+      "pron": "اَلان عَمّه\u200cجون! دارَم یه کَلَمه\u200cیِ هَفت\u200cحَرفی می\u200cسازَم!",
+      "roman": "alaan AM-me-jun! daaram ye kalame-ye haft-harfi mi-saazam!",
+      "en": "\"One sec, Auntie! I'm building a seven-letter word!\"",
+      "deviation": "The program table adds a pause «،» after «الان» in pron; fa-norm-1.0 patches add vowels only, so the pause is not reproduced (editor decision)."
+    },
+    {
+      "id": "l06",
+      "beatId": "b07",
+      "speaker": "elder",
+      "display": "حافظ یا گوشی؟!",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "حافِظ"
+        }
+      ],
+      "junctions": [],
+      "pron": "حافِظ یا گوشی؟!",
+      "roman": "haafez yaa gushi?!",
+      "en": "Palm… or phone?!"
+    },
+    {
+      "id": "l07",
+      "beatId": "b08",
+      "speaker": "lead",
+      "display": "ببین: حروف رو می\u200cکشم، کلمه درمیاد.",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "بِبین"
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "حُروف"
+        },
+        {
+          "spanIndex": 2,
+          "roman": "ro"
+        },
+        {
+          "spanIndex": 3,
+          "vowels": "می\u200cکِشَم"
+        },
+        {
+          "spanIndex": 4,
+          "vowels": "کَلَمه"
+        },
+        {
+          "spanIndex": 5,
+          "vowels": "دَرمیاد",
+          "roman": "dar-miaad"
+        }
+      ],
+      "junctions": [],
+      "pron": "بِبین: حُروف رو می\u200cکِشَم، کَلَمه دَرمیاد.",
+      "roman": "bebin: horuf ro mi-kesham, kalame dar-miaad.",
+      "en": "Look: drag the letters, the word pops out."
+    },
+    {
+      "id": "l08",
+      "beatId": "b10",
+      "speaker": "narrator",
+      "display": "حالا کل فامیل ریختن سر گوشیم!",
+      "patch": [
+        {
+          "spanIndex": 1,
+          "vowels": "کُلّ",
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 3,
+          "vowels": "ریختَن"
+        },
+        {
+          "spanIndex": 4,
+          "vowels": "سَر",
+          "ezafeAfter": true
+        }
+      ],
+      "junctions": [
+        1,
+        4
+      ],
+      "roman": "haalaa koll-e faamil rikhtan sar-e gushim!",
+      "en": "Now the whole family's on my phone!"
+    },
+    {
+      "id": "l09",
+      "beatId": "b12",
+      "speaker": "narrator",
+      "display": "امشب نوبت توئه!",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "اِمشَب"
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "نُوبَت",
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 2,
+          "roman": "to-e"
+        }
+      ],
+      "junctions": [
+        1
+      ],
+      "pron": "اِمشَب نُوبَتِ توئه!",
+      "roman": "emshab nobat-e to-e!",
+      "en": "Your turn tonight."
+    }
+  ],
+  "surfaces": [
+    {
+      "beatId": "b01",
+      "slot": "pov-pill",
+      "register": "colloquial",
+      "display": "POV: شب یلدا، خونه\u200cی مامان\u200cبزرگ"
+    },
+    {
+      "beatId": "b04",
+      "slot": "sticker",
+      "register": "colloquial",
+      "display": "سه تا حرکت دیگه!"
+    },
+    {
+      "beatId": "b08",
+      "slot": "sticker",
+      "register": "colloquial",
+      "display": "ایول!"
+    },
+    {
+      "beatId": "b08",
+      "slot": "sticker",
+      "register": "colloquial",
+      "display": "ترکوندی!"
+    },
+    {
+      "beatId": "b09",
+      "slot": "sticker",
+      "register": "neutral",
+      "display": "حرفینو!"
+    },
+    {
+      "beatId": "b12",
+      "slot": "end-card-tagline",
+      "register": "colloquial",
+      "display": "یلدا با حرفینو بلندتره!"
+    },
+    {
+      "beatId": "b12",
+      "slot": "cta-pill",
+      "register": "neutral",
+      "display": "همین حالا نصب کن"
+    }
+  ],
+  "hook": {
+    "lineId": "l01",
+    "maxSeconds": 2,
+    "wordsPerSecond": 2.6
+  }
+}

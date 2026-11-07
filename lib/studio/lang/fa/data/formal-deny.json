@@ -1,0 +1,25 @@
+{
+  "schema": "signal.fa-formal-deny/1",
+  "status": "proposed",
+  "note": "Formal-only words that are lint errors inside colloquial text. In formal text this list is an allow-list. «است» and «را» are handled by the SK-C and SK-R rules in lint.ts.",
+  "entries": [
+    { "word": "آیا", "ruleId": "SK-Q1", "severity": "error", "message": "No «آیا» in colloquial text; the question needs intonation only" },
+    { "word": "می‌باشد", "ruleId": "SK-DENY", "severity": "error", "message": "Formal verb in colloquial text", "suggestion": "ـه" },
+    { "word": "می‌باشند", "ruleId": "SK-DENY", "severity": "error", "message": "Formal verb in colloquial text", "suggestion": "ـن" },
+    { "word": "گردید", "ruleId": "SK-DENY", "severity": "error", "message": "Formal verb in colloquial text", "suggestion": "شد" },
+    { "word": "نمود", "ruleId": "SK-DENY", "severity": "error", "message": "Formal verb in colloquial text", "suggestion": "کرد" },
+    { "word": "نمایید", "ruleId": "SK-DENY", "severity": "error", "message": "Formal verb in colloquial text", "suggestion": "کنین" },
+    { "word": "اینجانب", "ruleId": "SK-DENY", "severity": "error", "message": "Formal word in colloquial text", "suggestion": "من" },
+    { "word": "لذا", "ruleId": "SK-DENY", "severity": "error", "message": "Formal word in colloquial text", "suggestion": "واسه همین" },
+    { "word": "ضمناً", "ruleId": "SK-DENY", "severity": "error", "message": "Formal word in colloquial text", "suggestion": "راستی" },
+    { "word": "جهت", "ruleId": "SK-DENY", "severity": "warning", "message": "«جهت» meaning «for» is formal", "suggestion": "واسه" },
+    { "word": "بدین‌وسیله", "ruleId": "SK-DENY", "severity": "error", "message": "Formal word in colloquial text" },
+    { "word": "کلیه", "ruleId": "SK-DENY", "severity": "warning", "message": "«کلیه» meaning «all» is formal", "suggestion": "همه" },
+    { "word": "خواهم", "ruleId": "SK-V6", "severity": "error", "message": "No future auxiliary; use the present with a time word" },
+    { "word": "خواهی", "ruleId": "SK-V6", "severity": "error", "message": "No future auxiliary; use the present with a time word" },
+    { "word": "خواهد", "ruleId": "SK-V6", "severity": "error", "message": "No future auxiliary; use the present with a time word" },
+    { "word": "خواهیم", "ruleId": "SK-V6", "severity": "error", "message": "No future auxiliary; use the present with a time word" },
+    { "word": "خواهید", "ruleId": "SK-V6", "severity": "error", "message": "No future auxiliary; use the present with a time word" },
+    { "word": "خواهند", "ruleId": "SK-V6", "severity": "error", "message": "No future auxiliary; use the present with a time word" }
+  ]
+}

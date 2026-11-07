@@ -1,0 +1,81 @@
+{
+  "schema": "signal.fa-fixture/homographs-1",
+  "note": "Synthetic lines. Each names the homograph token and the reading the core lexicon should pick; null means needsDecision.",
+  "items": [
+    {
+      "display": "یکی هندونه می\u200cبره",
+      "token": "می\u200cبره",
+      "reading": "cut"
+    },
+    {
+      "display": "یکی کیفشو می\u200cبره",
+      "token": "می\u200cبره",
+      "reading": "take"
+    },
+    {
+      "display": "ولی تو…",
+      "token": "تو",
+      "reading": "you"
+    },
+    {
+      "display": "سرم تو کتابه",
+      "token": "تو",
+      "reading": "in"
+    },
+    {
+      "display": "کی میای؟",
+      "token": "کی",
+      "reading": "when"
+    },
+    {
+      "display": "کی گفت؟",
+      "token": "کی",
+      "reading": "who"
+    },
+    {
+      "display": "هوا خیلی بده",
+      "token": "بده",
+      "reading": "bad"
+    },
+    {
+      "display": "اونو بده",
+      "token": "بده",
+      "reading": "give"
+    },
+    {
+      "display": "همه\u200cچی بهم ریخت",
+      "token": "بهم",
+      "reading": "together"
+    },
+    {
+      "display": "یه چیزی بهم بگو",
+      "token": "بهم",
+      "reading": "to-me"
+    },
+    {
+      "display": "خیلی دور نیست",
+      "token": "دور",
+      "reading": "far"
+    },
+    {
+      "display": "دور میز نشستیم",
+      "token": "دور",
+      "reading": "around"
+    },
+    {
+      "display": "یه کرم دیدم",
+      "token": "کرم",
+      "reading": null
+    },
+    {
+      "display": "یه کشتی دیدم",
+      "token": "کشتی",
+      "reading": null
+    },
+    {
+      "display": "خدا رو شکر",
+      "token": "شکر",
+      "reading": "thanks"
+    }
+  ]
+}

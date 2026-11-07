@@ -1,0 +1,910 @@
+{
+  "schema": "signal.fa-lexicon/1",
+  "scope": "core",
+  "packId": null,
+  "version": 1,
+  "updatedAt": "2026-11-06T00:00:00Z",
+  "note": "Generic core entries only: homographs, loanwords and acronyms. No project, brand, product, platform, place or person names (those live in a pack). Every entry is proposed until the owner, or a reader they name, signs it. Context tokens: <end>, <punct>, <word>; a trailing * is a prefix match.",
+  "entries": [
+    {
+      "id": "lx-core-mibare",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "می\u200cبره"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "mi-bare",
+      "readings": [
+        {
+          "key": "cut",
+          "pron": "می\u200cبُره",
+          "roman": "mi-bore",
+          "gloss": "cuts",
+          "context": {
+            "objectAny": [
+              "هندونه",
+              "کیک",
+              "نون",
+              "پارچه",
+              "کاغذ",
+              "سیب",
+              "گوشت",
+              "پیتزا"
+            ]
+          }
+        },
+        {
+          "key": "take",
+          "pron": "می\u200cبَره",
+          "roman": "mi-bare",
+          "gloss": "takes",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-to",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "تو"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "to",
+      "readings": [
+        {
+          "key": "you",
+          "pron": "تُو",
+          "roman": "to",
+          "gloss": "you",
+          "context": {
+            "afterAny": [
+              "<end>",
+              "<punct>",
+              "رو",
+              "هم",
+              "که",
+              "و",
+              "چی",
+              "کجایی",
+              "بیا",
+              "برو"
+            ]
+          }
+        },
+        {
+          "key": "in",
+          "pron": "تو",
+          "roman": "tu",
+          "gloss": "in",
+          "context": {
+            "afterAny": [
+              "<word>"
+            ]
+          }
+        }
+      ],
+      "notes": "No default: when no context rule matches the editor decides.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-ki",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "کی"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "ki",
+      "readings": [
+        {
+          "key": "when",
+          "pron": "کِی",
+          "roman": "key",
+          "gloss": "when",
+          "context": {
+            "afterAny": [
+              "می\u200c*",
+              "نمی\u200c*",
+              "میای",
+              "میاد",
+              "میان",
+              "قراره"
+            ]
+          }
+        },
+        {
+          "key": "who",
+          "pron": "کی",
+          "roman": "ki",
+          "gloss": "who",
+          "context": {
+            "afterAny": [
+              "<punct>",
+              "<end>",
+              "بود",
+              "هست",
+              "گفت",
+              "اومد",
+              "زنگ"
+            ]
+          }
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-bede",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "بده"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "be-de",
+      "readings": [
+        {
+          "key": "bad",
+          "pron": "بَده",
+          "roman": "ba-de",
+          "gloss": "it is bad",
+          "context": {
+            "beforeAny": [
+              "خیلی",
+              "چقدر",
+              "اصلاً",
+              "یکم",
+              "انقدر"
+            ]
+          }
+        },
+        {
+          "key": "give",
+          "pron": "بِده",
+          "roman": "be-de",
+          "gloss": "give",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-behem",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "بهم"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "be-hem",
+      "readings": [
+        {
+          "key": "together",
+          "pron": "بِهَم",
+          "roman": "be-ham",
+          "gloss": "together",
+          "context": {
+            "afterAny": [
+              "ریخت",
+              "ریختن",
+              "ریختم",
+              "ریخته",
+              "زد",
+              "زدن",
+              "خورد",
+              "خوردن",
+              "وصل",
+              "چسبید"
+            ]
+          }
+        },
+        {
+          "key": "to-me",
+          "pron": "بِهِم",
+          "roman": "be-hem",
+          "gloss": "to me",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-dur",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "دور"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "dur",
+      "readings": [
+        {
+          "key": "far",
+          "pron": "دور",
+          "roman": "dur",
+          "gloss": "far",
+          "context": {
+            "afterAny": [
+              "<end>",
+              "<punct>",
+              "است",
+              "نیست",
+              "بود",
+              "نبود",
+              "شد",
+              "شدن"
+            ]
+          }
+        },
+        {
+          "key": "around",
+          "pron": "دُور",
+          "roman": "dor",
+          "gloss": "around",
+          "context": {
+            "afterAny": [
+              "<word>"
+            ]
+          }
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-mard",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "مرد"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "mard",
+      "readings": [
+        {
+          "key": "died",
+          "pron": "مُرد",
+          "roman": "mord",
+          "gloss": "died",
+          "context": {
+            "beforeAny": [
+              "از",
+              "داشت"
+            ]
+          }
+        },
+        {
+          "key": "man",
+          "pron": "مَرد",
+          "roman": "mard",
+          "gloss": "man",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-kerm",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "کرم"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "kerm",
+      "readings": [
+        {
+          "key": "worm",
+          "pron": "کِرم",
+          "roman": "kerm",
+          "gloss": "worm",
+          "context": null
+        },
+        {
+          "key": "cream",
+          "pron": "کِرِم",
+          "roman": "ke-rem",
+          "gloss": "cream",
+          "context": {
+            "afterAny": [
+              "دست",
+              "صورت",
+              "ضدآفتاب"
+            ]
+          }
+        },
+        {
+          "key": "kindness",
+          "pron": "کَرَم",
+          "roman": "ka-ram",
+          "gloss": "generosity",
+          "context": null
+        }
+      ],
+      "notes": "No default: three readings.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-bord",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "برد"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "bord",
+      "readings": [
+        {
+          "key": "win",
+          "pron": "بُرد",
+          "roman": "bord",
+          "gloss": "win (noun) / took",
+          "context": null,
+          "default": true
+        },
+        {
+          "key": "range",
+          "pron": "بُرد",
+          "roman": "bord",
+          "gloss": "range",
+          "context": null
+        },
+        {
+          "key": "board",
+          "pron": "بُرد",
+          "roman": "bord",
+          "gloss": "board (loan)",
+          "context": null
+        }
+      ],
+      "notes": "Same sound in Tehrani speech; kept for the listening set.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-gol",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "گل"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "gol",
+      "readings": [
+        {
+          "key": "mud",
+          "pron": "گِل",
+          "roman": "gel",
+          "gloss": "mud",
+          "context": {
+            "afterAny": [
+              "و",
+              "شل",
+              "بازی"
+            ],
+            "beforeAny": [
+              "توی"
+            ]
+          }
+        },
+        {
+          "key": "flower",
+          "pron": "گُل",
+          "roman": "gol",
+          "gloss": "flower / goal",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-shekar",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "شکر"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "she-kar",
+      "readings": [
+        {
+          "key": "thanks",
+          "pron": "شُکر",
+          "roman": "shokr",
+          "gloss": "thanks",
+          "context": {
+            "afterAny": [
+              "خدا"
+            ],
+            "beforeAny": [
+              "رو",
+              "خدارو",
+              "خدا"
+            ]
+          }
+        },
+        {
+          "key": "sugar",
+          "pron": "شِکَر",
+          "roman": "she-kar",
+          "gloss": "sugar",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-elm",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "علم"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "elm",
+      "readings": [
+        {
+          "key": "flag",
+          "pron": "عَلَم",
+          "roman": "a-lam",
+          "gloss": "flag",
+          "context": {
+            "afterAny": [
+              "کرد",
+              "کردن",
+              "کرده"
+            ]
+          }
+        },
+        {
+          "key": "science",
+          "pron": "عِلم",
+          "roman": "elm",
+          "gloss": "science",
+          "context": null,
+          "default": true
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-koshti",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "کشتی"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "kash-ti",
+      "readings": [
+        {
+          "key": "ship",
+          "pron": "کَشتی",
+          "roman": "kash-ti",
+          "gloss": "ship",
+          "context": {
+            "beforeAny": [
+              "با",
+              "سوار"
+            ]
+          }
+        },
+        {
+          "key": "wrestling",
+          "pron": "کُشتی",
+          "roman": "kosh-ti",
+          "gloss": "wrestling",
+          "context": {
+            "afterAny": [
+              "گرفتن",
+              "گرفت",
+              "گرفتیم"
+            ]
+          }
+        }
+      ],
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-raftam",
+      "kind": "homograph",
+      "match": {
+        "display": [
+          "رفتم"
+        ],
+        "mode": "word",
+        "inflects": false
+      },
+      "pron": null,
+      "roman": "raf-tam",
+      "readings": [
+        {
+          "key": "past",
+          "pron": "رَفتَم",
+          "roman": "raf-tam",
+          "gloss": "I went",
+          "context": null,
+          "default": true
+        },
+        {
+          "key": "perfect",
+          "pron": "رَفتَم",
+          "roman": "RAF-tam",
+          "gloss": "I have gone (initial stress)",
+          "context": {
+            "beforeAny": [
+              "تا حالا",
+              "تاحالا",
+              "قبلاً"
+            ]
+          }
+        }
+      ],
+      "notes": "SK-V8: the forms differ only by stress.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-story",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "استوری"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "اِستوری",
+      "roman": "es-to-ri",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-score",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "اسکور"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "اِسکور",
+      "roman": "es-kor",
+      "notes": "PR-L2: prefer «امتیاز» in narration.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-like",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "لایک"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "لایک",
+      "roman": "laayk",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-challenge",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "چلنج"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "چالِنج",
+      "roman": "chaa-lenj",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-update",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "آپدیت"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "آپدِیت",
+      "roman": "aap-deyt",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-level",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "لول"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "لِوِل",
+      "roman": "le-vel",
+      "notes": "PR-L2: prefer «مرحله» in narration.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-game",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "گیم"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "گِیم",
+      "roman": "geym",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-post",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "پست"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "پُست",
+      "roman": "post",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-comment",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "کامنت"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "کامِنت",
+      "roman": "kaa-ment",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-video",
+      "kind": "loanword",
+      "match": {
+        "display": [
+          "ویدیو",
+          "ویدئو"
+        ],
+        "mode": "word",
+        "inflects": true
+      },
+      "pron": "ویدیو",
+      "roman": "vi-de-yo",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-ai",
+      "kind": "acronym",
+      "match": {
+        "display": [
+          "AI"
+        ],
+        "mode": "exact",
+        "inflects": false
+      },
+      "pron": "اِی\u200cآی",
+      "roman": "ey-aay",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-pc",
+      "kind": "acronym",
+      "match": {
+        "display": [
+          "PC"
+        ],
+        "mode": "exact",
+        "inflects": false
+      },
+      "pron": "پی\u200cسی",
+      "roman": "pi-si",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-iq",
+      "kind": "acronym",
+      "match": {
+        "display": [
+          "IQ"
+        ],
+        "mode": "exact",
+        "inflects": false
+      },
+      "pron": "آی\u200cکیو",
+      "roman": "aay-kyu",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-ok",
+      "kind": "acronym",
+      "match": {
+        "display": [
+          "OK"
+        ],
+        "mode": "exact",
+        "inflects": false
+      },
+      "pron": "اوکی",
+      "roman": "o-key",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-vip",
+      "kind": "acronym",
+      "match": {
+        "display": [
+          "VIP"
+        ],
+        "mode": "exact",
+        "inflects": false
+      },
+      "pron": "وی\u200cآی\u200cپی",
+      "roman": "vi-aay-pi",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "lx-core-pov",
+      "kind": "acronym",
+      "match": {
+        "display": [
+          "POV"
+        ],
+        "mode": "exact",
+        "inflects": false
+      },
+      "pron": "پی\u200cاُو\u200cوی",
+      "roman": "pi-o-vi",
+      "notes": "MX-6: allowed as a display token in POV pills; normally not narrated.",
+      "source": "core",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    }
+  ]
+}

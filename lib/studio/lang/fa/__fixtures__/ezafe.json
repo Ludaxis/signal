@@ -1,0 +1,93 @@
+{
+  "schema": "signal.fa-fixture/ezafe-1",
+  "note": "Synthetic ezafe chains with the mock language-agent patch that marks each junction, and the expected pron and roman.",
+  "items": [
+    {
+      "display": "بازی جدید ما",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 1,
+          "ezafeAfter": true,
+          "vowels": "جَدید"
+        }
+      ],
+      "pron": "بازیِ جَدیدِ ما",
+      "roman": "baazi-ye jadid-e maa",
+      "junctions": [
+        0,
+        1
+      ]
+    },
+    {
+      "display": "خونه\u200cی مامان\u200cبزرگ",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "ezafeAfter": true
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "مامان\u200cبُزُرگ"
+        }
+      ],
+      "pron": "خونه\u200cیِ مامان\u200cبُزُرگ",
+      "roman": "khune-ye maamaan-bozorg",
+      "junctions": [
+        0
+      ]
+    },
+    {
+      "display": "صدای ما",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "ezafeAfter": true,
+          "roman": "sedaa"
+        }
+      ],
+      "pron": "صدایِ ما",
+      "roman": "sedaa-ye maa",
+      "junctions": [
+        0
+      ]
+    },
+    {
+      "display": "فال تازه",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "ezafeAfter": true
+        }
+      ],
+      "pron": "فالِ تازه",
+      "roman": "faal-e taaze",
+      "junctions": [
+        0
+      ]
+    },
+    {
+      "display": "من کتاب خوندم",
+      "patch": [
+        {
+          "spanIndex": 0,
+          "vowels": "مَن"
+        },
+        {
+          "spanIndex": 1,
+          "vowels": "کِتاب"
+        },
+        {
+          "spanIndex": 2,
+          "roman": "khundam"
+        }
+      ],
+      "pron": "مَن کِتاب خوندم",
+      "roman": "man ketaab khundam",
+      "junctions": []
+    }
+  ]
+}

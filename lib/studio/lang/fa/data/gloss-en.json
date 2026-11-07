@@ -1,0 +1,269 @@
+{
+  "schema": "signal.fa-gloss-en/1",
+  "status": "proposed",
+  "note": "Generic word-level English glosses used only by the literalness check (BL-09) as an offline back-translation proxy. Not a translation source.",
+  "stop": [
+    "و",
+    "یه",
+    "رو",
+    "که",
+    "هم",
+    "را",
+    "این",
+    "اون",
+    "به",
+    "از",
+    "با",
+    "تا"
+  ],
+  "gloss": {
+    "من": [
+      "i",
+      "me",
+      "my"
+    ],
+    "تو": [
+      "you",
+      "in"
+    ],
+    "ما": [
+      "we",
+      "us",
+      "our"
+    ],
+    "امشب": [
+      "tonight"
+    ],
+    "امروز": [
+      "today"
+    ],
+    "فردا": [
+      "tomorrow"
+    ],
+    "خونه": [
+      "house",
+      "home"
+    ],
+    "خونه\u200cی": [
+      "house",
+      "home"
+    ],
+    "مامان\u200cبزرگ": [
+      "grandma",
+      "grandmother"
+    ],
+    "بابا": [
+      "dad",
+      "father"
+    ],
+    "مامان": [
+      "mom",
+      "mother"
+    ],
+    "می\u200cمونم": [
+      "stay",
+      "remain"
+    ],
+    "میام": [
+      "come",
+      "coming"
+    ],
+    "می\u200cخوام": [
+      "want"
+    ],
+    "بازی": [
+      "game",
+      "play"
+    ],
+    "کلمه": [
+      "word"
+    ],
+    "حرف": [
+      "letter",
+      "letters",
+      "word"
+    ],
+    "همه": [
+      "everyone",
+      "all",
+      "everybody"
+    ],
+    "یکی": [
+      "one",
+      "someone"
+    ],
+    "شب": [
+      "night"
+    ],
+    "روز": [
+      "day"
+    ],
+    "خیلی": [
+      "very",
+      "much",
+      "lot"
+    ],
+    "خوب": [
+      "good"
+    ],
+    "بزرگ": [
+      "big",
+      "great"
+    ],
+    "کوچیک": [
+      "small",
+      "little"
+    ],
+    "جدید": [
+      "new"
+    ],
+    "دوست": [
+      "friend"
+    ],
+    "دوستام": [
+      "friends"
+    ],
+    "کتاب": [
+      "book"
+    ],
+    "گوشی": [
+      "phone"
+    ],
+    "گوشیم": [
+      "phone",
+      "my"
+    ],
+    "دست": [
+      "hand"
+    ],
+    "سر": [
+      "head",
+      "on"
+    ],
+    "نوبت": [
+      "turn"
+    ],
+    "توئه": [
+      "yours",
+      "your"
+    ],
+    "حالا": [
+      "now"
+    ],
+    "الان": [
+      "now"
+    ],
+    "بیا": [
+      "come"
+    ],
+    "ببین": [
+      "look",
+      "see"
+    ],
+    "سه": [
+      "three"
+    ],
+    "پنج": [
+      "five"
+    ],
+    "هفت": [
+      "seven"
+    ],
+    "دیگه": [
+      "more",
+      "else"
+    ],
+    "حرکت": [
+      "move",
+      "moves"
+    ],
+    "فامیل": [
+      "family",
+      "relatives"
+    ],
+    "کل": [
+      "whole",
+      "all"
+    ],
+    "ریختن": [
+      "poured",
+      "spilled",
+      "rushed"
+    ],
+    "غرق": [
+      "drowned",
+      "immersed",
+      "sunk"
+    ],
+    "عمه\u200cجون": [
+      "auntie",
+      "aunt"
+    ],
+    "عمه": [
+      "aunt",
+      "auntie"
+    ],
+    "فال": [
+      "fortune",
+      "fortunes"
+    ],
+    "هندونه": [
+      "watermelon"
+    ],
+    "می\u200cبره": [
+      "cuts",
+      "takes",
+      "carries"
+    ],
+    "می\u200cگیره": [
+      "takes",
+      "gets",
+      "catches"
+    ],
+    "دور": [
+      "around",
+      "far"
+    ],
+    "شلوغه": [
+      "busy",
+      "crowded",
+      "loud"
+    ],
+    "غوغاست": [
+      "uproar",
+      "chaos",
+      "tumult"
+    ],
+    "منم": [
+      "me",
+      "i",
+      "too"
+    ],
+    "این\u200cور": [
+      "this",
+      "side"
+    ],
+    "بازی\u200cام": [
+      "game",
+      "playing"
+    ],
+    "کرسی\u200cان": [
+      "table",
+      "heater"
+    ],
+    "درمیاد": [
+      "comes",
+      "appears",
+      "emerges",
+      "results"
+    ],
+    "می\u200cکشم": [
+      "pull",
+      "draw",
+      "drag"
+    ],
+    "حروف": [
+      "letters"
+    ]
+  }
+}
