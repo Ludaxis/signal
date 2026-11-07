@@ -7,6 +7,7 @@
 //   review-calls   → one read-only call per permission Signal uses, so Meta's App Review counts them. Never publishes or changes anything.
 //   reply {commentId, text} | hide {commentId, hide} | delete {commentId}   (comments, on button press)
 import { NextResponse, type NextRequest } from 'next/server';
+import { projectTimeZone } from '@/lib/studio/time';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { inProject } from '@/lib/server/studioProject';
 import { jsonError } from '@/lib/server/security';
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest): Promise<Response> {
         const media = await listMedia(account.userId, 8);
         const posts = [];
         for (const m of media) posts.push({ ...m, commentList: (m.comments ?? 0) > 0 ? await listComments(m.id).catch(() => []) : [] });
-        return NextResponse.json({ setup, account, handleOk, posts }, noStore);
+        return NextResponse.json({ setup, account, handleOk, posts, timeZone: projectTimeZone(project) }, noStore);
       }
       const quota = await publishingQuota(account.userId).catch(() => null);
       return NextResponse.json({ setup, account, handleOk, quota }, noStore);

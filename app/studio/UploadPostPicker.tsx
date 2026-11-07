@@ -5,7 +5,8 @@
 // /api/studio/upload-post; the API key never reaches the browser.
 import { useCallback, useEffect, useState } from 'react';
 import { More } from './More';
-import { zonedParts, formatDateLabel } from '@/lib/time';
+import { formatDateLabel } from '@/lib/time';
+import { partsIn } from '@/lib/studio/time';
 
 export interface UpProfile { username: string; displayName: string | null; instagram: { handle: string | null; name: string | null; reauth: boolean } | null }
 export interface UpState { allowed: boolean; reason: string; plan?: string | null; limit?: number | null; profiles: UpProfile[] }
@@ -50,9 +51,9 @@ export function parseQuota(v: unknown): UpQuota | null {
   const resets = typeof q.resetsAt === 'string' && Number.isFinite(Date.parse(q.resetsAt)) ? q.resetsAt : null;
   return { used: Math.max(0, Math.round(q.used)), limit: Math.round(q.limit), resetsAt: resets };
 }
-/** "3 of 10 Upload-Post uploads used this month · resets Tue 1 Dec" */
-export function quotaText(q: UpQuota): string {
-  return `${q.used} of ${q.limit} Upload-Post uploads used this month${q.resetsAt ? ` · resets ${formatDateLabel(zonedParts(q.resetsAt).date)}` : ''}`;
+/** "3 of 10 Upload-Post uploads used this month · resets Tue 1 Dec"; the reset day in the project's zone (`tz`). */
+export function quotaText(q: UpQuota, tz?: string | null): string {
+  return `${q.used} of ${q.limit} Upload-Post uploads used this month${q.resetsAt ? ` · resets ${formatDateLabel(partsIn(tz, q.resetsAt).date)}` : ''}`;
 }
 
 /**

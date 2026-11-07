@@ -1,11 +1,12 @@
 // Overdue plans in the drawer and the Calendar, the drawer's Check status / Reject gates, the
 // Calendar's confirm before a real schedule moves, and the Upload-Post quota and ?connected= texts.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
 import { PackageActions, type Live, type RealPackage } from '@/app/studio/RealPosts';
+import type { ConfirmFn } from '@/app/studio/ui/Dialog';
 import { Calendar } from '@/app/studio/Calendar';
 import { OVERDUE_TEXT } from '@/app/studio/posts-rules';
 import { connectedMessage, parseQuota, quotaText } from '@/app/studio/UploadPostPicker';
@@ -55,23 +56,23 @@ const noop = () => undefined;
 const reload = async () => undefined;
 
 describe('drawer: an overdue plan', () => {
-  it('says the planned time passed and offers "Schedule at planned time" and "Schedule now", one confirm each', async () => {
-    const confirm = vi.fn<(message: string) => Promise<boolean>>(async () => true);
+  it('says the planned time passed and offers two "Schedule for …" times, one confirm each', async () => {
+    const confirm = vi.fn<ConfirmFn>(async () => true);
     render(<PackageActions pkg={pkg()} live={LIVE} scheduling={SCHED} say={noop} onChange={noop} reload={reload} confirm={confirm} />);
     expect(screen.getByText(OVERDUE_TEXT)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Schedule at planned time · / })).toBeTruthy();
-    const now = screen.getByRole('button', { name: /^Schedule now · / });
-    fireEvent.click(now);
+    const both = screen.getAllByRole('button', { name: /^Schedule for / });
+    expect(both).toHaveLength(2);
+    fireEvent.click(both[1]!);
     await waitFor(() => expect(calls.map((c) => (c.body as { action: string }).action)).toEqual(['plan', 'schedule']));
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0]![0]).toMatch(/^Schedule post 03 on Upload-Post for /);
+    expect(confirm.mock.calls[0]![0]).toMatchObject({ title: expect.stringMatching(/^Schedule post 03 for .+\?$/), body: 'It goes out then, even if this computer is off.', confirmLabel: 'Schedule post' });
     const planned = Date.parse((calls[0]!.body as { plannedFor: string }).plannedFor);
     expect(planned - Date.now()).toBeGreaterThanOrEqual(14 * 60_000);
   });
 
   it('schedules nothing when the confirm is answered No', async () => {
     render(<PackageActions pkg={pkg()} live={LIVE} scheduling={SCHED} say={noop} onChange={noop} reload={reload} confirm={async () => false} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Schedule at planned time · / }));
+    fireEvent.click(screen.getAllByRole('button', { name: /^Schedule for / })[0]!);
     await new Promise((r) => setTimeout(r, 20));
     expect(calls).toEqual([]);
   });
@@ -79,7 +80,7 @@ describe('drawer: an overdue plan', () => {
   it('without scheduling, still shows the state and says how to re-plan', () => {
     render(<PackageActions pkg={pkg()} live={{ enabled: false, reason: 'Publishing is paused.' }} scheduling={{ enabled: false, reason: 'Scheduling is off.' }} say={noop} onChange={noop} reload={reload} />);
     expect(screen.getByText(OVERDUE_TEXT)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /^Schedule now/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Schedule for/ })).toBeNull();
   });
 });
 
@@ -95,11 +96,17 @@ describe('drawer gates', () => {
 
   it('offers Reject for a failed post with nothing posted', () => {
     render(<PackageActions pkg={pkg({ status: 'failed', dispatch: { request_id: 'r1' }, outcome: { state: 'failed', at: '2026-11-04T10:00:00Z', message: 'Upload-Post rejected the post (HTTP 400): bad' } })} live={LIVE} scheduling={SCHED} say={noop} onChange={noop} reload={reload} />);
-    expect(screen.getByRole('button', { name: 'Reject this post' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeTruthy();
   });
 });
 
 describe('Calendar', () => {
+  // Pin the clock (Date only) to a Wednesday midday so "now + 2 days" always falls inside the viewed week.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-04T12:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
   function calendarFetch(items: unknown[]) {
     vi.stubGlobal(
       'fetch',
@@ -124,33 +131,31 @@ describe('Calendar', () => {
     render(<Calendar say={noop} onOpenPosts={noop} />, { container: studioRoot() });
     const chips = await screen.findAllByRole('button', { name: new RegExp(`Post 13, ${OVERDUE_TEXT.replace(/\./g, '\\.')}`) });
     expect(chips[0]!.className).toMatch(/is-overdue/);
-    expect(within(chips[0]!).getByText('Time passed')).toBeTruthy();
+    expect(within(chips[0]!).getByText('Approved')).toBeTruthy();
   });
 
-  it('asks before cancelling a real schedule, labels it "Cancel schedule", and sends nothing on No', async () => {
-    // A Wednesday, so "in two days" stays inside the week the Calendar opens on (any weekday the suite runs).
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-11-04T10:00:00Z'));
-    onTestFinished(() => void vi.useRealTimers());
+  it('asks before unscheduling a real schedule, labels it "Unschedule", and sends nothing on No', async () => {
     const when = new Date(Date.now() + 2 * 86_400_000).toISOString();
     calendarFetch([{ project: 'demo', id: '05', title: 'Post 05', status: 'scheduled', format: 'image', when, kind: 'planned', thumb: null, url: null }]);
     const say = vi.fn();
     render(<Calendar say={say} onOpenPosts={noop} />, { container: studioRoot() });
     const chip = (await screen.findAllByRole('button', { name: /^Post 05, Scheduled/ }))[0]!;
     fireEvent.click(chip);
-    expect(screen.getByText(/This post is scheduled: it goes out at this time/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Remove from calendar' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel schedule' }));
+    expect(screen.getByText('Scheduled. It goes out at this time.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Unplan' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Unschedule' }));
     const box = await screen.findByRole('alertdialog');
-    expect(within(box).getByText(/^Cancel the schedule for post 05\? It will not go out by itself\./)).toBeTruthy();
-    fireEvent.click(within(box).getByRole('button', { name: 'No' }));
+    expect(within(box).getByRole('heading', { name: 'Unschedule post 05?' })).toBeTruthy();
+    expect(within(box).getByText(/^It stays approved and planned for /)).toBeTruthy();
+    // the dismiss is the plain Cancel, the confirm repeats verb and object.
+    fireEvent.click(within(box).getByRole('button', { name: 'Cancel' }));
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.filter((c) => c.url.startsWith('/api/studio/content/'))).toEqual([]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel schedule' }));
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Yes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unschedule' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Unschedule post' }));
     await waitFor(() => expect(calls.filter((c) => c.url === '/api/studio/content/05').map((c) => c.body)).toEqual([{ action: 'plan', project: 'demo', plannedFor: null }]));
-    await waitFor(() => expect(say).toHaveBeenCalledWith('Schedule for post 05 cancelled. It stays approved and planned, and will not go out by itself.'));
+    await waitFor(() => expect(say).toHaveBeenCalledWith('Post 05 unscheduled.'));
   });
 });
 
@@ -185,5 +190,30 @@ describe('Change limits starts from the current settings', () => {
   it('clamps out-of-range limits and starts a new project from the defaults', () => {
     expect(accountDefaults({ ...base, max_posts: 5000, max_per_day: 9, posting: true }, now)).toMatchObject({ maxPosts: 1000, maxPerDay: 5, posting: true });
     expect(accountDefaults(null, now)).toEqual({ days: 0, maxPosts: 30, maxPerDay: 1, posting: false, codexImages: false, confirm: '' });
+  });
+});
+
+describe('drawer confirms have one question as the title', () => {
+  it('asks "Send post 03 …now?" with one consequence line, then sends once', async () => {
+    const confirm = vi.fn<ConfirmFn>(async () => true);
+    render(<PackageActions pkg={pkg({ plannedFor: null, destination: '@example.account' })} live={LIVE} scheduling={SCHED} say={noop} onChange={noop} reload={reload} confirm={confirm} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Post now' }));
+    await waitFor(() => expect(calls.map((c) => (c.body as { action: string }).action)).toEqual(['send']));
+    expect(confirm.mock.calls[0]![0]).toEqual({
+      title: 'Post 03 to @example.account now?',
+      body: 'It goes out once and cannot be undone here.',
+      confirmLabel: 'Post now',
+    });
+  });
+
+  it('marks an unclear post as not posted with a one-question title and no "package"', async () => {
+    const confirm = vi.fn<ConfirmFn>(async () => true);
+    render(<PackageActions pkg={pkg({ status: 'uncertain', dispatch: { request_id: 'r1', provider: 'upload-post' } })} live={LIVE} scheduling={SCHED} say={noop} onChange={noop} reload={reload} confirm={confirm} />);
+    fireEvent.click(screen.getByRole('button', { name: 'It is not posted' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    const req = confirm.mock.calls[0]![0] as { title: string; body: string };
+    expect(req.title).toBe('Mark post 03 as not posted?');
+    expect(`${req.title} ${req.body}`).not.toMatch(/package/i);
+    expect(req.title.split('?').length).toBe(2);
   });
 });

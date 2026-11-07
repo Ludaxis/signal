@@ -1,3 +1,4 @@
+// GET  /api/studio/results?project= — measured posts grouped by template.
 // POST /api/studio/results {project} — refresh post results from Upload-Post (read-only, cached 3 h).
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireStudioUser } from '@/lib/server/studioAuth';
@@ -7,9 +8,24 @@ import { refreshMetrics } from '@/lib/studio/analytics';
 import { rebuildMemory } from '@/lib/studio/memory/graph';
 import { noteMetricsSnapshot } from '@/lib/studio/memory/hooks';
 import { memoryAllowed } from '@/lib/studio/memory/store';
+import { listPackages } from '@/lib/studio/content';
+import { byTemplate, templateNames } from '@/lib/studio/results-templates';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+export async function GET(req: NextRequest): Promise<Response> {
+  const user = await requireStudioUser(req);
+  if (user instanceof Response) return user;
+  return inProject(req, null, async (project) => {
+    try {
+      const rows = byTemplate(await listPackages(), await templateNames(project));
+      return NextResponse.json({ byTemplate: rows }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+      return jsonError(500, 'internal', 'Could not read the results.');
+    }
+  });
+}
 
 export async function POST(req: NextRequest): Promise<Response> {
   const user = await requireStudioUser(req);

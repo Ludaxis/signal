@@ -26,6 +26,11 @@ export function contrastRatio(a, b) {
 }
 
 /** Returns one result row per (theme, pair) with the measured ratio and pass flag. */
+/** The pair lists a theme is checked against: its own under contrast.byTheme, else the shared ones. */
+export function pairsFor(tokens, themeName) {
+  return tokens.contrast.byTheme?.[themeName] ?? tokens.contrast;
+}
+
 export function checkTokens(tokens) {
   const rows = [];
   const themes = tokens.color.themes;
@@ -34,8 +39,9 @@ export function checkTokens(tokens) {
     ['nonText', 3],
   ];
   for (const [themeName, theme] of Object.entries(themes)) {
+    const pairs = pairsFor(tokens, themeName);
     for (const [group, min] of groups) {
-      for (const [fg, bg] of tokens.contrast[group]) {
+      for (const [fg, bg] of pairs[group]) {
         if (!(fg in theme) || !(bg in theme)) {
           rows.push({ theme: themeName, group, fg, bg, ratio: 0, min, pass: false, error: 'missing token' });
           continue;

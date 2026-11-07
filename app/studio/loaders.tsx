@@ -11,6 +11,7 @@
 //
 // Everything respects prefers-reduced-motion and announces itself to screen readers (role=status).
 import { useEffect, useRef, useState, type CSSProperties, type ImgHTMLAttributes, type ReactNode, type RefObject } from 'react';
+import { t } from './copy/en';
 
 /** True only if `active` lasts longer than `delay`, and then stays true for at least `min` ms (no flicker). */
 export function useDelayedFlag(active: boolean, delay = 150, min = 400): boolean {
@@ -185,7 +186,7 @@ export function TaskProgress({ active, title, steps, expectedSeconds }: { active
           </li>
         ))}
       </ol>
-      <span className="xs st-muted">{over ? 'Taking longer than usual. It is still working; you can leave this screen open.' : `Usually about ${expectedSeconds < 60 ? `${expectedSeconds} s` : `${Math.round(expectedSeconds / 60)} min`}.`}</span>
+      <span className="xs st-muted">{over ? t('task.slow') : expectedSeconds < 60 ? t('task.usuallySeconds', { seconds: expectedSeconds }) : t('task.usuallyMinutes', { minutes: Math.round(expectedSeconds / 60) })}</span>
     </div>
   );
 }

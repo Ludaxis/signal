@@ -1,8 +1,9 @@
 'use client';
-// Campaigns: several campaigns run in parallel for the project's Instagram account and share its
-// posting days. Each campaign gets a strategy from the strategist agent (brand, past posts, results,
-// web research), which the owner approves; then a two-week plan of post briefs; each brief becomes
-// a normal post package on the Posts board. Agents run on the owner's own Claude Code, only on a button press.
+// Campaigns: several campaigns run in parallel for the project's account and share its posting days. Each
+// campaign gets a strategy from the strategist agent, which the owner approves; then a two-week plan; each
+// slot becomes a normal post on the Posts board. Agents run on the owner's own Claude Code, only on a button
+// press. Layout: a card is a 3-line summary plus the next 5 slots; the strategy and the
+// autopilot settings open in drawers; status words come from the dictionary (Draft, Running, Paused, Ended).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notifyChanged, useOnChanged } from './sync';
 import { getProjectId, useProjectId } from './Projects';
@@ -10,7 +11,11 @@ import { Select } from './Select';
 import { Reveal, ScreenSkeleton, TaskProgress } from './loaders';
 import { AutopilotPanel } from './Autopilot';
 import { More } from './More';
-import { TIMEZONE, formatDateLabel, formatDateTime } from '@/lib/time';
+import { formatDateLabel, formatDateTime, zoneCity } from '@/lib/time';
+import { projectTimeZone } from '@/lib/studio/time';
+import { t } from './copy/en';
+import { Button, Chip, ChipRow, Drawer, Notice, Pill, useConfirm, type StatusWord } from './ui';
+import { navigateTo } from './url-state';
 
 type Status = 'draft' | 'active' | 'paused' | 'done';
 interface PostType { format: string; role: string; hooks: string[]; captionStyle: string; visualDirection: string; hashtags: string[]; bestTimes: string[]; dos: string[]; donts: string[] }
@@ -28,7 +33,7 @@ interface Strategy {
   approvedBy?: string;
   approvedAt?: string;
 }
-interface Campaign {
+export interface Campaign {
   id: string;
   name: string;
   goal: string;
@@ -42,40 +47,57 @@ interface Campaign {
   strategy: Strategy | null;
   proposal: Strategy | null;
 }
-interface Slot { id: string; date: string; time: string; at: string; format: string; pillar: string; hook: string; angle: string; captionLead: string; packageId: string | null; status: 'planned' | 'made' | 'skipped'; articleUrl: string | null }
+export interface Slot { id: string; date: string; time: string; at: string; format: string; pillar: string; hook: string; angle: string; captionLead: string; packageId: string | null; status: 'planned' | 'made' | 'skipped'; articleUrl: string | null }
 interface Plan { madeAt: string | null; slots: Slot[] }
-interface ListPayload { campaigns: Campaign[]; plans: Record<string, Plan>; agents: { enabled: boolean; reason: string }; goals: string[]; formats: { id: string; name: string }[] }
+export interface ListPayload { campaigns: Campaign[]; plans: Record<string, Plan>; agents: { enabled: boolean; reason: string }; goals: string[]; formats: { id: string; name: string }[]; timeZone?: string }
 
-/** What Make post does per format, and how long it usually takes (seconds), for the progress view. */
+/** What Make does per format, and how long it usually takes (seconds), for the progress view. */
 export const MAKE_STEPS: Record<string, string[]> = {
-  default: ['Reading the brief', 'Making the visual', 'Adding headline and labels', 'Saving the package'],
-  'codex-post': ['Reading the brief', 'Codex is drawing the image', 'Adding headline and labels', 'Saving the package'],
-  'higgsfield-image': ['Reading the brief', 'Higgsfield is making the image', 'Adding headline and labels', 'Saving the package'],
-  'higgsfield-reel': ['Reading the brief', 'Higgsfield is making the still', 'Animating the video', 'Converting for Instagram', 'Saving the package'],
-  'website-card': ['Reading the page', 'Fetching the photo', 'Rendering slides', 'Saving the package'],
+  default: [t('make.step.brief'), t('make.step.visual'), t('make.step.headline'), t('make.step.save')],
+  'codex-post': [t('make.step.brief'), t('make.step.drawing'), t('make.step.headline'), t('make.step.save')],
+  'higgsfield-image': [t('make.step.brief'), t('make.step.hfImage'), t('make.step.headline'), t('make.step.save')],
+  'higgsfield-reel': [t('make.step.brief'), t('make.step.hfStill'), t('make.step.animate'), t('make.step.convert'), t('make.step.save')],
+  'website-card': [t('make.step.page'), t('make.step.photo'), t('make.step.slides'), t('make.step.save')],
 };
 export const MAKE_SECONDS: Record<string, number> = { 'codex-post': 150, 'website-card': 12, 'higgsfield-image': 90, 'higgsfield-reel': 300 };
 
-const STATUS_TEXT: Record<Status, string> = { draft: 'Draft', active: 'Running', paused: 'Paused', done: 'Finished' };
-const PRIORITY_TEXT = { 1: 'High', 2: 'Normal', 3: 'Low' } as const;
+/** the only status words a campaign shows. */
+export const CAMPAIGN_STATUS: Record<Status, StatusWord> = { draft: 'Draft', active: 'Running', paused: 'Paused', done: 'Ended' };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** The first sentence of a strategy summary, for the collapsed one-liner. */
-export const firstSentence = (t: string) => {
-  const m = /^(.+?[.!?])(\s|$)/.exec(t.trim());
-  const out = (m?.[1] ?? t.trim()).trim();
+export const firstSentence = (text: string) => {
+  const m = /^(.+?[.!?])(\s|$)/.exec(text.trim());
+  const out = (m?.[1] ?? text.trim()).trim();
   return out.length > 160 ? `${out.slice(0, 157).trimEnd()}…` : out;
 };
-/** How many planned posts a campaign shows before "Show all". */
-export const PLAN_PREVIEW = 3;
+/** a card shows at most this many slots without being expanded. */
+export const PLAN_PREVIEW = 5;
+/** a card shows at most this many summary lines. */
+export const SUMMARY_LINES = 3;
+
+/** The card's summary lines: plan, strategy, pillars (at most SUMMARY_LINES). */
+export function summaryLines(c: Campaign): { text: string; content: boolean }[] {
+  const start = formatDateLabel(c.startDate);
+  const plan = c.endDate
+    ? t('campaigns.line.planUntil', { goal: cap(c.goal), perWeek: c.perWeek, start, end: formatDateLabel(c.endDate) })
+    : t('campaigns.line.plan', { goal: cap(c.goal), perWeek: c.perWeek, start });
+  const s = c.strategy ?? c.proposal;
+  const lines: { text: string; content: boolean }[] = [{ text: plan, content: false }];
+  if (c.proposal) lines.push({ text: t('campaigns.line.proposal'), content: false });
+  else if (s) lines.push({ text: firstSentence(s.summary), content: true });
+  else lines.push({ text: t('campaigns.line.noStrategy'), content: false });
+  if (s?.pillars.length) lines.push({ text: s.pillars.map((p) => p.name).join(' · '), content: true });
+  return lines.slice(0, SUMMARY_LINES);
+}
 
 async function call<T>(url: string, body?: unknown): Promise<T> {
   const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
   const j = (await r.json().catch(() => ({}))) as T & { error?: { message: string } };
-  if (!r.ok) throw new Error(j.error?.message ?? `Request failed (${r.status}).`);
+  if (!r.ok) throw new Error(j.error?.message ?? `HTTP ${r.status}`);
   return j;
 }
 
-function NewCampaign({ data, onDone, onCancel }: { data: ListPayload; onDone: (c: Campaign) => void; onCancel: () => void }) {
+function NewCampaignDrawer({ data, onDone, onClose }: { data: ListPayload; onDone: (c: Campaign) => void; onClose: () => void }) {
   const [name, setName] = useState('');
   const [goal, setGoal] = useState(data.goals[0] ?? 'awareness');
   const [brief, setBrief] = useState('');
@@ -86,6 +108,7 @@ function NewCampaign({ data, onDone, onCancel }: { data: ListPayload; onDone: (c
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const ready = Boolean(name.trim() && formats.length);
   const submit = async () => {
     setBusy(true);
     setErr('');
@@ -99,88 +122,91 @@ function NewCampaign({ data, onDone, onCancel }: { data: ListPayload; onDone: (c
     }
   };
   return (
-    <div className="st-card st-stack" style={{ padding: 18, gap: 12 }}>
-      <span className="label">New campaign</span>
-      <div className="grid2" style={{ gap: 12 }}>
+    <Drawer
+      open
+      title={t('campaigns.new')}
+      dirty={Boolean(name.trim() || brief.trim() || formats.length)}
+      onClose={onClose}
+      primary={
+        <Button level="primary" busy={busy} disabled={busy || !ready} reason={t('campaigns.needName')} onClick={() => void submit()}>
+          {t('campaigns.create')}
+        </Button>
+      }
+      secondary={<Button onClick={onClose}>{t('common.cancel')}</Button>}
+    >
+      <div className="u-stack u-gap-4">
         <label className="wiz-field">
-          Name
-          <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Holiday puzzles" maxLength={80} />
+          {t('campaigns.field.name')}
+          <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} dir="auto" />
         </label>
         <div className="wiz-field">
-          Goal
-          <Select label="Goal" value={goal} onChange={(v) => setGoal(v)} options={data.goals.map((g) => ({ value: g, label: cap(g) }))} />
+          {t('campaigns.field.goal')}
+          <Select label={t('campaigns.field.goal')} value={goal} onChange={(v) => setGoal(v)} options={data.goals.map((g) => ({ value: g, label: cap(g) }))} />
         </div>
-      </div>
-      <label className="wiz-field">
-        Brief <span className="st-muted" style={{ fontWeight: 400 }}>(what you want, who for, anything to avoid)</span>
-        <textarea className="st-input gen-text" rows={3} value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={1500} />
-      </label>
-      <div className="wiz-field">
-        Post types
-        <div className="st-chip-row" role="group" aria-label="Post types">
-          {data.formats.map((f) => (
-            <button key={f.id} type="button" className="st-chip" aria-pressed={formats.includes(f.id)} onClick={() => setFormats(formats.includes(f.id) ? formats.filter((x) => x !== f.id) : [...formats, f.id])}>
-              {f.name}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="camp-row4">
         <label className="wiz-field">
-          Start
-          <input className="st-input" type="date" value={startDate} onChange={(e) => setStart(e.target.value)} />
-        </label>
-        <label className="wiz-field">
-          End <span className="st-muted" style={{ fontWeight: 400 }}>(optional)</span>
-          <input className="st-input" type="date" value={endDate} onChange={(e) => setEnd(e.target.value)} />
+          {t('campaigns.field.brief')}
+          <span className="xs st-muted u-normal">{t('campaigns.field.briefHint')}</span>
+          <textarea className="st-input gen-text" rows={3} value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={1500} dir="auto" />
         </label>
         <div className="wiz-field">
-          Posts a week
-          <Select label="Posts a week" value={perWeek} onChange={(v) => setPerWeek(v)} options={[1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: String(n) }))} />
+          {t('campaigns.field.types')}
+          <ChipRow label={t('campaigns.field.types')}>
+            {data.formats.map((f) => (
+              <Chip key={f.id} selected={formats.includes(f.id)} onClick={() => setFormats(formats.includes(f.id) ? formats.filter((x) => x !== f.id) : [...formats, f.id])}>
+                {f.name}
+              </Chip>
+            ))}
+          </ChipRow>
         </div>
-        <div className="wiz-field">
-          Priority
-          <Select label="Priority" value={priority} onChange={(v) => setPriority(v)} options={([1, 2, 3] as const).map((p) => ({ value: p, label: PRIORITY_TEXT[p] }))} />
+        <div className="camp-row4">
+          <label className="wiz-field">
+            {t('campaigns.field.start')}
+            <input className="st-input" type="date" value={startDate} onChange={(e) => setStart(e.target.value)} />
+          </label>
+          <label className="wiz-field">
+            {t('campaigns.field.end')}
+            <input className="st-input" type="date" value={endDate} onChange={(e) => setEnd(e.target.value)} />
+          </label>
+          <div className="wiz-field">
+            {t('campaigns.field.perWeek')}
+            <Select label={t('campaigns.field.perWeek')} value={perWeek} onChange={(v) => setPerWeek(v)} options={[1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: String(n) }))} />
+          </div>
+          <div className="wiz-field">
+            {t('campaigns.field.priority')}
+            <Select label={t('campaigns.field.priority')} value={priority} onChange={(v) => setPriority(v)} options={([1, 2, 3] as const).map((p) => ({ value: p, label: t(`campaigns.priority.${p}`) }))} />
+          </div>
         </div>
+        <span className="xs st-muted">{t('campaigns.field.shareNote')}</span>
+        {err ? <Notice kind="error" title={t('common.couldNotChange', { thing: t('campaigns.new').toLowerCase() })} details={err} /> : null}
       </div>
-      <span className="xs st-muted">Campaigns share the account&apos;s posting days; higher priority plans first.</span>
-      {err ? <p className="real-error st-small" role="alert">{err}</p> : null}
-      <div className="row-wrap" style={{ gap: 8 }}>
-        <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy} disabled={busy || !name.trim() || !formats.length} onClick={() => void submit()}>
-          {busy ? 'Creating' : 'Create campaign'}
-        </button>
-        <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
-function StrategyView({ s, formats }: { s: Strategy; formats: { id: string; name: string }[] }) {
+function StrategyView({ s, formats, tz }: { s: Strategy; formats: { id: string; name: string }[]; tz?: string }) {
   const fname = (id: string) => formats.find((f) => f.id === id)?.name ?? id;
   return (
-    <div className="st-stack" style={{ gap: 12 }}>
-      <p className="st-small" style={{ margin: 0 }}>{s.summary}</p>
-      <div className="grid2" style={{ gap: 12 }}>
-        <div className="st-stack" style={{ gap: 4 }}>
-          <span className="label">Audience</span>
+    <div className="u-stack u-gap-3" data-content>
+      <p className="st-small u-m0">{s.summary}</p>
+      <div className="grid2 u-gap-3">
+        <div className="u-stack u-gap-1">
+          <span className="label">{t('campaigns.strategy.audience')}</span>
           <span className="st-small">{s.audience}</span>
         </div>
-        <div className="st-stack" style={{ gap: 4 }}>
-          <span className="label">Positioning</span>
+        <div className="u-stack u-gap-1">
+          <span className="label">{t('campaigns.strategy.positioning')}</span>
           <span className="st-small">{s.positioning}</span>
         </div>
       </div>
-      <div className="st-stack" style={{ gap: 6 }}>
-        <span className="label">Pillars</span>
+      <div className="u-stack u-gap-2">
+        <span className="label">{t('campaigns.strategy.pillars')}</span>
         {s.pillars.map((p) => (
           <div key={p.name} className="camp-pillar">
             <span className="st-small">
-              <b>{p.name}</b> · {p.weight}% — {p.why}
+              <b>{p.name}</b> · {p.weight}% · {p.why}
             </span>
             <span className="camp-track" aria-hidden="true">
-              <span className="camp-bar" style={{ width: `${Math.max(2, Math.min(100, p.weight))}%` }} />
+              <span className="camp-bar" style={{ '--w': `${Math.max(2, Math.min(100, p.weight))}%` } as React.CSSProperties} />
             </span>
           </div>
         ))}
@@ -190,26 +216,26 @@ function StrategyView({ s, formats }: { s: Strategy; formats: { id: string; name
           <summary>
             <b>{fname(p.format)}</b> <span className="xs st-muted">· {p.role}</span>
           </summary>
-          <div className="st-stack" style={{ gap: 6, paddingTop: 8 }}>
-            <span className="st-small"><b>Hooks:</b> {p.hooks.join(' · ')}</span>
-            <span className="st-small"><b>Captions:</b> {p.captionStyle}</span>
-            <span className="st-small"><b>Visuals:</b> {p.visualDirection}</span>
-            <span className="st-small"><b>Hashtags:</b> {p.hashtags.join(' ')}</span>
-            <span className="st-small"><b>Best times:</b> {p.bestTimes.join(', ') || '—'} ({TIMEZONE})</span>
-            {p.dos.length ? <span className="st-small"><b>Do:</b> {p.dos.join(' · ')}</span> : null}
-            {p.donts.length ? <span className="st-small"><b>Don&apos;t:</b> {p.donts.join(' · ')}</span> : null}
+          <div className="u-stack u-gap-2 u-pt-2">
+            <span className="st-small"><b>{t('campaigns.strategy.hooks')}:</b> {p.hooks.join(' · ')}</span>
+            <span className="st-small"><b>{t('campaigns.strategy.captions')}:</b> {p.captionStyle}</span>
+            <span className="st-small"><b>{t('campaigns.strategy.visuals')}:</b> {p.visualDirection}</span>
+            <span className="st-small"><b>{t('campaigns.strategy.hashtags')}:</b> {p.hashtags.join(' ')}</span>
+            <span className="st-small"><b>{t('campaigns.strategy.bestTimes')}:</b> {p.bestTimes.join(', ') || '—'} ({zoneCity(projectTimeZone(tz))})</span>
+            {p.dos.length ? <span className="st-small"><b>{t('campaigns.strategy.do')}:</b> {p.dos.join(' · ')}</span> : null}
+            {p.donts.length ? <span className="st-small"><b>{t('campaigns.strategy.dont')}:</b> {p.donts.join(' · ')}</span> : null}
           </div>
         </details>
       ))}
-      <div className="grid2" style={{ gap: 12 }}>
-        <div className="st-stack" style={{ gap: 4 }}>
-          <span className="label">Experiments</span>
+      <div className="grid2 u-gap-3">
+        <div className="u-stack u-gap-1">
+          <span className="label">{t('campaigns.strategy.experiments')}</span>
           {s.experiments.map((e) => (
-            <span key={e.hypothesis} className="st-small">{e.hypothesis} <span className="st-muted">— {e.measure}</span></span>
+            <span key={e.hypothesis} className="st-small">{e.hypothesis} <span className="st-muted">· {e.measure}</span></span>
           ))}
         </div>
-        <div className="st-stack" style={{ gap: 4 }}>
-          <span className="label">Targets</span>
+        <div className="u-stack u-gap-1">
+          <span className="label">{t('campaigns.strategy.targets')}</span>
           {s.kpis.map((k) => (
             <span key={k.metric} className="st-small">{k.metric}: <b>{k.target}</b></span>
           ))}
@@ -217,20 +243,20 @@ function StrategyView({ s, formats }: { s: Strategy; formats: { id: string; name
       </div>
       {s.research.length ? (
         <details className="camp-type">
-          <summary><b>Research</b> <span className="xs st-muted">· {s.research.length} findings with sources</span></summary>
-          <ul className="st-small" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+          <summary><b>{t('campaigns.strategy.research')}</b> <span className="xs st-muted">· {s.research.length}</span></summary>
+          <ul className="st-small camp-research">
             {s.research.map((r) => (
               <li key={r.finding}>
                 {r.finding}{' '}
                 {/^https?:\/\//.test(r.source) ? (
-                  <a className="real-link" href={r.source} target="_blank" rel="noreferrer">source</a>
+                  <a className="real-link" href={r.source} target="_blank" rel="noreferrer">{t('campaigns.strategy.source')}</a>
                 ) : <span className="st-muted">({r.source})</span>}
               </li>
             ))}
           </ul>
         </details>
       ) : null}
-      {s.risks.length ? <span className="xs st-muted">Risks: {s.risks.join(' · ')}</span> : null}
+      {s.risks.length ? <span className="xs st-muted">{t('campaigns.strategy.risks')}: {s.risks.join(' · ')}</span> : null}
     </div>
   );
 }
@@ -270,27 +296,22 @@ function Activity({ campaignId, what, active, onFinished }: { campaignId: string
     };
   }, [campaignId, what, active]);
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    listRef.current?.scrollTo?.({ top: listRef.current.scrollHeight });
   }, [p?.events.length]);
   if (!p || (p.status !== 'running' && !active)) return null;
   const secs = Math.max(0, Math.round(((p.status === 'running' ? now : Date.parse(p.endedAt ?? p.startedAt)) - Date.parse(p.startedAt)) / 1000));
-  const searches = p.events.filter((e) => e.kind === 'search').length;
-  const reads = p.events.filter((e) => e.kind === 'read').length;
+  const state = p.status === 'running' ? t('campaigns.activity.working') : p.status === 'done' ? t('campaigns.activity.finished') : t('campaigns.activity.stopped');
   return (
     <div className="camp-activity" role="status" aria-live="polite">
-      <div className="row-wrap" style={{ gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="st-small" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {p.status === 'running' ? <span className="camp-spinner" aria-hidden="true" /> : null}
-          <b>{what === 'strategy' ? 'Strategist' : 'Content planner'}</b>
-          <span className="st-muted">
-            {p.status === 'running' ? 'working' : p.status === 'done' ? 'finished' : 'stopped'} · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
-            {searches ? ` · ${searches} ${searches === 1 ? 'search' : 'searches'}` : ''}
-            {reads ? ` · ${reads} ${reads === 1 ? 'page' : 'pages'} read` : ''}
-          </span>
+      <span className="st-small camp-activity-head">
+        {p.status === 'running' ? <span className="camp-spinner" aria-hidden="true" /> : null}
+        <b>{what === 'strategy' ? t('campaigns.activity.strategist') : t('campaigns.activity.planner')}</b>
+        <span className="st-muted">
+          {state} · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
         </span>
-      </div>
-      <ol className="camp-events" ref={listRef}>
-        {p.events.length === 0 ? <li className="xs st-muted">Starting…</li> : null}
+      </span>
+      <ol className="camp-events" ref={listRef} data-content>
+        {p.events.length === 0 ? <li className="xs st-muted">{t('campaigns.activity.starting')}</li> : null}
         {p.events.map((e, i) => (
           <li key={`${e.at}-${i}`} className={`camp-ev camp-ev-${e.kind}`}>
             <span className="camp-ev-kind">{KIND_LABEL[e.kind] ?? e.kind}</span>
@@ -302,14 +323,63 @@ function Activity({ campaignId, what, active, onFinished }: { campaignId: string
   );
 }
 
-function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign; plan: Plan; data: ListPayload; say: (t: string) => void; onChange: () => Promise<void>; openPosts: () => void }) {
-  const [busy, setBusy] = useState<string | null>(null);
+function StrategyDrawer({ c, data, busy, onClose, act }: { c: Campaign; data: ListPayload; busy: string | null; onClose: () => void; act: (key: string, body: Record<string, unknown>, done: string) => Promise<boolean> }) {
   const [notes, setNotes] = useState('');
-  const [open, setOpen] = useState(c.status !== 'done');
-  const fname = (id: string) => data.formats.find((f) => f.id === id)?.name ?? id;
-  const formatNames = Object.fromEntries(data.formats.map((f) => [f.id, f.name]));
+  const strategy = c.proposal ?? c.strategy;
+  const agentsOff = !data.agents.enabled;
+  const make = () => void act('strategy', { action: 'strategy', notes }, t('campaigns.strategy.ready')).then((ok) => ok && setNotes(''));
+  const makeLabel = strategy ? t('campaigns.strategy.again') : t('campaigns.strategy.make');
+  const makeButton = (level: 'primary' | 'secondary') => (
+    <Button level={level} busy={busy === 'strategy'} disabled={!!busy || agentsOff} reason={agentsOff ? t('campaigns.agentsOff') : t('common.busy')} onClick={make}>
+      {makeLabel}
+    </Button>
+  );
+  return (
+    <Drawer
+      open
+      width="wide"
+      title={t('campaigns.strategy')}
+      status={<Pill status={CAMPAIGN_STATUS[c.status]} />}
+      dirty={Boolean(notes.trim())}
+      onClose={onClose}
+      primary={
+        c.proposal ? (
+          <Button level="primary" busy={busy === 'approve'} disabled={!!busy} reason={t('common.busy')} onClick={() => void act('approve', { action: 'approve-strategy' }, t('campaigns.strategy.approved'))}>
+            {t('campaigns.strategy.approve')}
+          </Button>
+        ) : !strategy ? (
+          makeButton('primary')
+        ) : null
+      }
+      secondary={strategy ? makeButton('secondary') : null}
+    >
+      <div className="u-stack u-gap-4">
+        {c.strategy && !c.proposal && c.strategy.approvedAt ? <span className="xs st-muted">{t('campaigns.strategy.approvedAt', { when: formatDateTime(c.strategy.approvedAt, projectTimeZone(data.timeZone)) })}</span> : null}
+        {strategy ? <StrategyView s={strategy} formats={data.formats} tz={data.timeZone} /> : <span className="st-small st-muted">{t('campaigns.line.noStrategy')}</span>}
+        <label className="wiz-field">
+          <span className="xs st-muted u-normal">{strategy ? t('campaigns.strategy.notes') : t('campaigns.strategy.notesFirst')}</span>
+          <input className="st-input" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={800} dir="auto" />
+        </label>
+        {!strategy ? (
+          <More label={t('campaigns.strategy.how')}>
+            <span>{t('campaigns.strategy.howText')}</span>
+          </More>
+        ) : null}
+        <Activity campaignId={c.id} what="strategy" active={busy === 'strategy'} />
+      </div>
+    </Drawer>
+  );
+}
+
+type Opened = { kind: 'strategy' } | { kind: 'autopilot' } | null;
+
+export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign; plan: Plan; data: ListPayload; say: (t: string) => void; onChange: () => Promise<void>; openPosts: () => void }) {
+  const confirmBox = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [opened, setOpened] = useState<Opened>(null);
   const [err, setErr] = useState('');
-  const act = async (key: string, body: Record<string, unknown>, done: string) => {
+  const formatNames = Object.fromEntries(data.formats.map((f) => [f.id, f.name]));
+  const act = async (key: string, body: Record<string, unknown>, done: string): Promise<boolean> => {
     setBusy(key);
     setErr('');
     try {
@@ -317,147 +387,139 @@ function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign
       say(done);
       notifyChanged('campaigns', 'content', 'calendar');
       await onChange();
+      return true;
     } catch (e) {
       setErr((e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   };
   const upcoming = plan.slots.filter((s) => s.status !== 'skipped');
   const agentsOff = !data.agents.enabled;
-  const strategy = c.proposal ?? c.strategy;
-  const notesField = (
-    <label className="wiz-field camp-notes">
-      <span className="xs st-muted" style={{ fontWeight: 400 }}>{strategy ? 'What to change (optional)' : 'Anything the strategist should know (optional)'}</span>
-      <input className="st-input" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={800} />
-    </label>
-  );
-  const makeStrategy = (
-    <button type="button" className={`st-btn st-btn-sm ${strategy ? 'st-btn-ghost' : 'st-btn-primary'}`} aria-busy={busy === 'strategy'} disabled={!!busy || agentsOff} title={agentsOff ? data.agents.reason : ''} onClick={() => void act('strategy', { action: 'strategy', notes }, 'New strategy proposal is ready').then(() => setNotes(''))}>
-      {busy === 'strategy' ? 'Researching' : strategy ? 'New strategy' : 'Make strategy'}
-    </button>
-  );
-  return (
-    <div className={`st-card st-stack camp-card camp-${c.status}`} style={{ padding: 18, gap: 14 }}>
-      <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <button type="button" className="camp-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <span className="camp-name">{c.name}</span>
-          <span className="xs st-muted">
-            {cap(c.goal)} · {c.perWeek}/week · {PRIORITY_TEXT[c.priority]} priority · {c.formats.map(fname).join(', ')} · from {formatDateLabel(c.startDate)}
-            {c.endDate ? ` to ${formatDateLabel(c.endDate)}` : ''}
-          </span>
-        </button>
-        <div className="row-wrap" style={{ gap: 6, alignItems: 'center' }}>
-          <span className={`camp-status ${c.status}`}>{STATUS_TEXT[c.status]}</span>
-          {c.status === 'active' ? (
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'st'} disabled={!!busy} onClick={() => void act('st', { action: 'update', patch: { status: 'paused' } }, 'Campaign paused')}>Pause</button>
-          ) : c.status !== 'done' ? (
-            <button type="button" className="st-btn st-btn-dark st-btn-sm" aria-busy={busy === 'st'} disabled={!!busy || !c.strategy} title={c.strategy ? '' : 'Approve a strategy first'} onClick={() => void act('st', { action: 'update', patch: { status: 'active' } }, 'Campaign running')}>Start</button>
-          ) : null}
-          {c.status !== 'done' ? (
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={!!busy} onClick={() => { if (window.confirm(`Finish “${c.name}”? Its open slots free up for other campaigns.`)) void act('st', { action: 'update', patch: { status: 'done' } }, 'Campaign finished'); }}>Finish</button>
-          ) : null}
-        </div>
-      </div>
+  const ended = c.status === 'done';
+  const endCampaign = () =>
+    void confirmBox.confirm({ title: t('campaigns.endTitle', { name: c.name }), body: t('campaigns.endBody'), confirmLabel: t('campaigns.end'), destructive: true }).then((ok) => {
+      if (ok) void act('st', { action: 'update', patch: { status: 'done' } }, t('campaigns.ended'));
+    });
 
-      {err ? (
-        <p className="real-error st-small" role="alert" style={{ margin: 0, overflowWrap: 'anywhere' }}>
-          {err}
-        </p>
-      ) : null}
-      {open ? (
-        <>
-          {c.brief ? <p className="st-small st-muted" style={{ margin: 0 }}>{c.brief}</p> : null}
-
-          <div className="camp-section st-stack" style={{ gap: 10 }}>
-            <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <span className="label">{c.proposal ? 'Strategy proposal · needs your OK' : 'Strategy'}</span>
-              {c.strategy && !c.proposal ? <span className="xs st-muted">Approved {formatDateTime(c.strategy.approvedAt)}</span> : null}
-              {c.proposal ? <span className="xs st-muted">{c.proposal.meta.seconds}s{c.proposal.meta.costUsd != null ? ` · $${c.proposal.meta.costUsd.toFixed(2)}` : ''}</span> : null}
-            </div>
-            {strategy ? (
-              <>
-                <p className="st-small camp-summary" style={{ margin: 0 }}>
-                  {firstSentence(strategy.summary)} <span className="st-muted">· {strategy.pillars.map((p) => p.name).join(' · ')}</span>
-                </p>
-                <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-                  {c.proposal ? (
-                    <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === 'approve'} disabled={!!busy} onClick={() => void act('approve', { action: 'approve-strategy' }, 'Strategy approved')}>Approve strategy</button>
-                  ) : null}
-                  {/* A proposal starts open (keyed so it reopens when a new one arrives): you see what you approve. */}
-                  <More key={c.proposal ? `proposal-${c.proposal.meta.at}` : 'strategy'} label={c.proposal ? 'Show details' : 'Show strategy'} defaultOpen={Boolean(c.proposal)} tone="button" className="camp-more">
-                    <StrategyView s={strategy} formats={data.formats} />
-                    <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-end' }}>
-                      {notesField}
-                      {makeStrategy}
-                    </div>
-                  </More>
-                </div>
-              </>
-            ) : (
-              <>
-                <span className="st-small st-muted">No strategy yet.</span>
-                <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-end' }}>
-                  {notesField}
-                  {makeStrategy}
-                </div>
-                <More label="What happens?">
-                  <span>The strategist reads your brand, past posts and results, researches what works now, and proposes pillars and post types for your OK.</span>
-                </More>
-              </>
-            )}
-            <Activity campaignId={c.id} what="strategy" active={busy === 'strategy'} />
-          </div>
-
-          <div className="camp-section st-stack" style={{ gap: 10 }}>
-            <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <span className="label">Plan</span>
-              <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'plan'} disabled={!!busy || agentsOff || c.status !== 'active'} title={c.status !== 'active' ? 'Start the campaign first' : agentsOff ? data.agents.reason : ''} onClick={() => void act('plan', { action: 'plan' }, 'Next two weeks planned')}>
-                {busy === 'plan' ? 'Planning' : upcoming.length ? 'Plan again' : 'Plan two weeks'}
-              </button>
-            </div>
-            <Activity campaignId={c.id} what="plan" active={busy === 'plan'} />
-            {upcoming.length === 0 ? <span className="st-small st-muted">No posts planned yet.</span> : null}
-            {upcoming.slice(0, PLAN_PREVIEW).map((s, i) => slotRow(s, i))}
-            {upcoming.length > PLAN_PREVIEW ? (
-              <More label={`Show all ${upcoming.length}`} openLabel="Show fewer" className="camp-more-slots">
-                {upcoming.slice(PLAN_PREVIEW).map((s, i) => slotRow(s, i + PLAN_PREVIEW))}
-              </More>
-            ) : null}
-          </div>
-
-          <AutopilotPanel campaign={{ id: c.id, name: c.name, formats: c.formats, status: c.status }} formatNames={formatNames} say={say} />
-        </>
-      ) : null}
-    </div>
-  );
   function slotRow(s: Slot, i: number) {
     return (
-              <Reveal key={s.id} index={i}>
-              <div className={`camp-slot ${busy === s.id ? 'is-working' : ''}`}>
-                <div className="camp-when">
-                  <b>{formatDateLabel(s.date)}</b>
-                  <span className="xs st-muted">{s.time}</span>
-                </div>
-                <div className="st-stack" style={{ gap: 2, minWidth: 0, flex: '1 1 260px' }}>
-                  <span className="st-small"><b>{s.hook || fname(s.format)}</b></span>
-                  <span className="xs st-muted">{fname(s.format)} · {s.pillar}{s.angle ? ` · ${s.angle}` : ''}</span>
-                </div>
-                {s.status === 'made' ? (
-                  <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={openPosts}>Open post {s.packageId}</button>
-                ) : (
-                  <div className="row-wrap" style={{ gap: 6 }}>
-                    <button type="button" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === s.id} disabled={!!busy} onClick={() => void act(s.id, { action: 'make-post', slotId: s.id }, 'Post made: it is in Planned on the Posts board')}>
-                      {busy === s.id ? 'Making' : 'Make post'}
-                    </button>
-                    <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === `k${s.id}`} disabled={!!busy} onClick={() => void act(`k${s.id}`, { action: 'skip-slot', slotId: s.id }, 'Slot skipped')}>Skip</button>
-                  </div>
-                )}
-              </div>
-              {busy === s.id ? <TaskProgress active title={`Making the ${fname(s.format).toLowerCase()} for ${formatDateLabel(s.date)}`} steps={MAKE_STEPS[s.format] ?? MAKE_STEPS.default!} expectedSeconds={MAKE_SECONDS[s.format] ?? 15} /> : null}
-              </Reveal>
+      <Reveal key={s.id} index={i}>
+        <div className={`camp-slot ${busy === s.id ? 'is-working' : ''}`} data-slot={s.id}>
+          <div className="camp-when" data-content>
+            <b>{formatDateLabel(s.date)}</b>
+            <span className="xs st-muted">{s.time}</span>
+          </div>
+          <div className="camp-slot-text">
+            {s.hook ? (
+              <span className="st-small camp-hook" data-content dir="auto">
+                {s.hook}
+              </span>
+            ) : null}
+          </div>
+          {s.status === 'made' ? (
+            <Button dense onClick={openPosts}>
+              {t('campaigns.slot.openPost', { id: s.packageId ?? '' })}
+            </Button>
+          ) : (
+            <div className="camp-slot-actions">
+              <Button dense busy={busy === s.id} disabled={!!busy} reason={t('common.busy')} onClick={() => void act(s.id, { action: 'make-post', slotId: s.id }, t('campaigns.slot.made'))}>
+                {t('campaigns.slot.make')}
+              </Button>
+              <Button dense level="tertiary" busy={busy === `k${s.id}`} disabled={!!busy} reason={t('common.busy')} onClick={() => void act(`k${s.id}`, { action: 'skip-slot', slotId: s.id }, t('campaigns.slot.skipped'))}>
+                {t('campaigns.slot.skip')}
+              </Button>
+            </div>
+          )}
+        </div>
+        {busy === s.id ? <TaskProgress active title={t('campaigns.slot.making', { date: formatDateLabel(s.date) })} steps={MAKE_STEPS[s.format] ?? MAKE_STEPS.default!} expectedSeconds={MAKE_SECONDS[s.format] ?? 15} /> : null}
+      </Reveal>
     );
   }
+
+  const lines = summaryLines(c);
+  return (
+    <article className={`card camp-card camp-${c.status}`} aria-label={c.name}>
+      {confirmBox.node}
+      <div className="u-between u-gap-2">
+        <h3 className="card-title camp-name" data-content>
+          {c.name}
+        </h3>
+        <Pill status={CAMPAIGN_STATUS[c.status]} />
+      </div>
+      <ul className="camp-lines">
+        {lines.map((l) => (
+          <li key={l.text} className="camp-line st-small" data-content={l.content || undefined}>
+            {l.text}
+          </li>
+        ))}
+      </ul>
+      <div className="camp-actions">
+        {/* An ended campaign with no strategy has nothing to show or make. */}
+        {!ended || c.strategy ? (
+          <Button dense onClick={() => setOpened({ kind: 'strategy' })}>
+            {c.proposal ? t('campaigns.strategy.approve') : c.strategy ? t('campaigns.strategy') : t('campaigns.strategy.make')}
+          </Button>
+        ) : null}
+        {!ended ? (
+          <Button dense onClick={() => setOpened({ kind: 'autopilot' })}>
+            {t('campaigns.autopilot')}
+          </Button>
+        ) : null}
+        {c.status === 'active' ? (
+          <Button dense busy={busy === 'st'} disabled={!!busy} reason={t('common.busy')} onClick={() => void act('st', { action: 'update', patch: { status: 'paused' } }, t('campaigns.paused'))}>
+            {t('campaigns.pause')}
+          </Button>
+        ) : !ended ? (
+          <Button dense busy={busy === 'st'} disabled={!!busy || !c.strategy} reason={c.strategy ? t('common.busy') : t('campaigns.startReason')} onClick={() => void act('st', { action: 'update', patch: { status: 'active' } }, t('campaigns.started'))}>
+            {t('campaigns.start')}
+          </Button>
+        ) : null}
+        {!ended ? (
+          <Button dense level="destructive" disabled={!!busy} reason={t('common.busy')} onClick={endCampaign}>
+            {t('campaigns.end')}
+          </Button>
+        ) : null}
+      </div>
+      {err ? <Notice kind="error" title={t('common.couldNotChange', { thing: c.name })} details={err} /> : null}
+      <Activity campaignId={c.id} what="strategy" active={busy === 'strategy'} />
+
+      {!ended ? (
+        <div className="camp-section">
+          <div className="u-between u-gap-2">
+            <span className="label">{t('campaigns.plan')}</span>
+            <Button
+              dense
+              busy={busy === 'plan'}
+              disabled={!!busy || agentsOff || c.status !== 'active'}
+              reason={c.status !== 'active' ? t('campaigns.planReason') : agentsOff ? t('campaigns.agentsOff') : t('common.busy')}
+              onClick={() => void act('plan', { action: 'plan' }, t('campaigns.planned'))}
+            >
+              {t('campaigns.plan')}
+            </Button>
+          </div>
+          <Activity campaignId={c.id} what="plan" active={busy === 'plan'} />
+          {upcoming.length === 0 ? <span className="st-small st-muted">{t('campaigns.noSlots')}</span> : null}
+          {upcoming.slice(0, PLAN_PREVIEW).map((s, i) => slotRow(s, i))}
+          {upcoming.length > PLAN_PREVIEW ? (
+            <div>
+              <Button dense level="tertiary" onClick={() => navigateTo('calendar', { params: { campaign: c.id } })}>
+                {t('campaigns.showAll', { count: upcoming.length })}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {opened?.kind === 'strategy' ? <StrategyDrawer c={c} data={data} busy={busy} onClose={() => setOpened(null)} act={act} /> : null}
+      {opened?.kind === 'autopilot' ? (
+        <Drawer open width="wide" title={t('campaigns.autopilot')} status={<Pill status={CAMPAIGN_STATUS[c.status]} />} onClose={() => setOpened(null)}>
+          <AutopilotPanel campaign={{ id: c.id, name: c.name, formats: c.formats, status: c.status }} formatNames={formatNames} say={say} />
+        </Drawer>
+      ) : null}
+    </article>
+  );
 }
 
 export function Campaigns({ say, openPosts }: { say: (t: string) => void; openPosts: () => void }) {
@@ -481,34 +543,44 @@ export function Campaigns({ say, openPosts }: { say: (t: string) => void; openPo
   }, [load]);
   useOnChanged(['campaigns', 'content'], load);
 
-  if (err) return <section className="screen"><p className="real-error st-small" role="alert">{err}</p></section>;
-  if (!data) return <ScreenSkeleton variant="cards" count={2} label="Loading campaigns" />;
+  if (err && !data) {
+    return (
+      <section className="screen" aria-label="Campaigns">
+        <Notice kind="error" title={t('campaigns.couldNotLoad')} details={err} onRetry={() => void load()} />
+      </section>
+    );
+  }
+  if (!data) return <ScreenSkeleton variant="cards" count={2} label={t('campaigns.loading')} />;
   const running = data.campaigns.filter((c) => c.status === 'active').length;
+  const none = data.campaigns.length === 0;
+  const create = (
+    <Button level="primary" dense={!none} onClick={() => setCreating(true)}>
+      {t('campaigns.new')}
+    </Button>
+  );
   return (
-    <section className="screen st-stack" style={{ gap: 16 }} aria-label="Campaigns">
-      <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <span className="st-small st-muted">
-          {running} running · {data.campaigns.length} total{data.agents.enabled ? '' : ` · ${data.agents.reason}`}
-        </span>
-        {!creating ? (
-          <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => setCreating(true)}>New campaign</button>
-        ) : null}
+    <section className="screen u-stack u-gap-4" aria-label="Campaigns">
+      {/* With no campaign the empty notice carries New campaign: one primary on the screen. */}
+      <div className="u-between u-gap-3">
+        <span className="st-small st-muted">{t('campaigns.summary', { running, total: data.campaigns.length })}</span>
+        {none ? null : create}
       </div>
+      {!data.agents.enabled ? <Notice kind="off" title={t('campaigns.agentsOff')} /> : null}
+      {none ? <Notice kind="empty" title={t('campaigns.empty')} action={create} /> : null}
+      {data.campaigns.map((c) => (
+        <CampaignCard key={c.id} c={c} plan={data.plans[c.id] ?? { madeAt: null, slots: [] }} data={data} say={say} onChange={load} openPosts={openPosts} />
+      ))}
       {creating ? (
-        <NewCampaign
+        <NewCampaignDrawer
           data={data}
-          onCancel={() => setCreating(false)}
+          onClose={() => setCreating(false)}
           onDone={(c) => {
             setCreating(false);
-            say(`Campaign “${c.name}” created`);
+            say(t('campaigns.created', { name: c.name }));
             void load();
           }}
         />
       ) : null}
-      {data.campaigns.length === 0 && !creating ? <span className="st-small st-muted">No campaigns yet. Make one per goal.</span> : null}
-      {data.campaigns.map((c) => (
-        <CampaignCard key={c.id} c={c} plan={data.plans[c.id] ?? { madeAt: null, slots: [] }} data={data} say={say} onChange={load} openPosts={openPosts} />
-      ))}
     </section>
   );
 }

@@ -63,7 +63,8 @@ export function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     {
-      source: '/((?!api|_next/static|_next/image|favicon.ico|icon.svg|robots.txt).*)',
+      // fonts/: the bundled OFL faces in public/fonts (app/studio/fonts.css) are static, public files.
+      source: '/((?!api|_next/static|_next/image|fonts/|favicon.ico|icon.svg|robots.txt).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

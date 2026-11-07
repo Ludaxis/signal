@@ -1,10 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { COLUMNS, OVERDUE_TEXT, SCHEDULE_LEAD_MS, canReject, columnOf, isOverdue, moveCapabilities, overdueTimes, partialText, planMove, sortForColumn, type MovablePost, type PostStatus } from '@/app/studio/posts-rules';
+import { COLUMNS, OVERDUE_TEXT, POST_STATUS_WORD, SCHEDULE_LEAD_MS, canReject, columnOf, isOverdue, moveCapabilities, needsYou, originLine, overdueTimes, partialText, planMove, postStatusWord, sortForColumn, type MovablePost, type PostStatus } from '@/app/studio/posts-rules';
+import { STATUS_WORDS } from '@/app/studio/ui/status';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const post = (status: PostStatus, extra: Partial<MovablePost> = {}): MovablePost => ({ id: '07', status, plannedFor: null, scheduled: null, ...extra });
 const LIVE = { live: true, scheduling: true };
 const MANUAL = { live: false, scheduling: false };
+
+const ALL: PostStatus[] = ['ready', 'changed', 'approved', 'scheduled', 'sending', 'submitted', 'uncertain', 'failed', 'posted', 'discarded', 'invalid'];
+
+describe('column titles and status words', () => {
+  it('names the columns exactly To approve, Approved, Posted, Rejected', () => {
+    expect(COLUMNS.map((c) => c.title)).toEqual(['To approve', 'Approved', 'Posted', 'Rejected']);
+  });
+
+  it('gives every status one post word from the dictionary, never the raw value', () => {
+    for (const s of ALL) {
+      expect(STATUS_WORDS.post as readonly string[]).toContain(postStatusWord(s));
+      expect(postStatusWord(s)).not.toBe(s);
+    }
+    expect(POST_STATUS_WORD).toMatchObject({ ready: 'To approve', approved: 'Approved', uncertain: 'Check status', failed: 'Failed', discarded: 'Rejected', changed: 'Files changed', submitted: 'Sending' });
+  });
+
+  it('keeps "package", "SHA" and "fingerprint" out of every rule message', () => {
+    const msgs = ALL.flatMap((s) => COLUMNS.flatMap((from) => COLUMNS.map((to) => planMove(from.id, to.id, post(s), LIVE, NOW)))).flatMap((p) => (p.kind === 'refuse' ? [p.message] : []));
+    expect(msgs.length).toBeGreaterThan(10);
+    for (const m of msgs) expect(m).not.toMatch(/package|\bSHA\b|fingerprint/i);
+  });
+});
+
+describe('Needs you', () => {
+  const p = (status: PostStatus, extra: { plannedFor?: string | null; missedAt?: string | null } = {}) => ({ id: status, status, plannedFor: extra.plannedFor ?? null, scheduled: null, posted: null, missedAt: extra.missedAt ?? null });
+  it('counts posts to approve, at Check status or Failed, and approved posts whose time passed', () => {
+    // The Needs you fixture: 2 to approve, 1 failed, 1 approved → 3.
+    expect(needsYou([p('ready'), { ...p('ready'), id: 'r2' }, p('failed'), p('approved', { plannedFor: new Date(NOW + 3600_000).toISOString() })], NOW)).toHaveLength(3);
+    expect(needsYou([p('uncertain')], NOW)).toHaveLength(1);
+    expect(needsYou([p('approved', { plannedFor: new Date(NOW - 3600_000).toISOString() })], NOW)).toHaveLength(1);
+    expect(needsYou([p('approved', { missedAt: '2026-11-04T10:00:00Z' })], NOW)).toHaveLength(1);
+    expect(needsYou([p('posted'), p('scheduled'), p('discarded'), p('sending')], NOW)).toHaveLength(0);
+  });
+
+  it('lists posts whose files changed since approval', () => {
+    expect(needsYou([p('changed'), { ...p('invalid'), id: 'i2' }], NOW)).toHaveLength(2);
+  });
+});
+
+describe('origin line', () => {
+  it('says Post maker, Campaign or Uploaded in one line', () => {
+    expect(originLine({ postmaker: { template: 'Story spine', version: 3 } })).toBe('Post maker · Story spine v3');
+    expect(originLine({ campaign: { name: 'Autumn' } })).toBe('Campaign · Autumn');
+    expect(originLine({})).toBe('Uploaded');
+    expect(originLine({ pipeline: { name: 'Daily' } })).toBe('Pipeline · Daily');
+    expect(originLine({ source: { generator: 'signal-template-v1' } })).toBe('Made in Signal');
+  });
+});
 
 describe('column assignment by status', () => {
   it('puts every status in exactly one of the four columns', () => {
@@ -72,18 +121,18 @@ describe('move rules', () => {
 
   it('refuses moving posts that are on their way, failed posts to Posted, and anything backwards', () => {
     for (const s of ['sending', 'submitted', 'uncertain'] as const) {
-      expect(planMove('review', 'posted', post(s), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/on its way/) });
+      expect(planMove('review', 'posted', post(s), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/is sending/) });
       expect(planMove('review', 'rejected', post(s), LIVE, NOW)).toMatchObject({ kind: 'refuse' });
     }
-    expect(planMove('review', 'posted', post('failed'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/Check status/) });
+    expect(planMove('review', 'posted', post('failed'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/check its status/) });
     // A failed post (nothing went out) can be rejected.
     expect(planMove('review', 'rejected', post('failed'), LIVE, NOW)).toEqual({ kind: 'discard', steps: [{ action: 'discard' }] });
-    expect(planMove('review', 'planned', post('approved'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/cannot be undone/) });
+    expect(planMove('review', 'planned', post('approved'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/Reject it to stop it/) });
     expect(planMove('review', 'rejected', post('approved'), LIVE, NOW)).toEqual({ kind: 'discard', steps: [{ action: 'discard' }] });
   });
 
   it('nothing leaves Posted or Rejected', () => {
-    for (const to of ['planned', 'review', 'rejected'] as const) expect(planMove('posted', to, post('posted'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/already on Instagram/) });
+    for (const to of ['planned', 'review', 'rejected'] as const) expect(planMove('posted', to, post('posted'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/already posted/) });
     for (const to of ['planned', 'review', 'posted'] as const) expect(planMove('rejected', to, post('discarded'), LIVE, NOW)).toMatchObject({ kind: 'refuse', message: expect.stringMatching(/stays rejected/) });
   });
 
@@ -116,7 +165,7 @@ describe('overdue plans', () => {
     expect(isOverdue({ status: 'scheduled', plannedFor: past }, NOW)).toBe(false);
     expect(isOverdue({ status: 'approved', plannedFor: past, scheduled: { scheduled_for: past } }, NOW)).toBe(false);
     expect(isOverdue({ status: 'approved', plannedFor: past, posted: { posted_at: past } }, NOW)).toBe(false);
-    expect(OVERDUE_TEXT).toBe('Planned time passed. Post now, schedule, or re-plan.');
+    expect(OVERDUE_TEXT).toBe('Planned time passed.');
   });
 
   it('offers the planned clock time on the next day it is ahead, and a soonest time, both far enough away', () => {

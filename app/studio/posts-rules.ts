@@ -2,27 +2,82 @@
 // Pure functions, no React: the board, the Move to… menu and the unit tests all use the same rules,
 // so a drag can never do something the buttons would refuse (or the other way round).
 //
-//   Planned  → Review   = approve (optionally also schedule for its planned time)
-//   Planned  → Posted   = approve, then post now (or record a hand-made post)
-//   Review   → Posted   = post now (or record a hand-made post when automatic posting is off)
+// Column ids are internal; the titles follow the status dictionary:
+//   planned = To approve, review = Approved, posted = Posted, rejected = Rejected.
+//
+//   To approve → Approved = approve (optionally also schedule for its planned time)
+//   To approve → Posted   = approve, then post now (or record a hand-made post)
+//   Approved   → Posted   = post now (or record a hand-made post when automatic posting is off)
 //   anything not posted and not on its way → Rejected = discard (a failed post too: nothing went out)
 //   Everything else is refused with a plain reason. Nothing here talks to the server.
 //
 // Overdue plans: a plan is not a schedule (nothing is scheduled without a click), so an
 // approved post whose planned time has passed just waits. isOverdue() marks it on the board, in the
 // drawer and in the Calendar, and overdueTimes() gives the two times the drawer offers to schedule it.
-import { addDays, zonedParts, zonedToUtc } from '@/lib/time';
+import { addDays } from '@/lib/time';
+import { partsIn, wallToUtcIn, type Zoned } from '@/lib/studio/time';
+import { comparePackageIds } from '@/lib/studio/package-id';
+import { t } from './copy/en';
+import type { StatusWord } from './ui/status';
 
 export type PostStatus = 'ready' | 'changed' | 'approved' | 'scheduled' | 'sending' | 'submitted' | 'uncertain' | 'failed' | 'posted' | 'discarded' | 'invalid';
 export type Column = 'planned' | 'review' | 'posted' | 'rejected';
 
-export const COLUMNS: { id: Column; title: string; hint: string }[] = [
-  { id: 'planned', title: 'Planned', hint: 'Made and waiting for you' },
-  { id: 'review', title: 'Review', hint: 'OK to post' },
-  { id: 'posted', title: 'Posted', hint: 'On Instagram' },
-  { id: 'rejected', title: 'Rejected', hint: 'Will not be posted' },
-];
-export const COLUMN_TITLE: Record<Column, string> = { planned: 'Planned', review: 'Review', posted: 'Posted', rejected: 'Rejected' };
+export const COLUMN_TITLE: Record<Column, string> = {
+  planned: t('posts.col.toApprove'),
+  review: t('posts.col.approved'),
+  posted: t('posts.col.posted'),
+  rejected: t('posts.col.rejected'),
+};
+export const COLUMNS: { id: Column; title: string }[] = (['planned', 'review', 'posted', 'rejected'] as const).map((id) => ({ id, title: COLUMN_TITLE[id] }));
+
+/** The one status-dictionary word for a post. Raw status values never reach the screen. */
+export const POST_STATUS_WORD: Record<PostStatus, StatusWord> = {
+  ready: 'To approve',
+  changed: 'Files changed',
+  invalid: 'Files changed',
+  approved: 'Approved',
+  scheduled: 'Scheduled',
+  sending: 'Sending',
+  submitted: 'Sending',
+  uncertain: 'Check status',
+  failed: 'Failed',
+  posted: 'Posted',
+  discarded: 'Rejected',
+};
+export function postStatusWord(status: PostStatus): StatusWord {
+  return POST_STATUS_WORD[status];
+}
+
+/**
+ * "Needs you": posts To approve, at Check status or Failed, posts whose files changed since approval
+ * (they need a new make, so they are listed too), and approved posts
+ * whose planned time passed (the old "Due now" banner). Today's list and the Posts nav badge both
+ * count this one set, so the two numbers always agree. Post maker runs and blocking connections join
+ * it when they exist (they are not part of these payloads yet).
+ */
+export function needsYou<T extends { status: PostStatus; plannedFor: string | null; scheduled?: unknown; posted?: unknown; missedAt?: string | null }>(posts: T[], now = Date.now()): T[] {
+  return posts.filter((p) => p.status === 'ready' || p.status === 'uncertain' || p.status === 'failed' || filesChanged(p) || isOverdue(p, now) || (p.status === 'approved' && Boolean(p.missedAt)));
+}
+
+/** A post whose files changed since approval (status word "Files changed"): it must be made again. */
+export function filesChanged(p: { status: PostStatus }): boolean {
+  return p.status === 'changed' || p.status === 'invalid';
+}
+
+/** Where a post came from, in one line. */
+export function originLine(p: {
+  postmaker?: { template: string; version: number } | null;
+  campaign?: { name: string } | null;
+  pipeline?: { name: string } | null;
+  source?: { generator?: string } | null;
+}): string {
+  if (p.postmaker) return t('posts.origin.postmaker', { template: p.postmaker.template, version: p.postmaker.version });
+  if (p.campaign) return t('posts.origin.campaign', { name: p.campaign.name });
+  if (p.pipeline) return t('posts.origin.pipeline', { name: p.pipeline.name });
+  if (p.source?.generator) return t('posts.origin.made');
+  return t('posts.origin.uploaded');
+}
 
 /** Posts in flight hold a slot on Instagram: nothing may move them until their result is known. */
 export const IN_FLIGHT: PostStatus[] = ['sending', 'submitted', 'uncertain'];
@@ -88,19 +143,28 @@ const TEN_MINUTES = 10 * 60_000;
 
 /** What the toast says when a multi-step move stopped after its first step went through (the dialog then closes). */
 export function partialText(id: string, first: MoveStep, failed: MoveStep, error: string): string {
-  const did = first.action === 'approve' ? `Post ${id} was approved` : first.action === 'cancel-schedule' ? `The schedule for post ${id} was cancelled` : `Post ${id} was updated`;
-  const not = failed.action === 'schedule' ? 'not scheduled' : failed.action === 'send' ? 'not posted' : failed.action === 'posted' ? 'not recorded as posted' : failed.action === 'discard' ? 'not rejected' : 'not finished';
-  return `${did}, but ${not}${error ? `: ${error}` : '.'}`;
+  const did = first.action === 'approve' ? t('posts.partial.approved', { id }) : first.action === 'cancel-schedule' ? t('posts.partial.unscheduled', { id }) : t('posts.partial.updated', { id });
+  const not =
+    failed.action === 'schedule'
+      ? t('posts.partial.notScheduled')
+      : failed.action === 'send'
+        ? t('posts.partial.notPosted')
+        : failed.action === 'posted'
+          ? t('posts.partial.notRecorded')
+          : failed.action === 'discard'
+            ? t('posts.partial.notRejected')
+            : t('posts.partial.notFinished');
+  return error ? t('posts.partial.withError', { did, not, error }) : t('posts.partial.noError', { did, not });
 }
 
 export function planMove(from: Column, to: Column, post: MovablePost, caps: MoveCapabilities, now = Date.now()): MovePlan {
   if (from === to) return { kind: 'none' };
   const s = post.status;
-  if (columnOf(s) !== from) return { kind: 'refuse', message: `Post ${post.id} moved on its own. The board was refreshed.` };
-  if (from === 'posted') return { kind: 'refuse', message: `Post ${post.id} is already on Instagram. It can only be taken down in Instagram itself.` };
-  if (from === 'rejected') return { kind: 'refuse', message: `Post ${post.id} was rejected and stays rejected. Make a new post instead.` };
-  if (IN_FLIGHT.includes(s)) return { kind: 'refuse', message: `Post ${post.id} is on its way to Instagram. Open it and check its status first.` };
-  if (to === 'planned') return { kind: 'refuse', message: `Approval cannot be undone. If post ${post.id} should not go out, move it to Rejected.` };
+  if (columnOf(s) !== from) return { kind: 'refuse', message: t('posts.refuse.movedOnItsOwn', { id: post.id }) };
+  if (from === 'posted') return { kind: 'refuse', message: t('posts.refuse.posted', { id: post.id }) };
+  if (from === 'rejected') return { kind: 'refuse', message: t('posts.refuse.rejected', { id: post.id }) };
+  if (IN_FLIGHT.includes(s)) return { kind: 'refuse', message: t('posts.refuse.sending', { id: post.id }) };
+  if (to === 'planned') return { kind: 'refuse', message: t('posts.refuse.approved', { id: post.id }) };
 
   if (to === 'rejected') {
     if (s === 'scheduled') return { kind: 'discard', steps: [{ action: 'cancel-schedule' }, { action: 'discard' }] };
@@ -108,7 +172,7 @@ export function planMove(from: Column, to: Column, post: MovablePost, caps: Move
   }
 
   // from here: to is 'review' or 'posted'
-  if (s === 'changed' || s === 'invalid') return { kind: 'refuse', message: `Post ${post.id} has a problem with its files, so it cannot be approved. Make a new one, or reject it.` };
+  if (s === 'changed' || s === 'invalid') return { kind: 'refuse', message: t('posts.filesChanged') };
 
   if (to === 'review') {
     // Only Planned → Review gets here (Review → Review is 'none'; Posted/Rejected were refused above).
@@ -117,9 +181,9 @@ export function planMove(from: Column, to: Column, post: MovablePost, caps: Move
   }
 
   // to === 'posted'
-  if (s === 'failed') return { kind: 'refuse', message: `Post ${post.id} did not go through last time. Open it and press Check status, or resolve it by hand.` };
+  if (s === 'failed') return { kind: 'refuse', message: t('posts.refuse.failed', { id: post.id }) };
   if (s === 'scheduled') {
-    if (post.scheduled?.provider !== 'signal' || !caps.live) return { kind: 'refuse', message: `Post ${post.id} is scheduled on Upload-Post. Cancel that schedule first (open the post), then post it.` };
+    if (post.scheduled?.provider !== 'signal' || !caps.live) return { kind: 'refuse', message: t('posts.refuse.scheduled', { id: post.id }) };
     return { kind: 'send', steps: [{ action: 'send' }], approveFirst: false };
   }
   const approveFirst = s === 'ready';
@@ -131,21 +195,36 @@ export function planMove(from: Column, to: Column, post: MovablePost, caps: Move
 export function sortForColumn<T extends { id: string; plannedFor: string | null; scheduled: { scheduled_for: string } | null; posted: { posted_at: string } | null }>(col: Column, items: T[]): T[] {
   const when = (p: T) => p.scheduled?.scheduled_for ?? p.plannedFor ?? null;
   return [...items].sort((a, b) => {
-    if (col === 'posted') return (b.posted?.posted_at ?? '').localeCompare(a.posted?.posted_at ?? '') || b.id.localeCompare(a.id);
-    if (col === 'rejected') return b.id.localeCompare(a.id);
+    if (col === 'posted') return (b.posted?.posted_at ?? '').localeCompare(a.posted?.posted_at ?? '') || comparePackageIds(b.id, a.id);
+    if (col === 'rejected') return comparePackageIds(b.id, a.id);
     const wa = when(a);
     const wb = when(b);
     if (wa && wb && wa !== wb) return wa.localeCompare(wb);
     if (wa && !wb) return -1;
     if (!wa && wb) return 1;
-    return a.id.localeCompare(b.id);
+    return comparePackageIds(a.id, b.id);
   });
+}
+
+/** Gallery order: newest package first, by package number (numeric: 100 before 99). */
+export function galleryOrder<T extends { id: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => comparePackageIds(b.id, a.id));
+}
+
+/** Results and Today "posted" lists: latest post first; the same instant falls back to the higher package number. */
+export function postedNewestFirst<T extends { id: string; posted: { posted_at: string } | null }>(items: T[]): T[] {
+  return items.filter((p) => p.posted).sort((a, b) => (b.posted!.posted_at < a.posted!.posted_at ? -1 : b.posted!.posted_at > a.posted!.posted_at ? 1 : comparePackageIds(b.id, a.id)));
+}
+
+/** Today's "needs you" list: planned time first (unplanned last), then package number. */
+export function needsYouOrder<T extends { id: string; plannedFor: string | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => (a.plannedFor ?? '9').localeCompare(b.plannedFor ?? '9') || comparePackageIds(a.id, b.id));
 }
 
 // ---- overdue plans ----------------------------------------------------------------------------
 
 /** What the board card, the drawer and the Calendar chip say about an overdue plan. */
-export const OVERDUE_TEXT = 'Planned time passed. Post now, schedule, or re-plan.';
+export const OVERDUE_TEXT = t('posts.overdue');
 
 /** An approved post whose planned time has passed without being scheduled or posted. */
 export function isOverdue(p: { status: string; plannedFor: string | null; scheduled?: unknown; posted?: unknown }, now = Date.now()): boolean {
@@ -159,17 +238,17 @@ export const SCHEDULE_LEAD_MS = 15 * 60_000;
 
 /**
  * The two times an overdue post can be scheduled for, both at least SCHEDULE_LEAD_MS from now:
- *   atPlannedTime: the planned clock time (Studio time zone) on the next day it is still ahead (keeps the cadence)
+ *   atPlannedTime: the planned clock time (project zone; default zone when none) on the next day it is still ahead (keeps the cadence)
  *   soonest:       now + the lead, rounded up to the next 5 minutes
  */
-export function overdueTimes(plannedFor: string, now = Date.now()): { atPlannedTime: string | null; soonest: string } {
+export function overdueTimes(plannedFor: string, now = Date.now(), zone?: Zoned): { atPlannedTime: string | null; soonest: string } {
   const step = 5 * 60_000;
   const soonest = new Date(Math.ceil((now + SCHEDULE_LEAD_MS) / step) * step).toISOString();
-  const time = zonedParts(plannedFor).time;
-  let date = zonedParts(now).date;
+  const time = partsIn(zone, plannedFor).time;
+  let date = partsIn(zone, now).date;
   let atPlannedTime: string | null = null;
   for (let i = 0; i < 3 && !atPlannedTime; i++, date = addDays(date, 1)) {
-    const r = zonedToUtc(date, time);
+    const r = wallToUtcIn(zone, date, time);
     if (r.ok && Date.parse(r.iso) >= now + SCHEDULE_LEAD_MS) atPlannedTime = r.iso;
   }
   return { atPlannedTime, soonest };

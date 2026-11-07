@@ -1,16 +1,22 @@
 "use client";
-// Post packages: the data hook, the shared per-post actions and the Make-a-post bar. The Posts
-// screen (Posts.tsx) shows them as a board and lists. Approve re-checks every file fingerprint on
-// the server; posting is by hand or, when posting is switched on for the account, one
-// owner-confirmed send. Nothing is approved or posted automatically.
+// Real posts: the data hook, the shared per-post actions and the make form (shown in the header's
+// "Make a post" drawer until Post maker ships). The Posts screen (Posts.tsx) shows them as a board, a
+// gallery and lists. Approve re-checks every file on the server; posting is by hand or, when posting is
+// switched on for the account, one owner-confirmed send. Nothing is approved or posted automatically.
+import type { ConnectionBlock } from "@/lib/studio/posting-blocks";
+import { useConfirm, type ConfirmFn, type ConfirmRequest } from "./ui/Dialog";
+import { Button } from "./ui/Button";
+import { More } from "./More";
+import { t } from "./copy/en";
+import { deferApprove, useApproving } from "./approve-undo";
+import { formatWhenIn } from "@/lib/studio/time";
 import { useRouter } from "next/navigation";
 import { notifyChanged, useOnChanged } from "./sync";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { getProjectId, useProjectId } from "./Projects";
 import { Select } from "./Select";
 import { TaskProgress } from "./loaders";
 import { OVERDUE_TEXT, canReject, isOverdue, overdueTimes } from "./posts-rules";
-import { formatDateTime } from "@/lib/time";
 
 export type Status =
   | "ready"
@@ -53,8 +59,10 @@ export interface RealPackage {
   missedReason?: string | null;
   metrics: { fetched_at: string; metrics: { views: number | null; reach: number | null; likes: number | null; comments: number | null; saves: number | null; shares: number | null; impressions: number | null } | null; error?: string } | null;
   dispatch: { request_id: string; provider?: "upload-post" | "meta" } | null;
-  source?: { format?: string; category?: string } | null;
+  source?: { format?: string; category?: string; generator?: string } | null;
   campaign?: { id: string; name: string; slot: string } | null;
+  /** Set when Post maker made the post: the card's origin line. */
+  postmaker?: { template: string; version: number } | null;
   /** Set when a pipeline made the post: its name shows on the card. */
   pipeline?: { id: string; name: string; slotAt: string } | null;
   /** Set when autopilot made the post. */
@@ -67,7 +75,8 @@ interface Account {
   maxPosts: number;
   posted: number;
   open: boolean;
-  expiresAt: number;
+  /** When the posting settings end; null (or not finite) when they have no end date. */
+  expiresAt: number | null;
   maxPerDay: number;
   reason?: string;
 }
@@ -96,26 +105,17 @@ export interface Payload {
   live: Live;
   codex?: Live;
   higgsfield?: Live;
+  /** Connections that block a post planned within 24 h (Today › Needs you). */
+  connectionBlocks?: ConnectionBlock[];
   scheduling?: Live;
   instagram?: Live;
   analytics?: Live & { source?: 'instagram' | 'upload-post' | null };
   insights?: Insights;
-  project?: { id: string; name: string; handle: string };
+  project?: { id: string; name: string; handle: string; timeZone?: string };
+  /** The formats the project can make, with its labels (the make form's list). */
+  formats?: MakeFormat[];
 }
 
-export const STATUS_LABEL: Record<Status, string> = {
-  ready: "Waiting for your OK",
-  changed: "Files changed: needs a new package",
-  approved: "Approved",
-  scheduled: "Scheduled",
-  sending: "Sending…",
-  submitted: "Publishing on Instagram…",
-  uncertain: "Unclear: check before anything else",
-  failed: "Not posted",
-  posted: "Posted",
-  discarded: "Rejected",
-  invalid: "Package problem",
-};
 
 const projectQuery = () => `project=${encodeURIComponent(getProjectId() ?? "")}`;
 export const fileUrl = (id: string, name: string, download = false) =>
@@ -131,7 +131,7 @@ export function useRealPosts() {
     try {
       const r = await fetch(`/api/studio/content?project=${encodeURIComponent(pid)}`, { cache: "no-store" });
       if (r.status === 401) {
-        // The session ended (for example the mock server restarted): sign in again.
+        // The session ended: sign in again.
         router.push("/login?next=%2Fstudio");
         return;
       }
@@ -165,7 +165,7 @@ export function thumbUrl(p: RealPackage): string | null {
 }
 
 /** One POST /api/studio/content/:id action with busy state, the error line and the shared refresh. */
-export function usePackageAct(pkgId: string, { onChange, reload, say }: { onChange: (p: RealPackage) => void; reload: () => Promise<void>; say: (t: string) => void }) {
+export function usePackageAct(pkgId: string, { onChange, reload, say }: { onChange: (p: RealPackage) => void; reload: () => Promise<void>; say: Say }) {
   const [busy, setBusy] = useState(false);
   const [doing, setDoing] = useState("");
   const [err, setErr] = useState("");
@@ -188,7 +188,7 @@ export function usePackageAct(pkgId: string, { onChange, reload, say }: { onChan
           return false;
         }
         const j = (await r.json()) as { package?: RealPackage; error?: { message: string } };
-        if (!r.ok || !j.package) throw new Error(j.error?.message ?? "Something went wrong.");
+        if (!r.ok || !j.package) throw new Error(j.error?.message ?? t("post.couldNotAct"));
         onChange(j.package);
         notifyChanged("content", "calendar", "campaigns");
         if (okText) say(okText);
@@ -243,11 +243,62 @@ export function quickAction(pkg: RealPackage): "check" | "resolve" | "label" | n
   return null;
 }
 
+/** Says something in the Studio toast; `onUndo` adds the Undo button (8 s). */
+export type Say = (text: string, opts?: { onUndo?: () => void }) => void;
+
 /**
- * Every action that is valid for a package in its current status: approve (after the two checks),
- * post now, schedule, cancel a schedule, check status, resolve an unclear result, confirm the AI
- * label, record a hand-made post, reject. Shared by the Posts drawer; the board's moves run the
- * same server actions through the move rules.
+ * One POST /api/studio/content/:id outside a component (the deferred approval runs after the drawer closed).
+ * The project is the selected one unless `body.project` names it: a deferred send must name the project it was
+ * chosen in, because the selection can change before it goes out.
+ */
+export async function postAction(pkgId: string, body: Record<string, unknown>, opts: { keepalive?: boolean } = {}): Promise<RealPackage> {
+  const r = await fetch(`/api/studio/content/${pkgId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project: getProjectId(), ...body }),
+    keepalive: opts.keepalive,
+  });
+  const j = (await r.json().catch(() => ({}))) as { package?: RealPackage; error?: { message: string } };
+  if (!r.ok || !j.package) throw new Error(j.error?.message ?? t("post.couldNotAct"));
+  return j.package;
+}
+
+/** The key of a deferred approval: project and post. */
+export const approveKey = (pkgId: string, project: string | null = getProjectId()) => `${project ?? ""}/${pkgId}`;
+
+/**
+ * Approve with Undo: no confirmation; a toast with Undo for 8 s, and the approval is sent when that
+ * time is up (approve-undo.ts). The two review checks before it stay: they are the reviewer's own statement.
+ */
+export function approveWithUndo(pkg: RealPackage, { say, onChange }: { say: Say; onChange: (p: RealPackage) => void }): void {
+  // The project is read once, at the click: switching project inside the 8 s must not approve another post.
+  const project = getProjectId();
+  const undo = deferApprove(
+    approveKey(pkg.id, project),
+    async ({ keepalive }) => {
+      const done = await postAction(pkg.id, { action: "approve", project }, { keepalive });
+      // Another project is shown now: its list has its own post with this number, so only refresh.
+      if (getProjectId() === project) onChange(done);
+      notifyChanged("content", "calendar", "campaigns");
+    },
+    (e) => {
+      say(t("post.approveFailed", { id: pkg.id, message: e.message }));
+      notifyChanged("content");
+    },
+  );
+  say(t("post.approved", { id: pkg.id }), {
+    onUndo: () => {
+      // The toast closes itself after Undo; the confirmation follows on the next tick.
+      if (undo()) setTimeout(() => say(t("post.approveUndone", { id: pkg.id })), 0);
+    },
+  });
+}
+
+/**
+ * Every action that is valid for a post in its current status: approve (after the two checks, with Undo), post
+ * now, schedule, unschedule, check status, resolve an unclear result, confirm the AI label, record a hand-made
+ * post, reject. Confirms use the shared Dialog shape (a question naming the post, one consequence
+ * line, a confirm that repeats the verb). At most one primary button is visible at a time.
  */
 export function PackageActions({
   pkg,
@@ -256,272 +307,264 @@ export function PackageActions({
   say,
   onChange,
   reload,
-  confirm = async (m) => window.confirm(m),
+  confirm: confirmProp,
+  timeZone,
+  layout,
 }: {
   pkg: RealPackage;
   live: Live;
   scheduling?: Live;
-  say: (t: string) => void;
+  say: Say;
   onChange: (p: RealPackage) => void;
   reload: () => Promise<void>;
-  /** Asks the owner before anything that posts, approves or rejects. Defaults to the browser's confirm box. */
-  confirm?: (message: string) => Promise<boolean>;
+  /** Asks before anything that posts, schedules or rejects. Defaults to its own Studio Dialog (ui/Dialog.tsx). */
+  confirm?: ConfirmFn;
+  /** The project time zone for every date and time shown; the default zone when unset. */
+  timeZone?: string | null;
+  /**
+   * Places the parts: the drawer puts `primary` (the status's one filled button) and `secondary` (Reject) in its
+   * sticky footer and `body` in its scrolling body. Without it they are stacked in place.
+   */
+  layout?: (parts: { body: ReactNode; primary: ReactNode; secondary: ReactNode }) => ReactNode;
 }) {
+  const own = useConfirm();
+  const confirm = confirmProp ?? own.confirm;
+  const approving = useApproving().has(approveKey(pkg.id));
   const [openedAt] = useState(() => Date.now());
   const [url, setUrl] = useState("");
   const [aiLabel, setAiLabel] = useState(false);
   const [checks, setChecks] = useState({ look: false, claims: false });
   const { act, busy, doing, err } = usePackageAct(pkg.id, { onChange, reload, say });
   const media = pkg.files.filter((f) => f.role !== "caption");
-  const ask = async (message: string, body: Record<string, unknown>, okText: string) => {
-    if (await confirm(message)) await act(body, okText);
+  const when = (iso: string | null | undefined) => formatWhenIn(timeZone, iso);
+  const ask = async (req: ConfirmRequest, body: Record<string, unknown>, okText: string) => {
+    if (await confirm(req)) await act(body, okText);
   };
-  const scheduleQuestion = (iso: string) =>
-    scheduling?.provider === "signal"
-      ? `Schedule post ${pkg.id} for ${formatDateTime(iso)}? Signal sends it at that time while it is running on your machine. If Signal is off then, it waits for you. You can move or cancel it until then.`
-      : `Schedule post ${pkg.id} on Upload-Post for ${formatDateTime(iso)}? It posts at that time even if your machine is off. You can cancel or move it until a minute before.`;
+  const scheduleRequest = (iso: string): ConfirmRequest => ({
+    title: t("post.scheduleTitle", { id: pkg.id, when: when(iso) }),
+    body: scheduling?.provider === "signal" ? t("post.scheduleBodySignal") : t("post.scheduleBodyProvider"),
+    confirmLabel: t("post.scheduleConfirm"),
+  });
   const overdue = isOverdue(pkg, openedAt);
-  const times = overdue && pkg.plannedFor ? overdueTimes(pkg.plannedFor, openedAt) : null;
+  const times = overdue && pkg.plannedFor ? overdueTimes(pkg.plannedFor, openedAt, timeZone) : null;
   /** An overdue post: one confirm, then re-plan to `iso` and schedule it there (only on this click). */
   const scheduleOverdue = async (iso: string) => {
-    if (!(await confirm(scheduleQuestion(iso)))) return;
-    if (await act({ action: "plan", plannedFor: iso }, "")) await act({ action: "schedule" }, `Post ${pkg.id} scheduled for ${formatDateTime(iso)}`);
+    if (!(await confirm(scheduleRequest(iso)))) return;
+    if (await act({ action: "plan", plannedFor: iso }, "")) await act({ action: "schedule" }, t("post.scheduled", { id: pkg.id, when: when(iso) }));
   };
+  const linkOk = url.trim().length > 0;
+  const busyReason = t("post.busyReason");
 
-  return (
-    <div className="st-stack" style={{ gap: 14 }}>
-      {pkg.problems.length ? (
-        <ul className="real-problems st-small">
-          {pkg.problems.map((x) => (
-            <li key={x}>{x}</li>
-          ))}
-        </ul>
-      ) : null}
+  // The one primary for the post's status. The statuses do not overlap, so at most one is set.
+  const approveButton =
+    pkg.status === "ready" && !approving ? (
+      <Button level="primary" disabled={busy || !checks.look || !checks.claims} reason={busy ? busyReason : t("post.approveReason")} onClick={() => approveWithUndo(pkg, { say, onChange })}>
+        {t("post.approve")}
+      </Button>
+    ) : null;
+  const sendButton =
+    pkg.status === "approved" && live.enabled ? (
+      <Button
+        level="primary"
+        busy={busy && doing === "send"}
+        disabled={busy}
+        reason={busyReason}
+        onClick={() => void ask({ title: t("post.sendTitle", { id: pkg.id, handle: pkg.destination }), body: t("post.sendBody"), confirmLabel: t("post.sendNow") }, { action: "send" }, t("post.sent", { id: pkg.id }))}
+      >
+        {t("post.sendNow")}
+      </Button>
+    ) : null;
+  const recordButton =
+    pkg.status === "approved" ? (
+      // Secondary while "Post now" is the primary (one filled button).
+      <Button level={live.enabled ? "secondary" : "primary"} busy={busy && doing === "posted"} disabled={busy || !linkOk || !aiLabel} reason={busy ? busyReason : t("post.recordReason")} onClick={() => void act({ action: "posted", url, aiLabel }, t("post.recorded", { id: pkg.id }))}>
+        {t("post.record")}
+      </Button>
+    ) : null;
+  const isLiveButton = needsResolve(pkg) ? (
+    <Button level="primary" busy={busy && doing === "resolve"} disabled={busy || !linkOk} reason={busy ? busyReason : t("post.link")} onClick={() => void act({ action: "resolve", posted: true, url }, t("post.recorded", { id: pkg.id }))}>
+      {t("post.isLive")}
+    </Button>
+  ) : null;
+  const labelButton =
+    pkg.status === "posted" && !pkg.labelConfirmed ? (
+      <Button level="primary" busy={busy && doing === "label"} disabled={busy} reason={busyReason} onClick={() => void act({ action: "label" }, t("post.labelConfirmed"))}>
+        {t("post.labelConfirm")}
+      </Button>
+    ) : null;
+  const primary = approveButton ?? sendButton ?? (live.enabled ? null : recordButton) ?? isLiveButton ?? labelButton;
+  const secondary =
+    canReject(pkg) && !approving ? (
+      <Button level="destructive" busy={busy && doing === "discard"} disabled={busy} reason={busyReason} onClick={() => void ask(rejectRequest(pkg.id), { action: "discard" }, t("post.rejected", { id: pkg.id }))}>
+        {t("post.reject")}
+      </Button>
+    ) : null;
 
-      {pkg.status === "ready" ? (
-        <div className="st-stack" style={{ gap: 8 }}>
-          <label className="real-check">
-            <input type="checkbox" checked={checks.look} onChange={(e) => setChecks({ ...checks, look: e.target.checked })} /> I looked at every slide and the caption, and the “AI-generated content” label is visible.
-          </label>
-          <label className="real-check">
-            <input type="checkbox" checked={checks.claims} onChange={(e) => setChecks({ ...checks, claims: e.target.checked })} />{" "}
-            {pkg.source?.format === "website-card" ? "The text matches the page, and the rights notes in the manifest are fine." : "The claims are true and the rights notes in the manifest are fine."}
-          </label>
-          <div className="row-wrap" style={{ gap: 8 }}>
-            <button
-              aria-busy={busy && doing === "approve"}
-              type="button"
-              className="st-btn st-btn-primary st-btn-sm"
-              disabled={busy || !checks.look || !checks.claims}
-              onClick={() => void ask(`Approve post ${pkg.id} exactly as shown for ${pkg.destination}? Any later change needs a new approval.`, { action: "approve" }, `Post ${pkg.id} approved. It is OK to post now.`)}
-            >
-              Approve these exact files
-            </button>
-          </div>
+  const body = (
+    <div className="st-stack pa">
+      {confirmProp ? null : own.node}
+      {pkg.status === "changed" || pkg.status === "invalid" ? (
+        <div className="st-stack pa-group">
+          <p className="st-small pa-bad">{t("posts.filesChanged")}</p>
+          {pkg.problems.length ? (
+            <More label={t("notice.details")}>
+              <ul className="real-problems st-small">
+                {pkg.problems.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
+            </More>
+          ) : null}
         </div>
       ) : null}
 
+      {pkg.status === "ready" ? (
+        approving ? (
+          <p className="st-small" role="status">
+            {t("posts.approving")}
+          </p>
+        ) : (
+          <div className="st-stack pa-group">
+            <label className="real-check">
+              <input type="checkbox" checked={checks.look} onChange={(e) => setChecks({ ...checks, look: e.target.checked })} /> {t("post.checkLook")}
+            </label>
+            <label className="real-check">
+              <input type="checkbox" checked={checks.claims} onChange={(e) => setChecks({ ...checks, claims: e.target.checked })} /> {t("post.checkClaims")}
+            </label>
+          </div>
+        )
+      ) : null}
+
       {overdue ? (
-        <p className="real-outcome st-small real-uncertain" role="status">
-          <strong>{OVERDUE_TEXT}</strong> It was planned for {formatDateTime(pkg.plannedFor)} and nothing was posted
-          {pkg.missedAt ? (pkg.missedReason ? `: ${pkg.missedReason}` : ": Signal was not running") : ": a planned time is not a schedule"}.
+        <p className="st-small pa-warn" role="status">
+          {OVERDUE_TEXT}
         </p>
       ) : pkg.status === "approved" && pkg.missedAt ? (
-        <p className="real-outcome st-small real-uncertain" role="status">
-          Missed its time{pkg.plannedFor ? ` (${formatDateTime(pkg.plannedFor)})` : ""}
-          {pkg.missedReason ? `: ${pkg.missedReason}` : " because Signal was not running"}. Nothing was posted. Post it now or pick a new time in the Calendar.
+        <p className="st-small pa-warn" role="status">
+          {t("post.missed")}
         </p>
       ) : null}
 
       {pkg.status === "approved" && live.enabled ? (
-        <div className="st-stack" style={{ gap: 8 }}>
-          <div>
-            <button
-              aria-busy={busy && doing === "send"}
-              type="button"
-              className="st-btn st-btn-primary"
-              disabled={busy}
-              onClick={() =>
-                void ask(
-                  `Post ${pkg.id} goes to ${pkg.destination} now, publicly, with the AI label. It is sent once and cannot be undone from here. Send it?`,
-                  { action: "send" },
-                  `Post ${pkg.id} sent to ${live.provider === "meta" ? "Instagram" : "Upload-Post"}`,
-                )
-              }
-            >
-              Post to Instagram now
-            </button>
-          </div>
-          <span className="st-small st-muted">
-            Approved {formatDateTime(pkg.approval!.approved_at)} by {pkg.approval!.approved_by} · sent once via {live.provider === "meta" ? "Meta" : "Upload-Post"}, never retried
-          </span>
-          {times ? (
-            scheduling?.enabled ? (
-              <div className="st-stack" style={{ gap: 6 }}>
-                <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
-                  {times.atPlannedTime ? (
-                    <button aria-busy={busy && (doing === "plan" || doing === "schedule")} type="button" className="st-btn st-btn-dark st-btn-sm" disabled={busy} onClick={() => void scheduleOverdue(times.atPlannedTime!)}>
-                      Schedule at planned time · {formatDateTime(times.atPlannedTime)}
-                    </button>
-                  ) : null}
-                  <button aria-busy={busy && (doing === "plan" || doing === "schedule")} type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={() => void scheduleOverdue(times.soonest)}>
-                    Schedule now · {formatDateTime(times.soonest)}
-                  </button>
-                </div>
-                <span className="xs st-muted">Or pick a new time in the Calendar. Nothing is scheduled until you confirm.</span>
-              </div>
-            ) : (
-              <span className="xs st-muted">{scheduling?.reason ? `${scheduling.reason} ` : ""}Pick a new time in the Calendar, or post it now.</span>
-            )
-          ) : pkg.plannedFor && Date.parse(pkg.plannedFor) > openedAt + 10 * 60_000 ? (
-            scheduling?.enabled ? (
-              <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
-                <button
-                  aria-busy={busy && doing === "schedule"}
-                  type="button"
-                  className="st-btn st-btn-dark st-btn-sm"
-                  disabled={busy}
-                  onClick={() =>
-                    void ask(
-                      scheduling?.provider === "signal"
-                        ? `Schedule post ${pkg.id} for ${formatDateTime(pkg.plannedFor!)}? Signal sends it at that time while it is running on your machine. If Signal is off then, it waits for you. You can move or cancel it until then.`
-                        : `Schedule post ${pkg.id} on Upload-Post for ${formatDateTime(pkg.plannedFor!)}? It posts at that time even if your machine is off. You can cancel or move it until a minute before.`,
-                      { action: "schedule" },
-                      `Post ${pkg.id} scheduled`,
-                    )
-                  }
-                >
-                  Schedule for {formatDateTime(pkg.plannedFor)}
-                </button>
-                <span className="xs st-muted">from its Calendar plan</span>
-              </div>
-            ) : (
-              <span className="xs st-muted">{scheduling?.reason}</span>
-            )
+        times ? (
+          scheduling?.enabled ? (
+            <div className="pa-row">
+              {times.atPlannedTime ? (
+                <Button level="secondary" dense busy={busy && (doing === "plan" || doing === "schedule")} disabled={busy} reason={busyReason} onClick={() => void scheduleOverdue(times.atPlannedTime!)}>
+                  {t("post.scheduleFor", { when: when(times.atPlannedTime) })}
+                </Button>
+              ) : null}
+              <Button level="secondary" dense busy={busy && (doing === "plan" || doing === "schedule")} disabled={busy} reason={busyReason} onClick={() => void scheduleOverdue(times.soonest)}>
+                {t("post.scheduleNow", { when: when(times.soonest) })}
+              </Button>
+            </div>
           ) : (
-            <span className="xs st-muted">Plan a time in the Calendar to schedule it.</span>
-          )}
-        </div>
+            <span className="xs st-muted">{t("post.planFirst")}</span>
+          )
+        ) : pkg.plannedFor && Date.parse(pkg.plannedFor) > openedAt + 10 * 60_000 ? (
+          scheduling?.enabled ? (
+            <div className="pa-row">
+              <Button
+                level="secondary"
+                dense
+                busy={busy && doing === "schedule"}
+                disabled={busy}
+                reason={busyReason}
+                onClick={() => void ask(scheduleRequest(pkg.plannedFor!), { action: "schedule" }, t("post.scheduled", { id: pkg.id, when: when(pkg.plannedFor) }))}
+              >
+                {t("post.scheduleFor", { when: when(pkg.plannedFor) })}
+              </Button>
+            </div>
+          ) : scheduling?.reason ? (
+            <More label={t("posts.why")}>
+              <span>{scheduling.reason}</span>
+            </More>
+          ) : null
+        ) : (
+          <span className="xs st-muted">{t("post.planFirst")}</span>
+        )
       ) : null}
 
       {pkg.status === "scheduled" && pkg.scheduled ? (
-        <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
-          <span className="st-small">
-            Goes out <strong>{formatDateTime(pkg.scheduled.scheduled_for)}</strong> {pkg.scheduled.provider === "signal" ? "from Signal (keep it running)" : "via Upload-Post"}.
-          </span>
-          <button
-            aria-busy={busy && doing === "cancel-schedule"}
-            type="button"
-            className="st-btn st-btn-ghost st-btn-sm"
+        <div className="pa-row">
+          <span className="st-small">{t("post.goesOut", { when: when(pkg.scheduled.scheduled_for) })}</span>
+          <Button
+            level="secondary"
+            dense
+            busy={busy && doing === "cancel-schedule"}
             disabled={busy}
-            onClick={() => void ask(`Cancel the schedule for post ${pkg.id}? It goes back to Approved.`, { action: "cancel-schedule" }, `Schedule for post ${pkg.id} cancelled`)}
+            reason={busyReason}
+            onClick={() => void ask({ title: t("post.unscheduleTitle", { id: pkg.id }), body: t("post.unscheduleBody"), confirmLabel: t("post.unscheduleConfirm") }, { action: "cancel-schedule" }, t("post.unscheduled", { id: pkg.id }))}
           >
-            Cancel schedule
-          </button>
+            {t("post.unschedule")}
+          </Button>
         </div>
       ) : null}
 
-      {pkg.outcome?.message && pkg.status !== "posted" ? <p className={`real-outcome st-small real-${pkg.status}`}>{pkg.outcome.message}</p> : null}
+      {/* The provider's own words stay behind Details (no server text as the main line). */}
+      {pkg.outcome?.message && pkg.status !== "posted" ? (
+        <More label={t("notice.details")}>
+          <span>{pkg.outcome.message}</span>
+        </More>
+      ) : null}
 
       {needsCheck(pkg) ? (
-        <div className="row-wrap" style={{ gap: 8 }}>
-          <button aria-busy={busy && doing === "check"} type="button" className="st-btn st-btn-dark st-btn-sm" disabled={busy} onClick={() => void act({ action: "check" }, "Status checked")}>
-            Check status
-          </button>
+        <div>
+          <Button level="secondary" dense busy={busy && doing === "check"} disabled={busy} reason={busyReason} onClick={() => void act({ action: "check" }, t("post.statusChecked"))}>
+            {t("post.checkStatus")}
+          </Button>
         </div>
       ) : null}
 
       {needsResolve(pkg) ? (
-        <div className="st-stack" style={{ gap: 8 }}>
-          <span className="st-small">Check {pkg.destination} on Instagram: paste the link if it is there, or mark it not posted.</span>
-          <input className="st-input" type="url" inputMode="url" placeholder="https://www.instagram.com/p/…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Instagram post link" />
-          <div className="row-wrap" style={{ gap: 8 }}>
-            <button aria-busy={busy && doing === "resolve"} type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy || !url} onClick={() => void act({ action: "resolve", posted: true, url }, `Post ${pkg.id} recorded`)}>
-              It is on Instagram
-            </button>
-            {pkg.status === "uncertain" ? (
-              <button
-                aria-busy={busy && doing === "resolve"}
-                type="button"
-                className="st-btn st-btn-ghost st-btn-sm"
+        <div className="st-stack pa-group">
+          <span className="st-small">{t("post.resolveLine", { handle: pkg.destination })}</span>
+          <input className="st-input" type="url" inputMode="url" placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label={t("post.link")} />
+          {pkg.status === "uncertain" ? (
+            <div className="pa-row">
+              <Button
+                level="secondary"
+                dense
                 disabled={busy}
-                onClick={() => void ask(`You checked ${pkg.destination} and the post is not there? It will be marked as not posted; a replacement needs a new package.`, { action: "resolve", posted: false }, `Post ${pkg.id} marked as not posted`)}
+                reason={busyReason}
+                onClick={() => void ask({ title: t("post.notLiveTitle", { id: pkg.id }), body: t("post.notLiveBody"), confirmLabel: t("post.notLiveConfirm") }, { action: "resolve", posted: false }, t("post.markedNotLive", { id: pkg.id }))}
               >
-                It is not on Instagram
-              </button>
-            ) : null}
-          </div>
+                {t("post.notLive")}
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {pkg.status === "posted" && !pkg.labelConfirmed ? (
-        <div className="st-stack" style={{ gap: 8 }}>
-          <span className="st-small">
-            Posted.{" "}
-            {pkg.posted?.url ? (
-              <a className="real-link" href={pkg.posted.url} target="_blank" rel="noreferrer">
-                Open it on Instagram
-              </a>
-            ) : (
-              `Open ${pkg.destination} on Instagram`
-            )}{" "}
-            and check the “AI info” label is shown. The next post unlocks after this check.
-          </span>
-          <div>
-            <button aria-busy={busy && doing === "label"} type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy} onClick={() => void act({ action: "label" }, "AI label confirmed")}>
-              I checked: label visible, post looks right
-            </button>
-          </div>
-        </div>
+      {labelButton ? (
+        <span className="st-small">
+          {t("post.labelLine")}{" "}
+          {pkg.posted?.url ? (
+            <a className="real-link" href={pkg.posted.url} target="_blank" rel="noreferrer">
+              {t("post.viewLive")}
+            </a>
+          ) : null}
+        </span>
       ) : null}
 
       {pkg.status === "approved" ? (
-        <details className="st-stack" style={{ gap: 10 }} open={!live.enabled}>
-          <summary className="st-small st-muted">{live.enabled ? "Or post it by hand instead" : "Post it by hand"}</summary>
-          <ol className="real-steps st-small">
-            <li>
-              Download the {media.length > 1 ? "slides" : "file"}:{" "}
-              {media.map((f, i) => (
-                <a key={f.name} className="real-link" href={fileUrl(pkg.id, f.name, true)}>
-                  {media.length > 1 ? `slide ${i + 1}` : f.name}
-                  {i < media.length - 1 ? ", " : ""}
-                </a>
-              ))}
-              . Send them to your phone or post from instagram.com.
-            </li>
-            <li>In Instagram: New post → select {media.length > 1 ? "the slides in order" : "the file"} → paste the caption.</li>
-            <li>
-              Advanced settings → turn on <strong>Add AI label</strong> → Share.
-            </li>
-            <li>Paste the post link below.</li>
-          </ol>
-          <input className="st-input" type="url" inputMode="url" placeholder="https://www.instagram.com/p/…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Instagram post link" />
-          <label className="real-check">
-            <input type="checkbox" checked={aiLabel} onChange={(e) => setAiLabel(e.target.checked)} /> Instagram’s AI label is on for this post.
-          </label>
-          <div>
-            <button aria-busy={busy && doing === "posted"} type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy || !url || !aiLabel} onClick={() => void act({ action: "posted", url, aiLabel }, `Post ${pkg.id} recorded`)}>
-              Record as posted
-            </button>
-          </div>
-          <span className="st-small st-muted">
-            Approved {formatDateTime(pkg.approval!.approved_at)} by {pkg.approval!.approved_by}
+        <details className="st-stack pa-group" open={!live.enabled}>
+          <summary className="st-small st-muted">{live.enabled ? t("post.byHandInstead") : t("post.byHand")}</summary>
+          <span className="st-small">{t("post.byHandSteps")}</span>
+          <span className="st-small pa-row">
+            {media.map((f, i) => (
+              <a key={f.name} className="real-link" href={fileUrl(pkg.id, f.name, true)}>
+                {t("post.download")} {media.length > 1 ? i + 1 : ""}
+              </a>
+            ))}
           </span>
+          <input className="st-input" type="url" inputMode="url" placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label={t("post.link")} />
+          <label className="real-check">
+            <input type="checkbox" checked={aiLabel} onChange={(e) => setAiLabel(e.target.checked)} /> {t("post.aiLabelOn")}
+          </label>
+          {/* With one-click posting on, recording by hand is the secondary way and stays here. */}
+          {live.enabled ? <div>{recordButton}</div> : null}
         </details>
-      ) : null}
-
-      {canReject(pkg) ? (
-        <div>
-          <button
-            aria-busy={busy && doing === "discard"}
-            type="button"
-            className="st-btn st-btn-ghost st-btn-sm"
-            disabled={busy}
-            onClick={() => void ask(`Reject post ${pkg.id}? It moves to Rejected and will not be posted (its files stay on disk).`, { action: "discard" }, `Post ${pkg.id} rejected`)}
-          >
-            Reject this post
-          </button>
-        </div>
       ) : null}
 
       {err ? (
@@ -531,18 +574,61 @@ export function PackageActions({
       ) : null}
     </div>
   );
+
+  if (layout) return <>{layout({ body, primary, secondary })}</>;
+  return (
+    <div className="st-stack pa-standalone">
+      {body}
+      {primary || secondary ? (
+        <div className="pa-row">
+          {primary}
+          {secondary}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
-const FORMAT_OPTIONS: [string, string][] = [
-  ["codex-post", "Codex image post (your idea)"],
-  ["website-card", "Website post (from your site)"],
-  ["higgsfield-image", "Higgsfield image (paid)"],
-  ["higgsfield-reel", "Higgsfield Reel (paid)"],
-];
-const BRIEF = new Set(["codex-post", "higgsfield-image", "higgsfield-reel"]);
+/** Reject uses the shared Dialog: "Reject post 12?" / "It will not be posted." / [Cancel] [Reject post]. */
+export function rejectRequest(id: string): ConfirmRequest {
+  return { title: t("post.rejectTitle", { id }), body: t("post.rejectBody"), confirmLabel: t("post.rejectConfirm"), destructive: true };
+}
 
-export function GenerateBar({ say, onMade, codex, higgsfield }: { say: (t: string) => void; onMade: (p: RealPackage) => void; codex?: Live; higgsfield?: Live }) {
-  const [format, setFormat] = useState("codex-post");
+/** One format the project can make, as the server names it (GET /api/studio/content `formats`). */
+export interface MakeFormat {
+  id: string;
+  label: string;
+}
+/** Formats that take a written brief, and the switches each one needs. Labels always come from the server. */
+const BRIEF = new Set(["codex-post", "higgsfield-image", "higgsfield-reel"]);
+const NEEDS_CODEX = ["codex-post"];
+const NEEDS_HIGGSFIELD = ["higgsfield-image", "higgsfield-reel"];
+const MAKE_SECONDS: Record<string, number> = { "codex-post": 150, "website-card": 12, "higgsfield-image": 90, "higgsfield-reel": 300 };
+
+/** The progress steps of a make, by format. */
+function makeSteps(format: string): string[] {
+  if (format === "higgsfield-reel") return [t("make.step.prompt"), t("make.step.hfStill"), t("make.step.animate"), t("make.step.convert"), t("make.step.save")];
+  if (format === "higgsfield-image") return [t("make.step.prompt"), t("make.step.hfImage"), t("make.step.text"), t("make.step.save")];
+  if (format === "codex-post") return [t("make.step.prompt"), t("make.step.drawing"), t("make.step.text"), t("make.step.save")];
+  if (format === "website-card") return [t("make.step.page"), t("make.step.photo"), t("make.step.slides"), t("make.step.save")];
+  return [t("make.step.brief"), t("make.step.visual"), t("make.step.text"), t("make.step.save")];
+}
+
+/** Why a format cannot be made right now, or null. */
+function offReason(format: string, codex?: Live, higgsfield?: Live): string | null {
+  if (NEEDS_CODEX.includes(format) && !codex?.enabled) return t("make.codexOff");
+  if (NEEDS_HIGGSFIELD.includes(format) && !higgsfield?.enabled) return higgsfield?.reason || t("make.higgsfieldOff");
+  return null;
+}
+
+/** The make form (the header's "Make a post" drawer). */
+export function GenerateBar({ say, onMade, codex, higgsfield, formats }: { say: (t: string) => void; onMade: (p: RealPackage) => void; codex?: Live; higgsfield?: Live; formats: MakeFormat[] }) {
+  const options = formats.map((f) => {
+    const off = offReason(f.id, codex, higgsfield);
+    return { value: f.id, label: f.label, disabled: off !== null, hint: off ?? undefined };
+  });
+  // Starts on the first format that can be made now.
+  const [format, setFormat] = useState(() => options.find((o) => !o.disabled)?.value ?? options[0]?.value ?? "");
   const [brief, setBrief] = useState({ prompt: "", headline: "", caption: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -561,94 +647,66 @@ export function GenerateBar({ say, onMade, codex, higgsfield }: { say: (t: strin
         return;
       }
       const j = (await r.json()) as { package?: RealPackage; error?: { message: string } };
-      if (!r.ok || !j.package) throw new Error(j.error?.message ?? "Could not generate.");
+      if (!r.ok || !j.package) throw new Error(j.error?.message ?? t("make.couldNotMake"));
       onMade(j.package);
       notifyChanged('content', 'calendar');
-      say(`Post ${j.package.id} is ready for your approval`);
+      say(t("posts.slot.made", { id: j.package.id }));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  const briefShort = BRIEF.has(format) && brief.prompt.trim().length < 10;
+  const off = offReason(format, codex, higgsfield);
+  const intro = format === "codex-post" ? t("make.intro.brief") : format === "website-card" ? t("make.intro.website") : format === "higgsfield-image" ? t("make.intro.hfImage") : format === "higgsfield-reel" ? t("make.intro.hfReel") : null;
   return (
-    <div className="st-card real-gen row-wrap" style={{ gap: 10, alignItems: "center" }}>
-      <div className="st-stack" style={{ gap: 2, flex: "1 1 240px" }}>
-        <span style={{ fontWeight: 600 }}>Make the next post</span>
-        <span className="st-small st-muted">
-          {format === "codex-post"
-            ? "Describe the image; Codex draws it, Signal adds the headline and labels."
-            : format === "website-card"
-              ? "A 2-slide post from the next page on your website (import it on Brand first)."
-              : format === "higgsfield-reel"
-                ? "Describe the opening frame; Higgsfield makes a still and animates a 5-second Reel (paid per request)."
-                : "Describe the image; Higgsfield makes it (paid per request), Signal adds the headline and labels."}
-        </span>
-      </div>
-      <Select
-        className="real-select"
-        label="Post format"
-        value={format}
-        disabled={busy}
-        onChange={(v) => setFormat(v)}
-        options={FORMAT_OPTIONS.map(([v, l]) => {
-          const needsCodex = v === "codex-post";
-          const needsHf = v.startsWith("higgsfield");
-          const off = (needsCodex && !codex?.enabled) || (needsHf && !higgsfield?.enabled);
-          return {
-            value: v,
-            label: l,
-            disabled: off,
-            hint: needsCodex && !codex?.enabled ? "Codex images are off for this account" : needsHf && !higgsfield?.enabled ? higgsfield?.reason || "Higgsfield is off" : undefined,
-          };
-        })}
-      />
+    <div className="real-gen gen-form">
+      {intro ? <span className="st-small st-muted gen-intro">{intro}</span> : null}
+      <Select className="real-select" label={t("make.format")} value={format} disabled={busy} onChange={(v) => setFormat(v)} options={options} />
       {BRIEF.has(format) ? (
         <div className="gen-brief">
           <label className="wiz-field">
-            What should the image show?
+            {t("make.prompt")}
             <textarea
               className="st-input gen-text"
               rows={3}
               maxLength={800}
               value={brief.prompt}
               onChange={(e) => setBrief({ ...brief, prompt: e.target.value })}
-              placeholder="e.g. A calm darkroom table with prints drying on a line, warm red safelight, editorial photography style"
+              placeholder={t("make.promptExample")}
             />
           </label>
-          <div className="row-wrap" style={{ gap: 10 }}>
-            <label className="wiz-field" style={{ flex: "1 1 220px" }}>
-              Headline on the image (optional)
-              <input className="st-input" maxLength={70} value={brief.headline} onChange={(e) => setBrief({ ...brief, headline: e.target.value })} placeholder="e.g. Open call: Night Streets" />
+          <div className="row-wrap gen-row">
+            <label className="wiz-field gen-grow">
+              {t("make.headline")}
+              <input className="st-input" maxLength={70} value={brief.headline} onChange={(e) => setBrief({ ...brief, headline: e.target.value })} placeholder={t("make.headlineExample")} />
             </label>
           </div>
           <label className="wiz-field">
-            Caption (optional)
-            <textarea className="st-input gen-text" rows={3} maxLength={1900} value={brief.caption} onChange={(e) => setBrief({ ...brief, caption: e.target.value })} placeholder="Leave empty to use the headline" />
+            {t("make.caption")}
+            <textarea className="st-input gen-text" rows={3} maxLength={1900} value={brief.caption} onChange={(e) => setBrief({ ...brief, caption: e.target.value })} placeholder={t("make.captionHint")} />
           </label>
         </div>
       ) : null}
-      <button
-        type="button"
-        className="st-btn st-btn-primary st-btn-sm"
-        aria-busy={busy}
-        disabled={busy || (BRIEF.has(format) && brief.prompt.trim().length < 10) || (format === "codex-post" && !codex?.enabled) || (format.startsWith("higgsfield") && !higgsfield?.enabled)}
-        onClick={() => void run()}
-      >
-        {busy ? "Generating" : "Generate next post"}
-      </button>
+      <div>
+        <Button
+          level="primary"
+          busy={busy}
+          disabled={busy || !format || briefShort || off !== null}
+          reason={busy ? t("make.making") : !format ? t("make.noFormat") : (off ?? t("make.promptShort"))}
+          onClick={() => void run()}
+        >
+          {busy ? t("make.making") : t("make.submit")}
+        </Button>
+      </div>
       {busy ? (
-        <div style={{ flexBasis: "100%" }}>
-          <TaskProgress
-            active
-            title="Making the next post"
-            steps={format === "higgsfield-reel" ? ["Writing the prompts", "Higgsfield is making the still", "Animating the video", "Converting for Instagram", "Saving the package"] : format === "codex-post" ? ["Writing the image prompt", "Codex is drawing the image", "Adding text and labels", "Saving the package"] : format === "website-card" ? ["Reading the page", "Fetching the photo", "Rendering slides", "Saving the package"] : ["Writing the image prompt", "Higgsfield is making the image", "Adding text and labels", "Saving the package"]}
-            expectedSeconds={format === "higgsfield-reel" ? 300 : format === "codex-post" ? 150 : format === "higgsfield-image" ? 90 : 12}
-          />
+        <div className="gen-full">
+          <TaskProgress active title={t("make.progress")} steps={makeSteps(format)} expectedSeconds={MAKE_SECONDS[format] ?? 15} />
         </div>
       ) : null}
       {err ? (
-        <p className="real-error st-small" role="alert" style={{ flexBasis: "100%" }}>
+        <p className="real-error st-small gen-full" role="alert">
           {err}
         </p>
       ) : null}

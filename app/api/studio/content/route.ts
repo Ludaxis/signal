@@ -12,6 +12,9 @@ import { checkDispatch, schedulingAllowed } from '@/lib/studio/dispatch';
 import { insights, resultsSource } from '@/lib/studio/analytics';
 import { metaLive, tickAll } from '@/lib/studio/publish-meta';
 import { schedulerAllowed } from '@/lib/studio/meta';
+import { projectTimeZone } from '@/lib/studio/time';
+import { loadPackFormats } from '@/lib/studio/formats';
+import { connectionBlocks, postingPath } from '@/lib/studio/posting-blocks';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -42,9 +45,14 @@ async function load(project: Project, email: string): Promise<Response> {
   const lim = await currentLimits();
   const meta = await metaLive();
   const sched = await schedulerAllowed();
+  // The formats this project can make, named as its pack names them: the make form lists these.
+  const set = await loadPackFormats(project);
+  // Today › Needs you: a connection that blocks a post planned within 24 h. Read only; checks no provider.
+  const path = postingPath({ metaLive: meta.enabled, automatic: lim.open && lim.dispatch, uploadPostKey: Boolean(process.env.UPLOAD_POST_API_KEY), uploadPostProfile: Boolean(project.uploadPostProfile) });
   return NextResponse.json(
     {
-      project: { id: project.id, name: project.name, handle: project.handle },
+      project: { id: project.id, name: project.name, handle: project.handle, timeZone: projectTimeZone(project) },
+      formats: set.formats.map((id) => ({ id, label: set.labels[id] })),
       account: { destination: project.handle, open: lim.open, reason: lim.reason, expiresAt: lim.expiresAt, maxPosts: lim.maxPosts, maxPerDay: lim.maxPerDay, posted: packages.filter((p) => p.posted).length },
       folder: contentDir().replace(process.env.HOME ?? '\u0000', '~'),
       packages,
@@ -55,6 +63,7 @@ async function load(project: Project, email: string): Promise<Response> {
       insights: insights(packages),
       codex: await codexImagesAllowed(),
       higgsfield: await higgsfieldAllowed(),
+      connectionBlocks: connectionBlocks(packages, path),
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );

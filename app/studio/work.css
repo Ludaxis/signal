@@ -1,0 +1,80 @@
+/* Work group tab pass: Today, Posts with Gallery, Calendar. Tokens from studio-tokens.css; logical
+   properties only. Spacing and colour that used to sit in inline styles live here. */
+
+/* ---- Today ------------------------------------------------------------------------- */
+.studio .today-screen { gap: var(--space-5); }
+.studio .today-card { padding: var(--space-4); gap: var(--space-3); }
+.studio .today-h { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--t-h3); line-height: var(--t-h3-lh); font-weight: 600; }
+.studio .today-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; padding-block: var(--space-2); padding-inline: var(--space-4); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--ink); }
+.studio .today-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-8); text-align: center; }
+.studio .today-empty p { margin: 0; }
+.studio .today-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.studio .today-rows li + li { border-block-start: 1px solid var(--rule-soft); }
+.studio .today-row { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: var(--space-3); inline-size: 100%; min-block-size: 56px; padding-block: var(--space-2); cursor: pointer; border-radius: var(--radius-sm); }
+.studio .today-row:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 2px; }
+.studio .today-row:hover .today-row-title { text-decoration: underline; }
+.studio .today-row-text { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; flex: 1 1 auto; }
+.studio .today-row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio .today-thumb { inline-size: 40px; block-size: 50px; flex: 0 0 auto; object-fit: cover; border-radius: var(--radius-sm); background: var(--surface-sunken); border: 1px solid var(--rule); }
+.studio .today-post { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-1); cursor: pointer; }
+.studio .today-post .today-thumb { inline-size: 100%; block-size: auto; aspect-ratio: 4 / 5; }
+.studio .today-post:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 2px; }
+
+/* ---- Posts ------------------------------------------------------------------------- */
+.studio .posts-screen { gap: var(--space-4); }
+.studio .posts-live { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--graphite); }
+.studio .posts-live.on { color: var(--brand-ink); }
+.studio .pb-col-title { margin: 0; }
+.studio .pb-list { gap: var(--space-3); }
+.studio .pb-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+.studio .pb-empty p { margin: 0; }
+.studio .pb-origin { display: block; }
+.studio .pb-when { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio .pb-when .t-bad { color: var(--danger); }
+.studio .pb-menu { inset-inline-start: var(--menu-start, 8px); inset-block-start: var(--menu-top, auto); inset-block-end: var(--menu-bottom, auto); }
+.studio .pb-drawer { gap: var(--space-4); }
+.studio .pb-drawer-head { gap: var(--space-1); }
+.studio .pb-drawer-title { font-weight: 600; font-size: var(--t-md); }
+.studio .pb-caption { gap: var(--space-2); }
+.studio .pb-caption-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.studio .pa { gap: var(--space-3); }
+.studio .pa-standalone { gap: var(--space-3); }
+.studio .pa-group { gap: var(--space-2); }
+.studio .pa-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio .pa-warn { margin: 0; color: var(--amber-ink); }
+.studio .pa-bad { margin: 0; color: var(--danger); }
+.studio .gal { gap: var(--space-4); }
+.studio .gal-card { all: unset; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; cursor: pointer; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-md); }
+.studio .gal-card:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 2px; }
+.studio .gal-text { gap: var(--space-1); padding: var(--space-3); }
+.studio .gal-title { font-weight: 600; font-size: var(--t-sm); }
+.studio .gal-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+/* ---- Calendar ------------------------------------------------------------------- */
+.studio .cal-screen { gap: var(--space-4); }
+.studio .calw-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.studio .calw-head-text { gap: 2px; }
+.studio .cal-week { font-weight: 600; font-size: var(--t-md); }
+.studio .cal-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio .cal-weeknav { display: flex; align-items: center; gap: var(--space-1); }
+.studio .cal2-week { grid-template-columns: 170px repeat(7, minmax(120px, 1fr)); }
+.studio .cal2-row { display: contents; }
+.studio .cal2-account-name { font-weight: 600; }
+.studio .cal-tray { padding: var(--space-4); gap: var(--space-3); }
+.studio .cal-tray-item { gap: var(--space-1); }
+.studio .cal-list-day { gap: var(--space-2); }
+.studio .cal-list-date { font-weight: 600; }
+.studio .cal-drawer { gap: var(--space-3); }
+.studio .cal-drawer-title { font-weight: 600; }
+.studio .cal-late { margin: 0; color: var(--amber-ink); }
+.studio .cal-fields { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.studio .cal-fields .wiz-field { flex: 1 1 140px; }
+.studio .cal2-dst { margin: 0; }
+
+/* ---- Make a post (header drawer until Post maker ships) ------------------------------------------ */
+.studio .gen-form { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-3); }
+.studio .gen-intro { gap: 2px; }
+.studio .gen-row { gap: var(--space-3); }
+.studio .gen-grow { flex: 1 1 220px; }
+.studio .gen-full { flex-basis: 100%; }
+.studio .gen-form > .st-btn { align-self: flex-start; }

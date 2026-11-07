@@ -3,7 +3,8 @@
 //   {action:'save', group, values}   saves the filled-in fields (encrypted), active at once
 //   {action:'clear', group}          removes what was saved here (.env.local applies again)
 //   {action:'switch', id:'publishing'|'autopilot', on}
-//   {action:'feature', id, on}   feature switch (signal.config.json)
+//   {action:'feature', id, on, acceptTerms?}   feature switch (signal.config.json); a paid Post maker service's switch
+//                                go through its connector, so turning it on the first time needs acceptTerms
 //   {action:'test', group:'r2'|'upload-post'}   r2: puts a tiny file, reads it from the public address, deletes it
 //                                              upload-post: lists the profiles on the plan
 import { NextResponse, type NextRequest } from 'next/server';
@@ -13,6 +14,8 @@ import { jsonError } from '@/lib/server/security';
 import { SettingsError, clearGroup, saveGroup, setSwitch, settingsStatus } from '@/lib/studio/app-settings';
 import { MediaHostError, hostFiles, r2Config, removeFiles } from '@/lib/studio/r2';
 import { UploadPostError, listUpProfiles } from '@/lib/studio/uploadpost';
+import { CONNECTORS, switchConnector, termsRefs } from '@/lib/studio/postmaker/connectors';
+import { PostmakerError } from '@/lib/studio/postmaker/errors';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -40,7 +43,7 @@ async function testR2(): Promise<string> {
 export async function POST(req: NextRequest): Promise<Response> {
   const user = await requireStudioUser(req);
   if (user instanceof Response) return user;
-  let b: { action?: unknown; group?: unknown; values?: unknown; id?: unknown; on?: unknown };
+  let b: { action?: unknown; group?: unknown; values?: unknown; id?: unknown; on?: unknown; acceptTerms?: unknown };
   try {
     b = (await req.json()) as typeof b;
   } catch {
@@ -65,7 +68,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
       case 'feature': {
         if (typeof b.id !== 'string' || !FEATURE_IDS.includes(b.id as Feature) || typeof b.on !== 'boolean') return jsonError(400, 'validation', 'Unknown switch.');
-        await setFeature(b.id as Feature, b.on);
+        // A paid Post maker service keeps its one-time terms step whichever screen turns it on.
+        const owner = CONNECTORS.find((c) => c.feature === b.id && termsRefs(c).length > 0);
+        if (owner) await switchConnector(owner.id, b.on, { acceptTerms: b.acceptTerms === true });
+        else await setFeature(b.id as Feature, b.on);
         return NextResponse.json({ message: `${b.on ? 'On' : 'Off'}: ${(await featureStates()).find((x) => x.id === b.id)!.label}.` });
       }
       case 'test': {
@@ -80,6 +86,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         return jsonError(400, 'validation', 'Unknown action.');
     }
   } catch (e) {
+    if (e instanceof PostmakerError) return jsonError(e.status, e.status === 403 ? 'forbidden' : e.status === 404 ? 'not_found' : e.status === 400 ? 'validation' : e.code, e.message);
     if (e instanceof SettingsError) return jsonError(e.status, e.status === 409 ? 'conflict' : e.status >= 500 ? 'upstream' : 'validation', e.message);
     if (e instanceof MediaHostError || e instanceof UploadPostError) return jsonError(Math.min(Math.max(e.status, 400), 599), 'upstream', e.message);
     throw e;

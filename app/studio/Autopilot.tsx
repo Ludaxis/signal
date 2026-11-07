@@ -2,7 +2,7 @@
 // Autopilot: Signal makes a campaign's planned posts by itself once a day, and — only for
 // post types the owner has trusted by approving five in a row — approves and schedules them too.
 // This file is the UI only: the per-campaign panel (Campaigns), the project summary on Today
-// (with trust per post type and the log of runs), and the "Made by autopilot" badge on the Posts board.
+// (with trust per post type and the log of runs), and the autopilot badge on the Posts board.
 // It talks to GET/POST /api/studio/autopilot through the contract in lib/studio/autopilot/types.ts.
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AutopilotAction, AutopilotPayload, AutopilotRun, AutopilotSettings, FormatTrust, RunStep } from '@/lib/studio/autopilot/types';
@@ -13,6 +13,9 @@ import { Select } from './Select';
 import { ProgressBar, Spinner, clock } from './loaders';
 import { notifyChanged, useOnChanged } from './sync';
 import { More } from './More';
+import { useConfirm } from './ui/Dialog';
+import { t } from './copy/en';
+import { formatIn } from '@/lib/studio/time';
 
 /** Plain names for post types when the caller has none (the Campaigns payload carries the real list). */
 const FORMAT_NAMES: Record<string, string> = {
@@ -557,46 +560,49 @@ export function AutopilotSummary({ say, openCampaigns }: { say: (t: string) => v
 }
 
 // ---- Posts badge ---------------------------------------------------------------------------
-/** "Made by autopilot" on the Posts board, with the pull button while an auto-approved post waits to go out. */
-export function AutopilotMarkView({ packageId, mark, live, say, onPulled }: { packageId: string; mark: { madeAt: string; autoApproved: null | { at: string; scheduledFor: string | null; trustInARow: number } }; live: boolean; say: (t: string) => void; onPulled: () => Promise<void> | void }) {
+/** The autopilot badge on the Posts board, with the pull button while an auto-approved post waits to go out. Times in the project's zone (`tz`). */
+export function AutopilotMarkView({ packageId, mark, live, say, onPulled, tz = null }: { packageId: string; mark: { madeAt: string; autoApproved: null | { at: string; scheduledFor: string | null; trustInARow: number } }; live: boolean; say: (t: string) => void; onPulled: () => Promise<void> | void; tz?: string | null }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const confirmBox = useConfirm();
   const a = mark.autoApproved;
   return (
     <div className="ap-mark st-stack" style={{ gap: 6 }}>
+      {confirmBox.node}
       <span className="st-small" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span className="ap-badge">Made by autopilot</span>
-        <span className="st-muted">{formatDateTime(mark.madeAt)}</span>
+        <span className="ap-badge">{t('autopilot.mark.badge')}</span>
+        <span className="st-muted" data-content>
+          {formatIn(tz, mark.madeAt)}
+        </span>
       </span>
       {a && live ? (
         <div className="row-wrap" style={{ gap: 10, alignItems: 'center' }}>
           <span className="st-small">
-            Auto-approved ({a.trustInARow} in a row).{' '}
-            <b>{a.scheduledFor ? `Publishes ${formatDateTime(a.scheduledFor)} unless you pull it.` : 'Not scheduled yet: it will not go out until it is.'}</b>
+            {t('autopilot.mark.autoApproved', { count: a.trustInARow })} <b>{a.scheduledFor ? t('autopilot.mark.publishes', { when: formatIn(tz, a.scheduledFor) }) : t('autopilot.mark.notScheduled')}</b>
           </span>
           <button
             type="button"
             className="st-btn st-btn-ghost st-btn-sm"
             aria-busy={busy}
             disabled={busy}
-            onClick={() => {
-              if (!window.confirm(`Pull post ${packageId}? Its schedule is cancelled and the post is discarded. Nothing is published.`)) return;
+            onClick={async () => {
+              if (!(await confirmBox.confirm({ title: t('autopilot.mark.pullTitle', { id: packageId }), body: t('autopilot.mark.pullBody'), confirmLabel: t('autopilot.mark.pullConfirm'), destructive: true }))) return;
               setBusy(true);
               setErr('');
               pullAutopilotPost(packageId)
                 .then(async () => {
-                  say(`Post ${packageId} pulled. It will not be published.`);
+                  say(t('autopilot.mark.pulled', { id: packageId }));
                   await onPulled();
                 })
                 .catch((e: Error) => setErr(e.message))
                 .finally(() => setBusy(false));
             }}
           >
-            Pull this post
+            {t('autopilot.mark.pull')}
           </button>
         </div>
       ) : a ? (
-        <span className="xs st-muted">Approved automatically {formatDateTime(a.at)}.</span>
+        <span className="xs st-muted">{t('autopilot.mark.approvedAt', { when: formatIn(tz, a.at) })}</span>
       ) : null}
       {err ? <span className="xs real-error" role="alert">{err}</span> : null}
     </div>

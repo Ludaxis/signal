@@ -4,7 +4,9 @@
 // campaign filter and a replay slider that grows the map day by day. Layout is pure (memory-layout.ts).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Select } from './Select';
-import { formatDateLabel, todayInZone, zonedParts } from '@/lib/time';
+import { formatDateLabel } from '@/lib/time';
+import { More } from './More';
+import { partsIn, projectTimeZone, todayIn } from '@/lib/studio/time';
 import { ancestorsOf, dayRange, endOfDay, filterCampaign, layoutTree, visibleAt, type LayoutNode } from './memory-layout';
 import { STATUS_LABEL, TYPE_LABEL } from './memory-format';
 import type { BranchStatus, GraphNode, MemoryPayload } from '@/lib/studio/memory/types';
@@ -83,16 +85,18 @@ export function MemoryMindmap({ data, selectedId, onSelect, focusReq, say }: { d
   }, []);
 
   // ---- replay range: first event (or node) day → today, or the last known day if later ----
+  // Days are the project's own (project.timeZone); projects without one keep the default zone.
+  const tz = projectTimeZone(data.project.timeZone);
   const days = useMemo(() => {
-    const dates = [...data.events.map((e) => zonedParts(e.at).date), ...graph.nodes.map((n) => zonedParts(n.created).date), ...graph.nodes.map((n) => zonedParts(n.updated).date)].filter(Boolean).sort();
-    const first = dates[0] ?? todayInZone();
+    const dates = [...data.events.map((e) => partsIn(tz, e.at).date), ...graph.nodes.map((n) => partsIn(tz, n.created).date), ...graph.nodes.map((n) => partsIn(tz, n.updated).date)].filter(Boolean).sort();
+    const first = dates[0] ?? todayIn(tz);
     const last = dates[dates.length - 1] ?? first;
-    const today = todayInZone();
+    const today = todayIn(tz);
     return dayRange(first, last > today ? last : today);
-  }, [data.events, graph.nodes]);
+  }, [data.events, graph.nodes, tz]);
   const [dayIdx, setDayIdx] = useState<number | null>(null); // null = latest
   const idx = dayIdx === null ? days.length - 1 : Math.min(dayIdx, days.length - 1);
-  const day = days[idx] ?? todayInZone();
+  const day = days[idx] ?? todayIn(tz);
   const atLatest = idx >= days.length - 1;
   // playFrom is the day the replay started on; null = not playing. The interval keeps its own counter,
   // so state updaters stay pure.
@@ -135,7 +139,7 @@ export function MemoryMindmap({ data, selectedId, onSelect, focusReq, say }: { d
   }, []);
 
   // ---- layout ----
-  const iso = endOfDay(day);
+  const iso = endOfDay(day, tz);
   const shownNodes = useMemo(() => filterCampaign(visibleAt(graph, iso), campaign), [graph, iso, campaign]);
   const present = useMemo(() => new Set(visibleAt(graph, iso).map((n) => n.id)), [graph, iso]);
   // Evidence as of the replay day (events the payload knows; unknown ids count only at the latest day).
@@ -455,9 +459,10 @@ export function MemoryMindmap({ data, selectedId, onSelect, focusReq, say }: { d
         </div>
       </div>
 
-      <div className={`mem-canvas ${smooth ? 'is-smooth' : ''}`} ref={wrap}>
+      <div className={`mem-canvas ${smooth ? 'is-smooth' : ''}`} dir="ltr" ref={wrap}>
         <svg
           ref={svg}
+          data-content
           className="mem-svg"
           width={box.w}
           height={box.h}
@@ -620,7 +625,6 @@ export function MemoryMindmap({ data, selectedId, onSelect, focusReq, say }: { d
               {STATUS_LABEL[s]}
             </span>
           ))}
-          <span className="mem-key mem-key-note">ring = confidence · size = evidence</span>
         </div>
       </div>
 
@@ -651,7 +655,11 @@ export function MemoryMindmap({ data, selectedId, onSelect, focusReq, say }: { d
           </button>
         ) : null}
       </div>
-      <p className="xs st-muted mem-hint">Tab moves between nodes · Enter opens one · arrows walk the tree · − / + collapse or expand a branch.</p>
+      {/* How to read and drive the map: one disclosure instead of two always-on lines. */}
+      <More label="Map help" className="mem-hint">
+        <span>Ring = confidence · size = evidence.</span>
+        <span>Tab moves between nodes · Enter opens one · arrows walk the tree · − / + collapse or expand a branch.</span>
+      </More>
     </div>
   );
 }

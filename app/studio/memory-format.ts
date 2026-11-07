@@ -1,6 +1,7 @@
 // Plain-language labels for the Memory tab: event sentences, event groups, status, decision and
 // metric names, and small number formats. Pure functions, no React.
 import { formatDateTime } from '@/lib/time';
+import { projectTimeZone, type Zoned } from '@/lib/studio/time';
 import type { AgentRunRecord, BranchStatus, DecisionId, DecisionRecord, EventType, MemEvent, MetricKey, NodeType, Role } from '@/lib/studio/memory/types';
 
 export type EventGroup = 'content' | 'results' | 'audience' | 'strategy' | 'knowledge' | 'system';
@@ -90,8 +91,8 @@ export function who(by: string): string {
   return 'You';
 }
 
-/** One readable sentence per event. Never includes usernames (memory stores none). */
-export function describeEvent(e: MemEvent): string {
+/** One readable sentence per event, with any time in the project's zone (`tz`). Never includes usernames (memory stores none). */
+export function describeEvent(e: MemEvent, tz?: Zoned): string {
   const d = e.data;
   const pkg = e.refs.package ? `Post ${e.refs.package}` : 'Post';
   const hook = s(d.hook) ? `“${s(d.hook)}”` : '';
@@ -109,7 +110,7 @@ export function describeEvent(e: MemEvent): string {
     case 'post.edited':
       return `${pkg} edited${Array.isArray(d.changed) ? ` (${(d.changed as unknown[]).map(s).filter(Boolean).join(', ')})` : ''}`;
     case 'post.scheduled':
-      return `${pkg} scheduled for ${s(d.at) ? formatDateTime(s(d.at)) : 'later'}${s(d.via) ? ` via ${s(d.via) === 'upload-post' ? 'Upload-Post' : 'Signal'}` : ''}`;
+      return `${pkg} scheduled for ${s(d.at) ? formatDateTime(s(d.at), projectTimeZone(tz)) : 'later'}${s(d.via) ? ` via ${s(d.via) === 'upload-post' ? 'Upload-Post' : 'Signal'}` : ''}`;
     case 'post.published':
       return `${pkg} published${hook ? `: ${hook}` : ''}`;
     case 'post.failed':

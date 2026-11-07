@@ -1,9 +1,9 @@
 'use client';
-// Memory: the project's track record as a decision map (Mindmap), the Timeline of events, the
-// Learnings with their confidence, the Decision log and the agent Runs. Read-only: everything shown
-// comes from the memory files next to the project's posts (GET /api/studio/memory). Until memory is
-// switched on or before anything was recorded, the tab explains what will appear and can show
-// a clearly marked example.
+// Memory: the project's track record as a decision map (Mindmap), the Timeline of events, the Learnings
+// with their confidence, the Choices Signal made and the Agent runs. Read-only: everything shown comes from
+// the memory files next to the project's posts (GET /api/studio/memory). Until memory is switched on, or
+// before anything was recorded, the tab says so and can show a clearly marked example.
+// Days and times use the project's time zone.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useOnChanged } from './sync';
 import { More } from './More';
@@ -11,24 +11,30 @@ import { useProjectId } from './Projects';
 import { ScreenSkeleton } from './loaders';
 import { MemoryMindmap, type FocusRequest } from './MemoryMindmap';
 import { statusHistory } from './memory-layout';
-import { DECISION_TITLE, EVENT_GROUPS, METRIC_LABEL, ROLE_LABEL, RUN_STATUS_LABEL, STATUS_LABEL, TYPE_LABEL, VIA_LABEL, describeEvent, eventGroup, eventLink, fmtDuration, fmtEffect, fmtInt, fmtPct, fmtUsd, who, type EventGroup } from './memory-format';
-import { zonedParts, formatDateLabel, formatDateTime, formatTime, todayInZone } from '@/lib/time';
+import { DECISION_TITLE, EVENT_GROUPS, METRIC_LABEL, ROLE_LABEL, RUN_STATUS_LABEL, STATUS_LABEL, TYPE_LABEL, describeEvent, eventGroup, eventLink, fmtDuration, fmtEffect, fmtInt, fmtPct, fmtUsd, who, type EventGroup } from './memory-format';
+import { formatDateLabel, formatDateTime, formatTime } from '@/lib/time';
+import { partsIn, projectTimeZone, todayIn } from '@/lib/studio/time';
+import { t } from './copy/en';
+import { Button, Notice } from './ui';
 import type { DecisionRecord, GraphNode, Learning, MemEvent, MemoryPayload } from '@/lib/studio/memory/types';
 import './memory.css';
 
-type Tab = 'mindmap' | 'timeline' | 'learnings' | 'decisions' | 'runs';
+type Tab = 'mindmap' | 'timeline' | 'learnings' | 'choices' | 'runs';
+/** "Choices" (not routing decisions) and "Agent runs" (not Post maker runs): the tab's own names. */
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'mindmap', label: 'Mindmap' },
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'learnings', label: 'Learnings' },
-  { id: 'decisions', label: 'Decisions' },
-  { id: 'runs', label: 'Runs' },
+  { id: 'mindmap', label: t('memory.tab.mindmap') },
+  { id: 'timeline', label: t('memory.tab.timeline') },
+  { id: 'learnings', label: t('memory.tab.learnings') },
+  { id: 'choices', label: t('memory.tab.choices') },
+  { id: 'runs', label: t('memory.tab.runs') },
 ];
+/** the Choices table's visible column headers. */
+export const CHOICE_COLUMNS = [t('memory.col.when'), t('memory.col.choice'), t('memory.col.why'), t('memory.col.cost')] as const;
 
 async function call<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: 'no-store' });
   const j = (await r.json().catch(() => ({}))) as T & { error?: { message: string } };
-  if (!r.ok) throw new Error(j.error?.message ?? `Request failed (${r.status}).`);
+  if (!r.ok) throw new Error(j.error?.message ?? `HTTP ${r.status}`);
   return j;
 }
 
@@ -59,17 +65,16 @@ function GroupIcon({ g, type }: { g: EventGroup; type?: string }) {
   );
 }
 const StatusChip = ({ s }: { s: GraphNode['status'] }) => (s ? <span className={`mem-status mem-s-${s}`}>{STATUS_LABEL[s]}</span> : null);
-const ViaChip = ({ via }: { via: DecisionRecord['via'] }) => <span className={`mem-via mem-via-${via}`}>{VIA_LABEL[via]}</span>;
 function ConfidenceBar({ value, threshold, label }: { value: number | null; threshold?: number | null; label: string }) {
   const v = value === null ? 0 : Math.max(0, Math.min(1, value));
   return (
     <span className="mem-conf" role="img" aria-label={`${label}: ${value === null ? 'unknown' : fmtPct(value)}${threshold != null ? `, threshold ${fmtPct(threshold)}` : ''}`}>
-      <i style={{ width: `${v * 100}%` }} />
-      {threshold != null ? <b style={{ left: `${Math.max(0, Math.min(1, threshold)) * 100}%` }} /> : null}
+      <i style={{ '--v': `${v * 100}%` } as React.CSSProperties} />
+      {threshold != null ? <b style={{ '--at': `${Math.max(0, Math.min(1, threshold)) * 100}%` } as React.CSSProperties} /> : null}
     </span>
   );
 }
-function LearningCard({ l, now, nodeLabel, compact = false }: { l: Learning; now: string; nodeLabel?: (id: string) => string | null; compact?: boolean }) {
+function LearningCard({ l, now, tz, nodeLabel, compact = false }: { l: Learning; now: string; tz?: string; nodeLabel?: (id: string) => string | null; compact?: boolean }) {
   const age = Math.max(0, (Date.parse(now) - Date.parse(l.lastEvidence ?? l.updatedAt)) / 86_400_000);
   const weight = Math.pow(0.5, age / Math.max(1, l.halfLifeDays));
   const little = l.status === 'too-little-data';
@@ -99,36 +104,20 @@ function LearningCard({ l, now, nodeLabel, compact = false }: { l: Learning; now
       </div>
       {!compact ? (
         <div className="mem-learning-foot">
-          <span className="row-wrap" style={{ gap: 6 }}>
+          <span className="u-row u-gap-2">
             {scope.map((s) => (
               <span key={s} className="pill pill-soft">{s}</span>
             ))}
           </span>
-          <span className="xs st-muted">{l.lastEvidence ? `Last evidence ${formatDateLabel(zonedParts(l.lastEvidence).date)}` : 'No evidence yet'} · recency weight {weight.toFixed(2)}</span>
+          <span className="xs st-muted">{l.lastEvidence ? `Last evidence ${formatDateLabel(partsIn(tz, l.lastEvidence).date)}` : 'No evidence yet'} · recency weight {weight.toFixed(2)}</span>
         </div>
       ) : null}
     </article>
   );
 }
-function Probabilities({ p, answer }: { p: Record<string, number> | null; answer: DecisionRecord['answer'] }) {
-  if (!p) return <span className="st-muted">—</span>;
-  const rows = Object.entries(p).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  const key = typeof answer === 'boolean' ? (answer ? 'yes' : 'no') : String(answer);
-  return (
-    <span className="mem-probs">
-      {rows.map(([k, v]) => (
-        <span key={k} className={`mem-prob ${key === k ? 'is-answer' : ''}`} title={`${k}: ${fmtPct(v)}`}>
-          <span className="mem-prob-k">{k}</span>
-          <i style={{ width: `${Math.max(2, v * 100)}%` }} />
-          <span className="mem-prob-v">{fmtPct(v)}</span>
-        </span>
-      ))}
-    </span>
-  );
-}
-
 // ---- views ---------------------------------------------------------------------------------------
 function Timeline({ data, onOpenNode }: { data: MemoryPayload; onOpenNode: (id: string) => void }) {
+  const tz = projectTimeZone(data.project.timeZone);
   const [groups, setGroups] = useState<Set<EventGroup>>(() => new Set());
   const [q, setQ] = useState('');
   const nodeLabel = useMemo(() => new Map(data.graph.nodes.map((n) => [n.id, n.label])), [data.graph.nodes]);
@@ -141,17 +130,17 @@ function Timeline({ data, onOpenNode }: { data: MemoryPayload; onOpenNode: (id: 
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return data.events
-      .map((e) => ({ e, g: eventGroup(e.type), text: describeEvent(e) }))
+      .map((e) => ({ e, g: eventGroup(e.type), text: describeEvent(e, tz) }))
       .filter((x) => (groups.size === 0 || groups.has(x.g)) && (!needle || `${x.text} ${x.e.type} ${who(x.e.by)} ${x.e.refs.branch ? nodeLabel.get(x.e.refs.branch) ?? '' : ''}`.toLowerCase().includes(needle)));
-  }, [data.events, groups, q, nodeLabel]);
+  }, [data.events, groups, q, nodeLabel, tz]);
   const byDay = useMemo(() => {
     const m = new Map<string, typeof items>();
     for (const it of items) {
-      const d = zonedParts(it.e.at).date;
+      const d = partsIn(tz, it.e.at).date;
       m.set(d, [...(m.get(d) ?? []), it]);
     }
     return [...m.entries()];
-  }, [items]);
+  }, [items, tz]);
   const toggleGroup = (g: EventGroup) =>
     setGroups((s) => {
       const n = new Set(s);
@@ -160,7 +149,7 @@ function Timeline({ data, onOpenNode }: { data: MemoryPayload; onOpenNode: (id: 
       return n;
     });
   return (
-    <div className="st-stack" style={{ gap: 14 }}>
+    <div className="u-stack u-gap-3">
       <div className="mem-filters">
         <div className="row-wrap mem-chips" role="group" aria-label="Event groups">
           {EVENT_GROUPS.map((g) => (
@@ -169,7 +158,7 @@ function Timeline({ data, onOpenNode }: { data: MemoryPayload; onOpenNode: (id: 
             </button>
           ))}
           {groups.size ? (
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setGroups(new Set())}>Clear</button>
+            <Button dense level="tertiary" onClick={() => setGroups(new Set())}>Clear</Button>
           ) : null}
         </div>
         <label className="mem-search">
@@ -197,10 +186,9 @@ function Timeline({ data, onOpenNode }: { data: MemoryPayload; onOpenNode: (id: 
                       <div className="mem-event-body">
                         <p className="mem-event-text">{text}</p>
                         <p className="xs st-muted mem-event-meta">
-                          <span>{formatTime(e.at)}</span>
+                          <span>{formatTime(e.at, tz)}</span>
                           <span>· {who(e.by)}</span>
                           {e.campaign && campaignName.get(e.campaign) ? <span>· {campaignName.get(e.campaign)}</span> : null}
-                          <span className="mem-event-type">· {e.type}</span>
                           {link ? (
                             <a href={link} target="_blank" rel="noreferrer noopener">source</a>
                           ) : null}
@@ -227,6 +215,7 @@ function Timeline({ data, onOpenNode }: { data: MemoryPayload; onOpenNode: (id: 
 }
 
 function Learnings({ data, now }: { data: MemoryPayload; now: string }) {
+  const tz = data.project.timeZone;
   const nodeLabel = useCallback((id: string) => data.graph.nodes.find((n) => n.id === id)?.label ?? null, [data.graph.nodes]);
   const sorted = useMemo(
     () =>
@@ -239,103 +228,65 @@ function Learnings({ data, now }: { data: MemoryPayload; now: string }) {
         .map((x) => x.l),
     [data.learnings, now],
   );
-  if (sorted.length === 0) return <p className="st-small st-muted">No learnings yet. They appear after the first results come in.</p>;
+  if (sorted.length === 0) return <Notice kind="empty" title={t('memory.learnings.none')} />;
   return (
-    <div className="st-stack" style={{ gap: 12 }}>
+    <div className="u-stack u-gap-3">
       <More label="How these are ranked">
         <span>Beliefs the agents read, with numbers instead of opinions. Sorted by confidence × recency (half-life {sorted[0]?.halfLifeDays ?? 14} days); below nEff 3 a learning is shown but never used to pivot.</span>
       </More>
       <div className="mem-learnings">
         {sorted.map((l) => (
-          <LearningCard key={l.id} l={l} now={now} nodeLabel={nodeLabel} />
+          <LearningCard key={l.id} l={l} now={now} tz={tz} nodeLabel={nodeLabel} />
         ))}
       </div>
     </div>
   );
 }
 
-function Decisions({ data }: { data: MemoryPayload }) {
+/** Why a choice went the way it did, in one short line: the note, else how sure it was. */
+export function choiceWhy(d: DecisionRecord): string {
+  if (d.note) return d.note;
+  if (d.confidence !== null) return t('memory.choices.sure', { pct: fmtPct(d.confidence) });
+  return '—';
+}
+
+function Choices({ data }: { data: MemoryPayload }) {
+  const tz = projectTimeZone(data.project.timeZone);
   const totals = useMemo(() => {
     const via: Record<DecisionRecord['via'], number> = { rule: 0, cache: 0, judge: 0, escalated: 0 };
-    let right = 0;
-    let wrong = 0;
-    for (const d of data.decisions) {
-      via[d.via]++;
-      if (d.outcome === 'right') right++;
-      if (d.outcome === 'wrong') wrong++;
-    }
-    return { via, right, wrong };
+    for (const d of data.decisions) via[d.via]++;
+    return via;
   }, [data.decisions]);
   return (
-    <div className="st-stack" style={{ gap: 14 }}>
-      <div className="mem-totals">
-        <div className="st-card stat mem-stat">
-          <span className="label">Decisions</span>
-          <span className="stat-num mem-stat-num">{fmtInt(data.stats.decisions)}</span>
-          <span className="xs st-muted">{totals.right + totals.wrong ? `${totals.right} right · ${totals.wrong} wrong so far` : 'outcomes not known yet'}</span>
-        </div>
-        <div className="st-card stat mem-stat">
-          <span className="label">By route</span>
-          <span className="row-wrap mem-via-row">
-            {(['rule', 'cache', 'judge', 'escalated'] as const).map((v) => (
-              <span key={v} className="mem-via-count">
-                <ViaChip via={v} />
-                <b>{totals.via[v]}</b>
-              </span>
-            ))}
-          </span>
-        </div>
-        <div className="st-card stat mem-stat">
-          <span className="label">Judge cost</span>
-          <span className="stat-num mem-stat-num">{fmtUsd(data.stats.judgeCostUsd, '$0')}</span>
-          <span className="xs st-muted">{totals.via.judge} judge calls · rules and cache are free</span>
-        </div>
-      </div>
+    <div className="u-stack u-gap-3">
+      {/* How each choice was made and what the model calls cost: behind Details. */}
+      <More label={t('common.details')}>
+        <span>{t('memory.byRule', { rule: totals.rule, cache: totals.cache, model: totals.judge, asked: totals.escalated, cost: fmtUsd(data.stats.judgeCostUsd, '$0') })}</span>
+      </More>
       {data.decisions.length === 0 ? (
-        <p className="st-small st-muted">No decisions yet.</p>
+        <Notice kind="empty" title={t('memory.choices.none')} />
       ) : (
         <div className="st-card mem-tablewrap">
           <table className="res-table mem-table">
             <thead>
               <tr>
-                <th scope="col">When</th>
-                <th scope="col">Decision</th>
-                <th scope="col">Via</th>
-                <th scope="col">Answer</th>
-                <th scope="col">Probabilities</th>
-                <th scope="col">Confidence</th>
-                <th scope="col">Cost</th>
+                {CHOICE_COLUMNS.map((c) => (
+                  <th key={c} scope="col">{c}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {data.decisions.map((d) => {
-                const score = d.kind === 'score' && typeof d.answer === 'number' ? d.answer : null;
-                const below = score !== null ? d.threshold !== null && score < d.threshold : d.confidence !== null && d.threshold !== null && d.confidence < d.threshold;
+                const answer = d.answer === null ? t('memory.choices.toYou') : d.kind === 'predicate' ? (d.answer === true ? 'yes' : d.answer === false ? 'no' : String(d.answer)) : String(d.answer);
                 return (
                   <tr key={d.id} className={d.via === 'escalated' ? 'is-escalated' : ''}>
-                    <td data-label="When" className="mem-td-when">{formatDateTime(d.at)}</td>
-                    <td data-label="Decision" className="mem-td-dec">
+                    <td data-label={CHOICE_COLUMNS[0]} className="mem-td-when" data-content>{formatDateTime(d.at, tz)}</td>
+                    <td data-label={CHOICE_COLUMNS[1]} className="mem-td-dec" data-content>
                       <span className="mem-dec-title">{DECISION_TITLE[d.decision] ?? d.decision}</span>
-                      {d.note ? <span className="xs st-muted mem-dec-note">{d.note}</span> : null}
+                      <span className="xs st-muted mem-dec-note">{answer}</span>
                     </td>
-                    <td data-label="Via"><ViaChip via={d.via} />{d.judge ? <span className="xs st-muted mem-judge">{d.judge}</span> : null}</td>
-                    <td data-label="Answer" className="mem-td-answer">
-                      {d.answer === null ? <span className="st-muted">to you</span> : d.kind === 'predicate' ? (d.answer === true ? 'yes' : d.answer === false ? 'no' : String(d.answer)) : String(d.answer)}
-                      {score !== null && d.threshold !== null ? <span className={`xs ${below ? 'mem-below' : 'st-muted'}`}> {below ? '<' : '≥'} {d.threshold}</span> : null}
-                      {d.outcome ? <span className={`mem-outcome is-${d.outcome}`}>{d.outcome}</span> : null}
-                    </td>
-                    <td data-label="Probabilities"><Probabilities p={d.probabilities} answer={d.answer} /></td>
-                    <td data-label="Confidence" className="mem-td-conf">
-                      {d.confidence === null ? (
-                        <span className="st-muted">—</span>
-                      ) : (
-                        <span className={`mem-confcell ${below && score === null ? 'is-below' : ''}`}>
-                          <ConfidenceBar value={d.confidence} threshold={score === null ? d.threshold : null} label="Confidence" />
-                          <span className="xs">{fmtPct(d.confidence)}{score === null && d.threshold !== null ? <span className="st-muted"> {below ? '<' : '≥'} {fmtPct(d.threshold)}</span> : null}</span>
-                        </span>
-                      )}
-                    </td>
-                    <td data-label="Cost" className="mem-td-cost">{fmtUsd(d.costUsd)}</td>
+                    <td data-label={CHOICE_COLUMNS[2]} data-content>{choiceWhy(d)}</td>
+                    <td data-label={CHOICE_COLUMNS[3]} className="mem-td-cost" data-content>{fmtUsd(d.costUsd)}</td>
                   </tr>
                 );
               })}
@@ -348,10 +299,11 @@ function Decisions({ data }: { data: MemoryPayload }) {
 }
 
 function Runs({ data }: { data: MemoryPayload }) {
-  if (data.runs.length === 0) return <p className="st-small st-muted">No agent runs yet.</p>;
+  const tz = projectTimeZone(data.project.timeZone);
+  if (data.runs.length === 0) return <Notice kind="empty" title={t('memory.runs.none')} />;
   return (
-    <div className="st-stack" style={{ gap: 10 }}>
-      <div className="row-wrap" style={{ gap: 14, alignItems: 'baseline' }}>
+    <div className="u-stack u-gap-3">
+      <div className="u-row u-gap-3">
         <span className="st-small"><b>{data.runs.length}</b> runs</span>
         <span className="st-small">agents <b>{fmtUsd(data.stats.agentCostUsd, '$0')}</b> in total</span>
       </div>
@@ -364,7 +316,7 @@ function Runs({ data }: { data: MemoryPayload }) {
                 <i aria-hidden="true" />
                 {RUN_STATUS_LABEL[r.status]}
               </span>
-              <span className="xs st-muted mem-run-when">{formatDateTime(r.startedAt)}</span>
+              <span className="xs st-muted mem-run-when">{formatDateTime(r.startedAt, tz)}</span>
             </div>
             <p className="st-small mem-run-summary">{r.summary ?? (r.error ? <span className="real-error">{r.error}</span> : r.status === 'running' ? 'Working…' : 'No summary.')}</p>
             <div className="xs st-muted mem-run-meta">
@@ -394,17 +346,18 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
   const campaign = data.campaigns.find((c) => c.id === node.campaign);
   const approved = (node.meta as { approvedAt?: string }).approvedAt;
   const metricName = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+  const tz = projectTimeZone(data.project.timeZone);
   return (
     <aside className="mem-panel st-card" aria-labelledby={titleId}>
       <div className="mem-panel-head">
-        <div className="st-stack" style={{ gap: 4, minWidth: 0 }}>
+        <div className="u-stack u-gap-1 u-fill">
           <span className="label">{TYPE_LABEL[node.type]}{node.weight !== null ? ` · ${node.weight}%` : ''}</span>
           <h3 id={titleId} className="mem-panel-title">{node.label}</h3>
-          <div className="row-wrap" style={{ gap: 6, alignItems: 'center' }}>
+          <div className="u-row u-gap-2">
             <StatusChip s={node.status} />
             {node.type === 'pivot' ? <span className={`mem-status ${approved ? 'mem-s-pivot-approved' : 'mem-s-proposed'}`}>{approved ? 'Approved' : 'Proposed'}</span> : null}
             {campaign ? <span className="pill pill-soft">{campaign.name}</span> : null}
-            <span className="xs st-muted">created {formatDateLabel(zonedParts(node.created).date)}</span>
+            <span className="xs st-muted">created {formatDateLabel(partsIn(tz, node.created).date)}</span>
           </div>
         </div>
         <button type="button" className="st-btn st-btn-ghost st-btn-sm mem-close" onClick={onClose} aria-label="Close details">×</button>
@@ -413,7 +366,7 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
         {parent || children.length ? (
           <section className="mem-sec">
             <span className="label">In the tree</span>
-            <div className="row-wrap" style={{ gap: 6 }}>
+            <div className="u-row u-gap-2">
               {parent ? (
                 <button type="button" className="pill pill-outline mem-pillbtn" onClick={() => onSelect(parent.id)}>↑ {parent.label}</button>
               ) : null}
@@ -429,7 +382,7 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
             <ol className="mem-hist">
               {hist.map((h, i) => (
                 <li key={`${h.at}-${i}`}>
-                  <span className="xs st-muted">{formatDateLabel(zonedParts(h.at).date)}</span>
+                  <span className="xs st-muted">{formatDateLabel(partsIn(tz, h.at).date)}</span>
                   {h.status ? <StatusChip s={h.status} /> : <span className="mem-status mem-s-pivot-approved">{node.type === 'pivot' ? 'Approved' : 'No status'}</span>}
                 </li>
               ))}
@@ -452,11 +405,11 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
         {learning ? (
           <section className="mem-sec">
             <span className="label">Learning</span>
-            <LearningCard l={learning} now={now} compact />
+            <LearningCard l={learning} now={now} tz={tz} compact />
           </section>
         ) : null}
         <section className="mem-sec">
-          <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <div className="u-between">
             <span className="label">Evidence · {evidence.length}</span>
             {evidence.length ? <button type="button" className="mem-link" onClick={onOpenTimeline}>Timeline</button> : null}
           </div>
@@ -467,9 +420,9 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
               {evidence.slice(0, 12).map((e) => (
                 <li key={e.id} className="mem-evitem">
                   <GroupIcon g={eventGroup(e.type)} type={e.type} />
-                  <span className="st-stack" style={{ gap: 1, minWidth: 0 }}>
-                    <span className="st-small">{describeEvent(e)}</span>
-                    <span className="xs st-muted">{formatDateTime(e.at)} · {who(e.by)}</span>
+                  <span className="u-stack u-fill">
+                    <span className="st-small">{describeEvent(e, tz)}</span>
+                    <span className="xs st-muted">{formatDateTime(e.at, tz)} · {who(e.by)}</span>
                   </span>
                 </li>
               ))}
@@ -479,14 +432,13 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
         </section>
         {decisions.length > 0 ? (
           <section className="mem-sec">
-            <span className="label">Decisions</span>
+            <span className="label">{t('memory.tab.choices')}</span>
             <ol className="mem-declist">
               {decisions.map((d) => (
                 <li key={d.id} className="mem-decitem">
-                  <ViaChip via={d.via} />
-                  <span className="st-stack" style={{ gap: 1, minWidth: 0 }}>
-                    <span className="st-small">{DECISION_TITLE[d.decision] ?? d.decision} → <b>{d.answer === null ? 'to you' : String(d.answer)}</b></span>
-                    <span className="xs st-muted">{formatDateTime(d.at)}{d.confidence !== null ? ` · ${fmtPct(d.confidence)}` : ''}{d.threshold !== null ? ` vs ${fmtPct(d.threshold)}` : ''}</span>
+                  <span className="u-stack u-fill">
+                    <span className="st-small">{DECISION_TITLE[d.decision] ?? d.decision} → <b>{d.answer === null ? t('memory.choices.toYou') : String(d.answer)}</b></span>
+                    <span className="xs st-muted">{formatDateTime(d.at, tz)} · {choiceWhy(d)}</span>
                   </span>
                 </li>
               ))}
@@ -498,20 +450,16 @@ function NodePanel({ data, node, now, onClose, onOpenTimeline, onSelect }: { dat
   );
 }
 
-function EmptyState({ reason, demo, onDemo }: { reason: string; demo: boolean; onDemo: (on: boolean) => void }) {
+function EmptyState({ off, demo, onDemo }: { off: boolean; demo: boolean; onDemo: (on: boolean) => void }) {
   return (
-    <div className="st-card mem-empty">
-      <div className="st-stack" style={{ gap: 6 }}>
-        <span className="label">Nothing recorded yet</span>
-        <h3 className="mem-empty-title">Memory starts with the first campaign.</h3>
-        <More label="What will show here?">
-          <span>A decision map from goal to strategy to pillars and tested ideas, a timeline of every event, learnings with their confidence, and every routing decision with its cost.</span>
-        </More>
-        {reason ? <p className="st-small notice">{reason}</p> : null}
+    <div className="notice notice-empty mem-empty">
+      <p className="notice-title">{t('memory.empty')}</p>
+      <p className="st-small st-muted u-m0">{off ? t('memory.off') : t('memory.emptyWhy')}</p>
+      <div className="notice-action">
+        <Button dense onClick={() => onDemo(!demo)}>
+          {demo ? t('memory.exampleOff') : t('memory.exampleOn')}
+        </Button>
       </div>
-      <button type="button" className="st-chip" aria-pressed={demo} onClick={() => onDemo(!demo)}>
-        {demo ? 'Showing example data' : 'Preview with example data'}
-      </button>
     </div>
   );
 }
@@ -547,7 +495,7 @@ export function Memory({ say }: { say: (t: string) => void }) {
   const now = useMemo(() => {
     if (!d) return new Date().toISOString();
     const latest = [...d.events.map((e) => e.at), ...d.learnings.map((l) => l.updatedAt)].sort().pop() ?? '';
-    const today = `${todayInZone()}T12:00:00.000Z`;
+    const today = `${todayIn(d.project.timeZone)}T12:00:00.000Z`;
     return latest > today ? latest : today;
   }, [d]);
   const selectedNode = useMemo(() => (d && selected ? d.graph.nodes.find((n) => n.id === selected) ?? null : null), [d, selected]);
@@ -567,40 +515,51 @@ export function Memory({ say }: { say: (t: string) => void }) {
     tabRefs.current[next]?.focus();
   };
 
-  if (err) return <section className="screen"><p className="real-error st-small" role="alert">{err}</p></section>;
-  if (!d) return <ScreenSkeleton variant="cards" count={3} label="Loading memory" />;
+  if (err && !d) {
+    return (
+      <section className="screen" aria-label="Memory">
+        <Notice kind="error" title={t('memory.couldNotLoad')} details={err} onRetry={() => void load()} />
+      </section>
+    );
+  }
+  if (!d) return <ScreenSkeleton variant="cards" count={3} label={t('memory.loading')} />;
   const empty = !d.enabled || d.graph.nodes.length === 0;
   const showEmpty = empty && !demo;
+  const stopDemo = () => {
+    setDemo(false);
+    setSelected(null);
+  };
 
   return (
-    <section className="screen st-stack mem" style={{ gap: 18 }} aria-label="Memory">
-      <div className="row-wrap mem-head">
-        <span className="st-small st-muted mem-headline">
-          Memory for <b>{d.project.name}</b> ({d.project.handle})
+    <section className="screen u-stack u-gap-4 mem" aria-label="Memory">
+      <div className="u-between u-gap-3 mem-head">
+        <p className="st-small st-muted mem-lead">{t('memory.lead')}</p>
+        <span className="u-row u-gap-2">
           {!showEmpty ? (
-            <>
-              {' '}· {fmtInt(d.stats.events)} events · {fmtInt(d.stats.decisions)} decisions · judge {fmtUsd(d.stats.judgeCostUsd, '$0')} · agents {fmtUsd(d.stats.agentCostUsd, '$0')}
-            </>
+            <More label={t('common.details')}>
+              <span>{t('memory.stats', { events: fmtInt(d.stats.events), choices: fmtInt(d.stats.decisions), cost: fmtUsd(d.stats.agentCostUsd, '$0') })}</span>
+            </More>
           ) : null}
-        </span>
-        <span className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-          {demo ? (
-            <span className="mem-badge" role="status">
-              <i aria-hidden="true" />
-              Example data
-              <button type="button" className="mem-badge-x" onClick={() => { setDemo(false); setSelected(null); }} aria-label="Stop showing example data">×</button>
-            </span>
-          ) : null}
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => void load()}>Refresh</button>
+          <Button dense level="tertiary" onClick={() => void load()}>
+            {t('common.refresh')}
+          </Button>
         </span>
       </div>
+      {/* A fixed banner while example data is on. */}
+      {demo ? (
+        <div className="mem-example" role="status">
+          <span>{t('memory.example')}</span>
+          <Button dense level="tertiary" onClick={stopDemo}>
+            {t('memory.exampleOff')}
+          </Button>
+        </div>
+      ) : null}
 
       {showEmpty ? (
-        <EmptyState reason={d.enabled ? '' : d.reason} demo={demo} onDemo={(on) => { setDemo(on); setSelected(null); }} />
+        <EmptyState off={!d.enabled} demo={demo} onDemo={(on) => { setDemo(on); setSelected(null); }} />
       ) : (
         <>
-          {!d.enabled && demo ? <p className="notice st-small" style={{ margin: 0 }}>{d.reason} Example data below.</p> : null}
-          <div className="seg mem-tabs" role="tablist" aria-label="Memory views">
+          <div className="seg mem-tabs" role="tablist" aria-label={t('memory.tabs')}>
             {TABS.map((t, i) => (
               <button
                 key={t.id}
@@ -636,8 +595,8 @@ export function Memory({ say }: { say: (t: string) => void }) {
               <Timeline data={d} onOpenNode={openNode} />
             ) : tab === 'learnings' ? (
               <Learnings data={d} now={now} />
-            ) : tab === 'decisions' ? (
-              <Decisions data={d} />
+            ) : tab === 'choices' ? (
+              <Choices data={d} />
             ) : (
               <Runs data={d} />
             )}

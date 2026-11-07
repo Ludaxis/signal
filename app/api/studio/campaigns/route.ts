@@ -12,7 +12,8 @@ import { jsonError } from '@/lib/server/security';
 import { ContentError } from '@/lib/studio/content';
 import { AgentError, claudeAgentsAllowed } from '@/lib/studio/claude-agent';
 import { GOALS, approveStrategy, campaignView, getProgress, createCampaign, getCampaign, getPlan, listCampaigns, makePlan, makeSlotPost, proposeStrategy, skipSlot, updateCampaign } from '@/lib/studio/campaigns';
-import { FORMAT_LABEL } from '@/lib/studio/generate';
+import { projectTimeZone } from '@/lib/studio/time';
+import { loadPackFormats } from '@/lib/studio/formats';
 import { recordEvent } from '@/lib/studio/memory/store';
 
 export const dynamic = 'force-dynamic';
@@ -28,14 +29,16 @@ export async function GET(req: NextRequest): Promise<Response> {
   const user = await requireStudioUser(req);
   if (user instanceof Response) return user;
   const id = new URL(req.url).searchParams.get('id');
-  return inProject(req, null, async () => {
+  return inProject(req, null, async (project) => {
     try {
       if (id && new URL(req.url).searchParams.get('progress') === '1') return NextResponse.json({ progress: await getProgress(id) }, { headers: { 'Cache-Control': 'no-store' } });
       if (id) return NextResponse.json(await campaignView(id), { headers: { 'Cache-Control': 'no-store' } });
       const campaigns = await listCampaigns();
       const plans = Object.fromEntries(await Promise.all(campaigns.map(async (c) => [c.id, await getPlan(c.id)] as const)));
-      const formats = Object.entries(FORMAT_LABEL);
-      return NextResponse.json({ campaigns, plans, agents: await claudeAgentsAllowed(), goals: GOALS, formats: formats.map(([id, name]) => ({ id, name })) }, { headers: { 'Cache-Control': 'no-store' } });
+      // Post types under the project pack's names when it has a formats.json (the built-in set otherwise).
+      const set = await loadPackFormats(project);
+      const formats = set.formats.map((f) => ({ id: f, name: set.labels[f] }));
+      return NextResponse.json({ campaigns, plans, agents: await claudeAgentsAllowed(), goals: GOALS, formats, timeZone: projectTimeZone(project) }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (e) {
       return fail(e);
     }

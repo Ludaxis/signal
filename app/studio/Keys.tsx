@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { notifyChanged, useOnChanged } from './sync';
 import { Switch } from './Autopilot';
 import { More } from './More';
+import { t } from './copy/en';
 
 export interface FieldStatus { name: string; label: string; secret: boolean; placeholder: string; source: 'saved' | 'env' | 'missing'; value: string | null; hint: string | null }
 export interface GroupStatus { id: string; title: string; why: string; where: string; complete: boolean; saved: boolean; fields: FieldStatus[] }
@@ -38,10 +39,12 @@ export function useSettings() {
   return { d, load };
 }
 
-const sourceText = (f: FieldStatus) => (f.source === 'saved' ? `Saved${f.hint ? ` · ${f.hint}` : ''}` : f.source === 'env' ? `From .env.local${f.hint ? ` · ${f.hint}` : ''}` : 'Not set');
+// a value set outside the app reads "Saved outside Signal", never a file name.
+const sourceText = (f: FieldStatus) => (f.source === 'saved' ? `Saved${f.hint ? ` · ${f.hint}` : ''}` : f.source === 'env' ? `Saved outside Signal${f.hint ? ` · ${f.hint}` : ''}` : 'Not set');
 
 /** The fields of one key group, with Save, Test (where there is one) and Remove. */
-export function KeyForm({ group, ready, reason, say, onSaved, title }: { group: GroupStatus; ready: boolean; reason: string; say: (t: string) => void; onSaved: () => Promise<void> | void; title?: string }) {
+/** `primary`: Save is the drawer's one filled button; otherwise it is secondary. */
+export function KeyForm({ group, ready, reason, say, onSaved, title, primary = false }: { group: GroupStatus; ready: boolean; reason: string; say: (t: string) => void; onSaved: () => Promise<void> | void; title?: string; primary?: boolean }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const run = async (key: string, body: Record<string, unknown>, after?: () => void) => {
@@ -73,7 +76,8 @@ export function KeyForm({ group, ready, reason, say, onSaved, title }: { group: 
           <span>{group.where}</span>
         </More>
       </div>
-      {!ready ? <p className="real-error st-small" style={{ margin: 0 }}>{reason}</p> : null}
+      {/* The server's reason can name files and settings; the screen says what it means instead. */}
+      {!ready ? <p className="real-error st-small" style={{ margin: 0 }} data-reason={reason ? 'set' : 'none'}>{t('keys.notReady')}</p> : null}
       {group.fields.map((f) => (
         <label key={f.name} className="cx-field">
           <span className="cx-field-top">
@@ -93,7 +97,7 @@ export function KeyForm({ group, ready, reason, say, onSaved, title }: { group: 
         </label>
       ))}
       <div className="row-wrap" style={{ gap: 8 }}>
-        <button type="submit" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === 'save'} disabled={!!busy || !filled || !ready}>Save</button>
+        <button type="submit" className={`btn ${primary ? 'btn-primary' : 'btn-secondary'} btn-dense`} aria-busy={busy === 'save'} disabled={!!busy || !filled || !ready}>Save</button>
         {canTest ? <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'test'} disabled={!!busy || !group.complete} title={group.complete ? '' : 'Fill in every field first.'} onClick={() => void run('test', { action: 'test', group: group.id })}>Test</button> : null}
         {group.saved ? <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={!!busy} onClick={() => void run('clear', { action: 'clear', group: group.id })}>Remove saved</button> : null}
       </div>
@@ -103,21 +107,23 @@ export function KeyForm({ group, ready, reason, say, onSaved, title }: { group: 
 }
 
 /** Feature switches (signal.config.json), all off by default. Anything that spends money, posts or runs on its own stays off until you turn it on here. */
-export function FeaturesSection({ say }: { say: (t: string) => void }) {
+/** `hide`: switches shown elsewhere (Connections shows the Post maker ones as rows, with their terms step). */
+export function FeaturesSection({ say, hide = [] }: { say: (t: string) => void; hide?: readonly string[] }) {
   const { d, load } = useSettings();
   const [busy, setBusy] = useState<string | null>(null);
-  if (!d?.features) return null;
-  const on = d.features.filter((f) => f.on).length;
+  const features = (d?.features ?? []).filter((f) => !hide.includes(f.id));
+  if (!features.length) return null;
+  const on = features.filter((f) => f.on).length;
   return (
     <>
       <section className="cx-section" aria-labelledby="cx-features">
       <div className="cx-section-head">
-        <h2 id="cx-features" className="cx-h2">Features</h2>
-        <p className="cx-sub">{on} of {d.features.length} on. Paid, posting and automatic features stay off until you switch them on.</p>
+        <h2 id="cx-features" className="cx-h2">{hide.length ? t('connections.features.more') : t('connections.group.features')}</h2>
+        <p className="cx-sub">{on} of {features.length} on. Paid, posting and automatic features stay off until you switch them on.</p>
       </div>
       <div className="st-card cx-features">
         <More label="Show switches">
-          {d.features.map((f) => (
+          {features.map((f) => (
             <Switch
               key={f.id}
               checked={f.on}
