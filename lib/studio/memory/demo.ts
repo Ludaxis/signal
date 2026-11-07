@@ -5,8 +5,8 @@
 // strategy v2). Nothing here is read from or written to disk.
 import type { AgentRunRecord, BranchStatus, DecisionId, DecisionKind, DecisionRecord, EventType, Goal, GraphNode, Learning, MemEvent, MemoryPayload, NodeType, Role } from './types';
 
-const C1 = 'c-20261104-ead3'; // Let'sGrow (engagement)
-const C2 = 'c-20261110-b2f1'; // Sint-Maarten week (awareness)
+const C1 = 'c-20261104-ead3'; // Spring launch (engagement)
+const C2 = 'c-20261110-b2f1'; // Weekend tips (awareness)
 const ME = 'owner';
 
 // ---- events --------------------------------------------------------------------------------------
@@ -28,10 +28,10 @@ const T = (d: string, hm: string) => `2026-11-${d}T${hm}:00.000Z`;
 
 const EVENTS: EvIn[] = [
   // 4 Nov · campaign, research, strategy v1, plan
-  { at: T('04', '08:02'), type: 'campaign.created', data: { name: "Let'sGrow", goal: 'engagement', perWeek: 5, formats: ['higgsfield-reel', 'higgsfield-image', 'codex-post'] } },
+  { at: T('04', '08:02'), type: 'campaign.created', data: { name: "Spring launch", goal: 'engagement', perWeek: 5, formats: ['higgsfield-reel', 'higgsfield-image', 'codex-post'] } },
   { at: T('04', '08:40'), type: 'research.finding', by: 'agent:researcher', refs: { run: 'run_01' }, data: { finding: 'Puzzle Reels with a reveal in the last second get 2× saves vs static carousels in puzzle and brain-teaser accounts.', source: 'https://example.com/ig-puzzle-benchmarks-2026' } },
   { at: T('04', '08:41'), type: 'research.finding', by: 'agent:researcher', refs: { run: 'run_01' }, data: { finding: 'Question openers lift comment rate by 30–50% for quiz formats.', source: 'https://example.com/hook-study' } },
-  { at: T('04', '08:43'), type: 'research.finding', by: 'agent:researcher', refs: { run: 'run_01' }, data: { finding: 'Sint-Maarten (11 Nov) is a lantern walk in NL/BE; seasonal posts peak 9–11 Nov.', source: 'https://example.com/nl-seasonal-calendar' } },
+  { at: T('04', '08:43'), type: 'research.finding', by: 'agent:researcher', refs: { run: 'run_01' }, data: { finding: 'Weekend tip posts peak on Saturday morning; seasonal posts lift reach more than saves.', source: 'https://example.com/seasonal-calendar' } },
   { at: T('04', '08:50'), type: 'agent.run', by: 'agent:researcher', refs: { run: 'run_01' }, data: { role: 'researcher', model: 'claude-sonnet-4-5', costUsd: 0.18, seconds: 94, status: 'done' } },
   { at: T('04', '09:05'), type: 'decision.made', by: 'system', refs: { decision: 'dc_003' }, data: { decision: 'research-relevant', answer: false, text: 'Dropped a finding about TikTok duets (not relevant to this project).' } },
   { at: T('04', '09:30'), type: 'strategy.proposed', by: 'agent:strategist', refs: { strategy: 'st:v1', run: 'run_02' }, data: { version: 1, summary: 'Daily puzzle Reels with a reveal; four pillars weighted 40/25/20/15.', pillars: [['Guess the link', 40], ['Odd one out', 25], ['Music moments', 20], ['Seasonal', 15]] } },
@@ -85,18 +85,18 @@ const EVENTS: EvIn[] = [
   { at: T('10', '09:05'), type: 'post.made', by: 'system', refs: { package: '17', slot: '2026-11-10-reel', branch: 'hy:beat' }, data: { format: 'higgsfield-reel', hook: 'Drop on the beat', seconds: 52 } },
   { at: T('10', '10:40'), type: 'post.approved', refs: { package: '17', slot: '2026-11-10-reel', branch: 'hy:beat' }, data: { format: 'higgsfield-reel', hook: 'Drop on the beat', pillar: 'Music moments' } },
   { at: T('10', '17:30'), type: 'post.published', by: 'system', refs: { package: '17', slot: '2026-11-10-reel', branch: 'hy:beat' }, data: { format: 'higgsfield-reel', hook: 'Drop on the beat' } },
-  // 11 Nov · results 16 and 17; Sint-Maarten campaign; statement hooks → weak
+  // 11 Nov · results 16 and 17; Weekend tips campaign; statement hooks → weak
   { at: T('11', '07:00'), type: 'metrics.snapshot', by: 'system', refs: { package: '16', branch: 'hy:statement' }, data: { views: 2800, reach: 1390, likes: 49, saves: 6, shares: 2, comments: 8, ageHours: 38 } },
   { at: T('11', '07:05'), type: 'decision.made', by: 'system', refs: { decision: 'dc_027', branch: 'hy:statement' }, data: { decision: 'branch-status', answer: 'weak', text: 'Statement hooks → weak (saves ×0.78, nEff 3.1).' } },
-  { at: T('11', '08:10'), type: 'campaign.created', campaign: C2, data: { name: 'Sint-Maarten week', goal: 'awareness', perWeek: 2 } },
-  { at: T('11', '08:30'), type: 'brief.created', by: 'agent:planner', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:sint' }, data: { format: 'higgsfield-reel', pillar: 'Seasonal', hook: 'Lantern sort', hookStyle: 'statement' } },
-  { at: T('11', '09:15'), type: 'post.made', by: 'system', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:sint' }, data: { format: 'higgsfield-reel', hook: 'Lantern sort', seconds: 47 } },
-  { at: T('11', '10:02'), type: 'post.approved', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:sint' }, data: { format: 'higgsfield-reel', hook: 'Lantern sort', pillar: 'Seasonal' } },
-  { at: T('11', '16:30'), type: 'post.published', by: 'system', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:sint' }, data: { format: 'higgsfield-reel', hook: 'Lantern sort' } },
+  { at: T('11', '08:10'), type: 'campaign.created', campaign: C2, data: { name: 'Weekend tips', goal: 'awareness', perWeek: 2 } },
+  { at: T('11', '08:30'), type: 'brief.created', by: 'agent:planner', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:weekend' }, data: { format: 'higgsfield-reel', pillar: 'Seasonal', hook: 'Weekend tip sort', hookStyle: 'statement' } },
+  { at: T('11', '09:15'), type: 'post.made', by: 'system', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:weekend' }, data: { format: 'higgsfield-reel', hook: 'Weekend tip sort', seconds: 47 } },
+  { at: T('11', '10:02'), type: 'post.approved', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:weekend' }, data: { format: 'higgsfield-reel', hook: 'Weekend tip sort', pillar: 'Seasonal' } },
+  { at: T('11', '16:30'), type: 'post.published', by: 'system', campaign: C2, refs: { package: '19', slot: '2026-11-11-reel', branch: 'hy:weekend' }, data: { format: 'higgsfield-reel', hook: 'Weekend tip sort' } },
   { at: T('11', '19:20'), type: 'metrics.snapshot', by: 'system', refs: { package: '17', branch: 'hy:beat' }, data: { views: 4400, reach: 1950, likes: 88, saves: 12, shares: 9, comments: 11, ageHours: 26 } },
   // 12 Nov · seasonal results; pivot proposed; brief 18
-  { at: T('12', '18:45'), type: 'metrics.snapshot', by: 'system', campaign: C2, refs: { package: '19', branch: 'hy:sint' }, data: { views: 7300, reach: 3010, likes: 102, saves: 11, shares: 19, comments: 14, ageHours: 26 } },
-  { at: T('12', '19:00'), type: 'decision.made', by: 'system', refs: { decision: 'dc_030', branch: 'hy:sint' }, data: { decision: 'branch-status', answer: 'weak', text: 'Seasonal → weak for saves (reach ×1.4, saves ×0.9); would be promising under Awareness.' } },
+  { at: T('12', '18:45'), type: 'metrics.snapshot', by: 'system', campaign: C2, refs: { package: '19', branch: 'hy:weekend' }, data: { views: 7300, reach: 3010, likes: 102, saves: 11, shares: 19, comments: 14, ageHours: 26 } },
+  { at: T('12', '19:00'), type: 'decision.made', by: 'system', refs: { decision: 'dc_030', branch: 'hy:weekend' }, data: { decision: 'branch-status', answer: 'weak', text: 'Seasonal → weak for saves (reach ×1.4, saves ×0.9); would be promising under Awareness.' } },
   { at: T('12', '19:30'), type: 'agent.run', by: 'agent:lead', refs: { run: 'run_06' }, data: { role: 'lead', model: 'claude-opus-4-1', costUsd: 2.4, seconds: 341, status: 'done', summary: 'Proposed moving 10% from Seasonal to Guess the link.' } },
   { at: T('12', '19:32'), type: 'pivot.proposed', by: 'agent:lead', refs: { branch: 'pv:1', run: 'run_06', decision: 'dc_031' }, data: { title: 'Move 10% Seasonal → Guess the link', why: 'Question hooks ×1.58 saves at nEff 5.6; Seasonal lifts reach, not saves.', probability: 0.86 } },
   { at: T('12', '20:00'), type: 'brief.created', by: 'agent:planner', refs: { package: '18', slot: '2026-11-13-reel', branch: 'hy:question' }, data: { format: 'higgsfield-reel', pillar: 'Guess the link', hook: 'Can you link these in 5 s?', hookStyle: 'question' } },
@@ -124,7 +124,7 @@ const EVENTS: EvIn[] = [
   { at: T('16', '18:20'), type: 'post.scheduled', refs: { package: '20', slot: '2026-11-17-reel', branch: 'hy:beatsync' }, data: { at: '2026-11-17T17:30:00.000Z', via: 'signal' } },
   // 17 Nov · post 20 published; catalog
   { at: T('17', '17:30'), type: 'post.published', by: 'system', refs: { package: '20', slot: '2026-11-17-reel', branch: 'hy:beatsync' }, data: { format: 'higgsfield-reel', hook: 'Which beat drops first?' } },
-  { at: T('17', '18:00'), type: 'catalog.updated', by: 'system', data: { categories: 128, items: 1930, added: ['Winter drinks', 'Lanterns'] } },
+  { at: T('17', '18:00'), type: 'catalog.updated', by: 'system', data: { categories: 128, items: 1930, added: ['Winter drinks', 'Spring flowers'] } },
   // 18 Nov · results 20; label confirmed; a discarded draft; analyst running
   { at: T('18', '07:45'), type: 'post.label-confirmed', refs: { package: '18' }, data: { label: 'AI-generated', where: 'Instagram' } },
   { at: T('18', '08:30'), type: 'post.discarded', refs: { package: '21' }, data: { reason: 'Duplicate of post 15.' } },
@@ -189,7 +189,7 @@ function buildNodes(events: MemEvent[]): GraphNode[] {
 
   return [
     node({ id: 'goal:c1', type: 'goal', parent: null, label: 'Grow engagement · saves ≥ 15 per post', created: D('04', '08:02'), evidence: evidenceFor(events, (e) => e.type === 'campaign.created' && e.campaign === C1), goalWeight: { engagement: 1 }, meta: { metric: 'saves per post', target: 15, goal: 'engagement' } }),
-    node({ id: 'st:v1', type: 'strategy', parent: 'goal:c1', label: "Let'sGrow v1 · puzzle Reels", created: D('04', '10:30'), evidence: evidenceFor(events, (e) => e.refs.strategy === 'st:v1' || e.type === 'research.finding' || e.type === 'plan.made'), meta: { version: 1, approvedBy: ME, approvedAt: D('04', '10:30'), supersededBy: 'st:v2' } }),
+    node({ id: 'st:v1', type: 'strategy', parent: 'goal:c1', label: "Spring launch v1 · puzzle Reels", created: D('04', '10:30'), evidence: evidenceFor(events, (e) => e.refs.strategy === 'st:v1' || e.type === 'research.finding' || e.type === 'plan.made'), meta: { version: 1, approvedBy: ME, approvedAt: D('04', '10:30'), supersededBy: 'st:v2' } }),
     node({ id: 'pl:guess', type: 'pillar', parent: 'st:v1', label: 'Guess the link', weight: 40, created: D('04', '10:30'), history: [{ at: D('04', '10:30'), status: 'exploring' }, { at: D('10', '07:00'), status: 'promising' }, { at: D('16', '07:00'), status: 'winning' }], evidence: [], meta: { why: 'Core puzzle format; a reveal in the last second.' } }),
     node({ id: 'pl:odd', type: 'pillar', parent: 'st:v1', label: 'Odd one out', weight: 25, created: D('04', '10:30'), history: [{ at: D('04', '10:30'), status: 'exploring' }], meta: { why: 'Fast to read; drives comments.' } }),
     node({ id: 'pl:music', type: 'pillar', parent: 'st:v1', label: 'Music moments', weight: 20, created: D('04', '10:30'), history: [{ at: D('04', '10:30'), status: 'exploring' }], meta: { why: 'Shows the music moments people remember.' } }),
@@ -211,15 +211,15 @@ function buildNodes(events: MemEvent[]): GraphNode[] {
     node({ id: 'hy:beat', type: 'hypothesis', parent: 'pl:music', label: 'Beat drop reveal', created: D('04', '11:00'), history: [{ at: D('04', '11:00'), status: 'exploring' }], evidence: branch(events, 'hy:beat'), learning: 'lr:beat-drop', meta: { metrics: { posts: 1, views: 4400, reach: 1950, saves: 12, comments: 11 } } }),
     variant('var:pkg-17', 'hy:beat', 'Drop on the beat', D('10', '08:30'), [{ at: D('10', '08:30'), status: 'exploring' }]),
 
-    node({ id: 'hy:sint', type: 'hypothesis', parent: 'pl:seasonal', label: 'Sint-Maarten lanterns', campaign: C2, created: D('11', '08:10'), history: [{ at: D('11', '08:10'), status: 'exploring' }, { at: D('12', '19:00'), status: 'weak' }], evidence: branch(events, 'hy:sint'), learning: 'lr:seasonal-reach', goalWeight: { awareness: 1, engagement: 0.4 }, meta: { metrics: { posts: 1, views: 7300, reach: 3010, saves: 11, shares: 19 } } }),
-    variant('var:pkg-19', 'hy:sint', 'Lantern sort', D('11', '08:30'), [{ at: D('11', '08:30'), status: 'exploring' }, { at: D('12', '19:00'), status: 'weak' }], { campaign: C2 }),
-    node({ id: 'out:sint', type: 'outcome', parent: 'hy:sint', label: 'Reach ×1.4 · saves ×0.9', campaign: C2, created: D('12', '18:45'), evidence: evidenceFor(events, (e) => e.type === 'metrics.snapshot' && e.refs.package === '19'), meta: { effect: 1.4, metric: 'reach', n: 1 } }),
+    node({ id: 'hy:weekend', type: 'hypothesis', parent: 'pl:seasonal', label: 'Weekend tips angle', campaign: C2, created: D('11', '08:10'), history: [{ at: D('11', '08:10'), status: 'exploring' }, { at: D('12', '19:00'), status: 'weak' }], evidence: branch(events, 'hy:weekend'), learning: 'lr:seasonal-reach', goalWeight: { awareness: 1, engagement: 0.4 }, meta: { metrics: { posts: 1, views: 7300, reach: 3010, saves: 11, shares: 19 } } }),
+    variant('var:pkg-19', 'hy:weekend', 'Weekend tip sort', D('11', '08:30'), [{ at: D('11', '08:30'), status: 'exploring' }, { at: D('12', '19:00'), status: 'weak' }], { campaign: C2 }),
+    node({ id: 'out:weekend', type: 'outcome', parent: 'hy:weekend', label: 'Reach ×1.4 · saves ×0.9', campaign: C2, created: D('12', '18:45'), evidence: evidenceFor(events, (e) => e.type === 'metrics.snapshot' && e.refs.package === '19'), meta: { effect: 1.4, metric: 'reach', n: 1 } }),
 
     node({ id: 'lrn:reels', type: 'learning', parent: 'st:v1', label: 'Reels beat carousels on reach', created: D('07', '19:12'), learning: 'lr:reels-reach', evidence: evidenceFor(events, (e) => e.type === 'metrics.snapshot').slice(0, 4) }),
     node({ id: 'lrn:time', type: 'learning', parent: 'st:v1', label: '18:30 beats 12:30', created: D('09', '19:35'), learning: 'lr:time-1830', evidence: evidenceFor(events, (e) => e.type === 'metrics.snapshot').slice(2, 5) }),
     node({ id: 'pv:1', type: 'pivot', parent: 'st:v1', label: 'Move 10% Seasonal → Guess the link', created: D('12', '19:32'), history: [{ at: D('12', '19:32'), status: 'proposed' }, { at: D('13', '08:05'), status: null }], evidence: branch(events, 'pv:1'), meta: { approvedAt: D('13', '08:05'), approvedBy: ME, probability: 0.86, from: 'pl:seasonal', to: 'pl:guess', percent: 10 } }),
 
-    node({ id: 'st:v2', type: 'strategy', parent: 'goal:c1', label: "Let'sGrow v2 · after pivot", created: D('14', '10:00'), evidence: evidenceFor(events, (e) => e.refs.strategy === 'st:v2' || e.refs.branch === 'pv:1'), meta: { version: 2, approvedBy: ME, approvedAt: D('14', '10:00'), supersedes: 'st:v1' } }),
+    node({ id: 'st:v2', type: 'strategy', parent: 'goal:c1', label: "Spring launch v2 · after pivot", created: D('14', '10:00'), evidence: evidenceFor(events, (e) => e.refs.strategy === 'st:v2' || e.refs.branch === 'pv:1'), meta: { version: 2, approvedBy: ME, approvedAt: D('14', '10:00'), supersedes: 'st:v1' } }),
     node({ id: 'pl2:guess', type: 'pillar', parent: 'st:v2', label: 'Guess the link', weight: 50, created: D('14', '10:00'), history: [{ at: D('14', '10:00'), status: 'winning' }], evidence: branch(events, 'hy:question').slice(-3), learning: 'lr:hook-question', meta: { continues: 'pl:guess' } }),
     node({ id: 'pl2:odd', type: 'pillar', parent: 'st:v2', label: 'Odd one out', weight: 25, created: D('14', '10:00'), history: [{ at: D('14', '10:00'), status: 'exploring' }], meta: { continues: 'pl:odd' } }),
     node({ id: 'pl2:music', type: 'pillar', parent: 'st:v2', label: 'Music moments', weight: 25, created: D('14', '10:00'), history: [{ at: D('14', '10:00'), status: 'exploring' }], meta: { continues: 'pl:music' } }),
@@ -235,7 +235,7 @@ function buildLearnings(): Learning[] {
     L({ id: 'lr:hook-question', text: 'Question hooks on Reels get more saves than statement hooks.', metric: 'saves_per_reach', scope: { campaign: C1, branch: 'hy:question', format: 'higgsfield-reel', hookStyle: 'question' }, effect: 1.58, interval: [1.12, 2.2], mean: 0.0087, baseline: 0.0055, n: 6, nEff: 8.1, confidence: 0.84, status: 'active', lastEvidence: '2026-11-15T18:00:00.000Z', branch: 'hy:question' }),
     L({ id: 'lr:reels-reach', text: 'Reels reach about a third more accounts than carousels.', metric: 'reach', scope: { format: 'higgsfield-reel' }, effect: 1.35, interval: [1.05, 1.7], mean: 2140, baseline: 1590, n: 9, nEff: 6.2, confidence: 0.64, status: 'active', lastEvidence: '2026-11-18T19:40:00.000Z', branch: null }),
     L({ id: 'lr:hook-statement', text: 'Statement hooks get fewer saves than the project baseline.', metric: 'saves_per_reach', scope: { campaign: C1, branch: 'hy:statement', format: 'higgsfield-reel', hookStyle: 'statement' }, effect: 0.78, interval: [0.55, 0.98], mean: 0.0045, baseline: 0.0055, n: 2, nEff: 3.4, confidence: 0.62, status: 'active', lastEvidence: '2026-11-11T07:00:00.000Z', branch: 'hy:statement' }),
-    L({ id: 'lr:seasonal-reach', text: 'Seasonal posts lift reach but not saves.', metric: 'reach', scope: { campaign: C2, branch: 'hy:sint' }, effect: 1.4, interval: [0.9, 2.1], mean: 3010, baseline: 2150, n: 1, nEff: 1.6, confidence: 0.58, status: 'too-little-data', lastEvidence: '2026-11-12T18:45:00.000Z', branch: 'hy:sint' }),
+    L({ id: 'lr:seasonal-reach', text: 'Seasonal posts lift reach but not saves.', metric: 'reach', scope: { campaign: C2, branch: 'hy:weekend' }, effect: 1.4, interval: [0.9, 2.1], mean: 3010, baseline: 2150, n: 1, nEff: 1.6, confidence: 0.58, status: 'too-little-data', lastEvidence: '2026-11-12T18:45:00.000Z', branch: 'hy:weekend' }),
     L({ id: 'lr:trick-cat', text: 'Trick categories get more comments per reach.', metric: 'comments_per_reach', scope: { branch: 'hy:trick', format: 'higgsfield-reel' }, effect: 1.21, interval: [0.7, 2.0], mean: 0.0148, baseline: 0.0122, n: 1, nEff: 1.4, confidence: 0.55, status: 'too-little-data', lastEvidence: '2026-11-07T19:10:00.000Z', branch: 'hy:trick' }),
     L({ id: 'lr:time-1830', text: 'Posting at 18:30 beats 12:30 for saves.', metric: 'saves_per_reach', scope: { hour: 18 }, effect: 1.12, interval: [0.8, 1.6], mean: 0.0061, baseline: 0.0055, n: 3, nEff: 1.9, confidence: 0.55, status: 'too-little-data', lastEvidence: '2026-11-09T19:35:00.000Z', branch: null }),
     L({ id: 'lr:beat-drop', text: 'A reveal on the beat drop keeps people to the end.', metric: 'views', scope: { branch: 'hy:beat', format: 'higgsfield-reel' }, effect: 1.12, interval: [0.6, 1.9], mean: 4400, baseline: 3920, n: 1, nEff: 0.6, confidence: 0.52, status: 'too-little-data', lastEvidence: '2026-11-11T19:20:00.000Z', branch: 'hy:beat' }),
@@ -275,9 +275,9 @@ function buildDecisions(project: string): DecisionRecord[] {
     { at: T('10', '07:03'), decision: 'best-time', kind: 'choice', via: 'rule', answer: '18:30', p: null, confidence: null, threshold: null, cost: null, note: 'From lr:time-1830 (too little data → default kept)' },
     { at: T('10', '08:16'), decision: 'prompt-injection', kind: 'predicate', via: 'judge', answer: false, p: { yes: 0.04, no: 0.96 }, confidence: 0.96, threshold: 0.3, cost: 0.0002, note: 'Your note · hy:question' },
     { at: T('11', '07:05'), decision: 'branch-status', kind: 'choice', via: 'rule', answer: 'weak', p: { weak: 0.62, exploring: 0.3, pruned: 0.08 }, confidence: 0.62, threshold: null, cost: null, outcome: 'right', note: 'hy:statement · saves ×0.78' },
-    { at: T('11', '08:32'), decision: 'learning-valid', kind: 'predicate', via: 'cache', answer: true, p: { yes: 0.8, no: 0.2 }, confidence: 0.8, threshold: 0.6, cost: null, note: 'lr:hook-question still valid for Sint-Maarten reel', campaign: C2 },
-    { at: T('11', '08:33'), decision: 'experiment-goal', kind: 'choice', via: 'judge', answer: 'awareness', p: { awareness: 0.74, engagement: 0.2, launch: 0.06 }, confidence: 0.74, threshold: 0.7, cost: 0.0004, note: 'hy:sint serves awareness', campaign: C2 },
-    { at: T('12', '19:00'), decision: 'branch-status', kind: 'choice', via: 'rule', answer: 'weak', p: { weak: 0.58, promising: 0.3, exploring: 0.12 }, confidence: 0.58, threshold: null, cost: null, note: 'hy:sint · under Engagement; promising under Awareness', campaign: C2 },
+    { at: T('11', '08:32'), decision: 'learning-valid', kind: 'predicate', via: 'cache', answer: true, p: { yes: 0.8, no: 0.2 }, confidence: 0.8, threshold: 0.6, cost: null, note: 'lr:hook-question still valid for the weekend tips reel', campaign: C2 },
+    { at: T('11', '08:33'), decision: 'experiment-goal', kind: 'choice', via: 'judge', answer: 'awareness', p: { awareness: 0.74, engagement: 0.2, launch: 0.06 }, confidence: 0.74, threshold: 0.7, cost: 0.0004, note: 'hy:weekend serves awareness', campaign: C2 },
+    { at: T('12', '19:00'), decision: 'branch-status', kind: 'choice', via: 'rule', answer: 'weak', p: { weak: 0.58, promising: 0.3, exploring: 0.12 }, confidence: 0.58, threshold: null, cost: null, note: 'hy:weekend · under Engagement; promising under Awareness', campaign: C2 },
     { at: T('12', '19:31'), decision: 'pivot-needed', kind: 'predicate', via: 'judge', answer: true, p: { yes: 0.86, no: 0.14 }, confidence: 0.86, threshold: 0.8, cost: 0.0021, outcome: 'right', note: 'Stats gate passed → proposal pv:1' },
     { at: T('12', '19:32'), decision: 'pivot-needed', kind: 'predicate', via: 'escalated', answer: null, p: null, confidence: null, threshold: 0.8, cost: null, note: 'Changes direction → you (pv:1)' },
     { at: T('13', '08:39'), decision: 'file-branch', kind: 'choice', via: 'judge', answer: 'hy:question', p: { 'hy:question': 0.84, 'hy:statement': 0.11, 'hy:trick': 0.05 }, confidence: 0.84, threshold: 0.7, cost: 0.0004, outcome: 'right', note: 'Edited brief 18 refiled → hy:question' },
@@ -313,13 +313,13 @@ function buildRuns(project: string): AgentRunRecord[] {
     id, role, project, campaign, startedAt, endedAt: seconds === null ? null : new Date(Date.parse(startedAt) + seconds * 1000).toISOString(), status, model, costUsd, turns, summary, error,
   });
   return [
-    R('run_01', 'researcher', T('04', '08:10'), 94, 'done', 'claude-sonnet-4-5', 0.18, 7, 'Three findings with sources: puzzle Reels benchmark, question openers, Sint-Maarten timing.'),
-    R('run_02', 'strategist', T('04', '09:05'), 212, 'done', 'claude-opus-4-1', 1.12, 9, "Let'sGrow v1: daily puzzle Reels; pillars 40/25/20/15; two experiments on hooks and posting time."),
+    R('run_01', 'researcher', T('04', '08:10'), 94, 'done', 'claude-sonnet-4-5', 0.18, 7, 'Three findings with sources: puzzle Reels benchmark, question openers, weekend timing.'),
+    R('run_02', 'strategist', T('04', '09:05'), 212, 'done', 'claude-opus-4-1', 1.12, 9, "Spring launch v1: daily puzzle Reels; pillars 40/25/20/15; two experiments on hooks and posting time."),
     R('run_03', 'planner', T('04', '10:35'), 58, 'done', 'claude-sonnet-4-5', 0.41, 6, '10 slots from 5 to 18 Nov; first week explores every pillar once.'),
     R('run_04', 'reviewer', T('05', '07:22'), 36, 'done', 'claude-sonnet-4-5', 0.22, 4, 'Post 12 ready: brief match 4.3, answer unambiguous 0.93, visual 4/5.'),
     R('run_05', 'analyst', T('10', '07:05'), 121, 'done', 'claude-sonnet-4-5', 0.63, 8, 'Week 1: question hooks lead on saves (×1.6); Odd one out leads on comments; 18:30 looks better but too little data.'),
     R('run_06', 'lead', T('12', '19:00'), 341, 'done', 'claude-opus-4-1', 2.4, 14, 'Proposed pv:1 (move 10% Seasonal → Guess the link) with evidence links; next week keeps one seasonal slot.'),
-    R('run_07', 'strategist', T('14', '08:55'), 198, 'done', 'claude-opus-4-1', 1.05, 9, "Let'sGrow v2: Guess the link 50%, Odd one out 25%, Music 25% with a beat-sync hook test."),
+    R('run_07', 'strategist', T('14', '08:55'), 198, 'done', 'claude-opus-4-1', 1.05, 9, "Spring launch v2: Guess the link 50%, Odd one out 25%, Music 25% with a beat-sync hook test."),
     R('run_09', 'researcher', T('14', '08:20'), 21, 'error', 'claude-sonnet-4-5', 0.06, 2, null, 'Web fetch blocked by the allow-list (example.org/trends).'),
     R('run_10', 'reviewer', T('16', '08:45'), 44, 'stopped-budget', 'claude-sonnet-4-5', 0.3, 5, 'Stopped at the $0.30 cap after two revision rounds on post 20; best draft kept.'),
     R('run_08', 'analyst', T('18', '20:00'), null, 'running', 'claude-sonnet-4-5', null, null, null),
@@ -339,8 +339,8 @@ export function demoPayload(project: { id: string; name: string; handle: string;
     reason: '',
     project,
     campaigns: [
-      { id: C1, name: "Let'sGrow", goal: 'engagement', status: 'active' },
-      { id: C2, name: 'Sint-Maarten week', goal: 'awareness', status: 'done' },
+      { id: C1, name: "Spring launch", goal: 'engagement', status: 'active' },
+      { id: C2, name: 'Weekend tips', goal: 'awareness', status: 'done' },
     ],
     graph: { version: 1, project: project.id, nodes, updatedAt: '2026-11-18T20:00:00.000Z' },
     learnings,

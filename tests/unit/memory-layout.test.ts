@@ -122,7 +122,7 @@ describe('replay helpers', () => {
 
   it('filterCampaign keeps the chosen campaign and its ancestors', () => {
     const c2 = filterCampaign(graph.nodes, 'c-20261110-b2f1').map((n) => n.id);
-    expect(c2).toEqual(expect.arrayContaining(['goal:c1', 'st:v1', 'pl:seasonal', 'hy:sint', 'var:pkg-19', 'out:sint']));
+    expect(c2).toEqual(expect.arrayContaining(['goal:c1', 'st:v1', 'pl:seasonal', 'hy:weekend', 'var:pkg-19', 'out:weekend']));
     expect(c2).not.toContain('hy:question');
     expect(filterCampaign(graph.nodes, null)).toHaveLength(graph.nodes.length);
   });
