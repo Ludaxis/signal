@@ -1,0 +1,5 @@
+# Installed by `npm install` here; Chrome Headless Shell from `npm run browser:ensure` lands in node_modules/.remotion
+node_modules/
+.remotion/
+# The lockfile stays local: package.json pins the exact Remotion and React versions.
+package-lock.json
