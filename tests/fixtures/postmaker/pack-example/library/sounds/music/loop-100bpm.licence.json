@@ -1,0 +1,23 @@
+{
+  "schema": "signal.pack-music-licence/1",
+  "assetId": "music-loop-100",
+  "file": "sounds/music/loop-100bpm.wav",
+  "made": "Synthesised by tests/fixtures/postmaker/make-pack.mjs (pure JavaScript: a click on every beat, accented on the downbeat, over a sine chord pad). No sample, recording or third-party music is used.",
+  "holder": "Signal test fixtures",
+  "type": "owned",
+  "acquiredAt": "2026-11-07",
+  "allowedUses": ["organic", "paid-ads", "store-listing"],
+  "territories": "worldwide",
+  "attribution": null,
+  "aiGenerated": false,
+  "declared": {
+    "bpm": 100,
+    "firstDownbeatMs": 0,
+    "beatsPerBar": 4,
+    "bars": 2,
+    "durationMs": 4800,
+    "loopable": true,
+    "declaredBy": "pack",
+    "chords": ["C major (bar 1)", "A minor (bar 2)"]
+  }
+}

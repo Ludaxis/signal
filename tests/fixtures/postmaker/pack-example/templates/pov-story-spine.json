@@ -1,0 +1,32 @@
+{
+  "schema": "signal.pack-template/1",
+  "id": "pov-story-spine",
+  "version": 1,
+  "name": "POV story",
+  "builder": "story-spine@1",
+  "media": "video",
+  "canvases": [{ "shape": "9:16", "w": 1080, "h": 1920 }],
+  "fps": 30,
+  "durationSec": { "min": 30, "max": 90 },
+  "languages": ["fa", "en"],
+  "tempo": { "bpmRange": [90, 128], "chantBeatsPerCard": 2, "beatsPerBar": 4 },
+  "segments": [
+    { "id": "hook", "share": 0.27, "minSec": 6, "shot": "wide", "require": ["povLabel", "kineticCaptions", "stickers>=3", "idles"], "music": "bed-low" },
+    { "id": "story", "share": 0.2, "minSec": 4, "shot": "medium", "require": ["newCharacter", "speechBubble", "speakerTags"], "music": "bed-low" },
+    { "id": "interrupt", "share": 0.08, "minSec": 2, "maxSec": 7, "shot": "card", "require": ["darkCard", "questionBubble"], "music": "drop" },
+    { "id": "demo", "share": 0.09, "minSec": 5, "shot": "insert", "require": ["phoneInsert", "swipePath", "feedbackStickers>=2"], "music": "build" },
+    { "id": "chant", "share": 0.06, "minSec": 3, "shot": "card", "require": ["colourCards>=3", "brandWord", "onDownbeats"], "music": "full" },
+    { "id": "escalation", "share": 0.11, "minSec": 0, "shot": "wide", "require": ["fullCast", "giantPhone", "crowdLoop"], "music": "full", "optional": true },
+    { "id": "reveal", "share": 0.08, "minSec": 2, "shot": "card", "require": ["brandRevealLetters", "confetti"], "music": "hit" },
+    { "id": "endcard", "share": 0.11, "minSec": 6, "maxSec": 9, "shot": "card", "require": ["appIcon", "tagline", "cta", "idles"], "music": "resolve" }
+  ],
+  "cast": { "lead": "char-lead", "foil": "char-elder" },
+  "styles": { "caption": "plate-highlight", "palette": "pack", "cardPalette": ["primary", "accent", "secondary", "background-dark"] },
+  "options": { "storyboard": false, "draftPreview": false },
+  "variants": [
+    { "id": "v1-hero", "label": "Hero (85 s)", "lengthSec": 85, "lang": "fa", "bpm": 100, "segmentSec": { "hook": 23, "story": 17, "interrupt": 7, "demo": 8, "chant": 5, "escalation": 9, "reveal": 7, "endcard": 9 } },
+    { "id": "v2-cutdown", "label": "Cutdown (30 s)", "lengthSec": 30, "lang": "fa", "bpm": 120, "segmentSec": { "hook": 6, "story": 4, "interrupt": 2, "demo": 5, "chant": 3, "reveal": 3, "endcard": 7 } },
+    { "id": "v3-setting-swap", "label": "Setting swap (45 s)", "lengthSec": 45, "lang": "en", "bpm": 110, "segmentSec": { "hook": 9, "story": 8, "interrupt": 3, "demo": 7, "chant": 4, "escalation": 4, "reveal": 3, "endcard": 7 } },
+    { "id": "slice-30", "label": "Slice (30 s, 100 BPM)", "lengthSec": 30, "bpm": 100, "segmentSec": { "hook": 6, "story": 4.4, "interrupt": 2, "demo": 5, "chant": 3.6, "reveal": 2.4, "endcard": 6.6 } }
+  ]
+}

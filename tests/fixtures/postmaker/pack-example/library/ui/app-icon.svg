@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Original flat placeholder app icon (three letter tiles) for the Signal test pack. -->
+  <rect width="512" height="512" rx="112" fill="#F2A541"/>
+  <rect x="70" y="190" width="110" height="130" rx="24" fill="#FFFFFF"/>
+  <rect x="201" y="160" width="110" height="130" rx="24" fill="#FFFFFF"/>
+  <rect x="332" y="190" width="110" height="130" rx="24" fill="#FFFFFF"/>
+  <circle cx="125" cy="255" r="26" fill="#2B2D52"/>
+  <rect x="231" y="200" width="50" height="50" rx="10" fill="#2B2D52"/>
+  <path d="M387 225 L414 280 L360 280 Z" fill="#2B2D52"/>
+  <rect x="120" y="370" width="272" height="26" rx="13" fill="#2B2D52" fill-opacity="0.35"/>
+</svg>

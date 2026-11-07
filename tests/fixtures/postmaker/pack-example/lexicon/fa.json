@@ -1,0 +1,33 @@
+{
+  "schema": "signal.fa-lexicon/1",
+  "scope": "pack",
+  "packId": "example-word-game",
+  "version": 1,
+  "updatedAt": "2026-11-07T00:00:00Z",
+  "entries": [
+    { "id": "lx-pack-mobile", "kind": "loanword", "match": { "display": ["موبایل"], "mode": "word", "inflects": true }, "pron": "موبایل", "roman": "mo-baayl", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-tablet", "kind": "loanword", "match": { "display": ["تبلت"], "mode": "word", "inflects": true }, "pron": "تَبلِت", "roman": "tab-let", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-internet", "kind": "loanword", "match": { "display": ["اینترنت"], "mode": "word", "inflects": true }, "pron": "اینتِرنِت", "roman": "in-ter-net", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-app", "kind": "loanword", "match": { "display": ["اپ"], "mode": "word", "inflects": true }, "pron": "اَپ", "roman": "ap", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-emoji", "kind": "loanword", "match": { "display": ["ایموجی"], "mode": "word", "inflects": true }, "pron": "ایموجی", "roman": "i-mo-ji", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-se", "kind": "number-word", "match": { "display": ["سه"], "mode": "word", "inflects": false }, "pron": "سه", "roman": "se", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-panj", "kind": "number-word", "match": { "display": ["پنج"], "mode": "word", "inflects": false }, "pron": "پَنج", "roman": "panj", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    { "id": "lx-pack-haft", "kind": "number-word", "match": { "display": ["هفت"], "mode": "word", "inflects": false }, "pron": "هَفت", "roman": "haft", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null },
+    {
+      "id": "lx-pack-dah",
+      "kind": "homograph",
+      "match": { "display": ["ده"], "mode": "word", "inflects": false },
+      "pron": null,
+      "roman": "dah",
+      "readings": [
+        { "key": "ten", "pron": "دَه", "roman": "dah", "gloss": "ten", "context": { "afterAny": ["تا"] }, "default": true },
+        { "key": "village", "pron": "دِه", "roman": "deh", "gloss": "village", "context": null }
+      ],
+      "source": "editor",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    { "id": "lx-pack-sms", "kind": "acronym", "match": { "display": ["SMS"], "mode": "exact", "inflects": false }, "pron": "اِس‌اِم‌اِس", "roman": "es-em-es", "source": "editor", "status": "proposed", "approvedBy": null, "approvedAt": null }
+  ]
+}

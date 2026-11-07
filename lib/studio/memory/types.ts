@@ -138,7 +138,8 @@ export interface AgentRunRecord {
 export interface MemoryPayload {
   enabled: boolean;
   reason: string;
-  project: { id: string; name: string; handle: string };
+  /** timeZone: the project's IANA zone; days and times in Memory read it. */
+  project: { id: string; name: string; handle: string; timeZone?: string };
   campaigns: { id: string; name: string; goal: Goal; status: string }[];
   graph: Graph;
   learnings: Learning[];

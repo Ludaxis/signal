@@ -1,0 +1,33 @@
+{
+  "$description": "[Pack example] Source of library/library.json. make-pack.mjs builds each `build` item (SVG to PNG, a synthesised WAV, a copied bundled font), then writes library.json with each file's sha256, dims and durationMs. Every asset is original to the Signal test fixtures: no reference frames, no third-party art or music.",
+  "licence": {
+    "type": "owned",
+    "holder": "Signal test fixtures",
+    "author": "Signal test fixtures",
+    "acquiredAt": "2026-11-07",
+    "proof": null,
+    "allowedUses": ["organic", "paid-ads", "store-listing"],
+    "territories": "worldwide",
+    "expiresAt": null,
+    "attribution": null,
+    "aiGenerated": false
+  },
+  "assets": [
+    { "id": "char-lead", "kind": "character", "file": "characters/char-lead/flat.png", "build": { "svg": "characters/char-lead/flat.svg" }, "tags": ["lead", "flat"], "palette": ["#F2A541", "#2F3E66", "#E8B48A"] },
+    { "id": "char-elder", "kind": "character", "file": "characters/char-elder/flat.png", "build": { "svg": "characters/char-elder/flat.svg" }, "tags": ["elder", "flat"], "palette": ["#8E4A7A", "#4C8C6B", "#D9A37E"] },
+    { "id": "bg-living-room-night", "kind": "background", "file": "backgrounds/bg-living-room-night.png", "build": { "svg": "backgrounds/bg-living-room-night.svg" }, "tags": ["night", "home"], "palette": ["#2B2D52", "#5B3A4E", "#F2C14E"] },
+    { "id": "ui-phone-frame", "kind": "ui", "file": "ui/phone-frame.png", "build": { "svg": "ui/phone-frame.svg" }, "tags": ["phone-frame"] },
+    { "id": "ui-app-icon", "kind": "ui", "file": "ui/app-icon.png", "build": { "svg": "ui/app-icon.svg" }, "tags": ["app-icon"] },
+    {
+      "id": "music-loop-100",
+      "kind": "music",
+      "file": "sounds/music/loop-100bpm.wav",
+      "build": { "loop": { "bpm": 100, "bars": 2, "beatsPerBar": 4, "sampleRate": 48000 } },
+      "tags": ["loop", "click", "chord"],
+      "music": { "bpm": 100, "firstDownbeatMs": 0, "beatsPerBar": 4, "declaredBy": "pack", "loopable": true },
+      "licenceRecord": "sounds/music/loop-100bpm.licence.json"
+    },
+    { "id": "font-vazirmatn", "kind": "font", "file": "fonts/Vazirmatn/Vazirmatn-Variable.woff2", "build": { "font": "vazirmatn" }, "tags": ["arabic", "text"], "licence": { "type": "ofl-1.1", "holder": "The Vazirmatn Project Authors", "author": "Saber Rastikerdar", "proof": "fonts/Vazirmatn/OFL.txt" } },
+    { "id": "font-instrument-sans", "kind": "font", "file": "fonts/InstrumentSans/instrument-sans-latin-700-normal.woff2", "build": { "font": "instrument-sans-700" }, "tags": ["latin", "display"], "licence": { "type": "ofl-1.1", "holder": "The Instrument Sans Project Authors", "author": "The Instrument Sans Project Authors", "proof": "fonts/InstrumentSans/OFL.txt" } }
+  ]
+}

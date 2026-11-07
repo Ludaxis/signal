@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <!-- Original flat placeholder character "elder" for the Signal test pack (no third-party art). -->
+  <ellipse cx="300" cy="860" rx="180" ry="22" fill="#000000" fill-opacity="0.18"/>
+  <path d="M150 440 Q300 380 450 440 L490 850 L110 850 Z" fill="#8E4A7A"/>
+  <path d="M190 470 L410 470 L400 520 L200 520 Z" fill="#D9A441"/>
+  <rect x="105" y="460" width="60" height="210" rx="30" fill="#8E4A7A" transform="rotate(10 135 460)"/>
+  <rect x="435" y="460" width="60" height="210" rx="30" fill="#8E4A7A" transform="rotate(-10 465 460)"/>
+  <circle cx="122" cy="676" r="28" fill="#D9A37E"/>
+  <circle cx="478" cy="676" r="28" fill="#D9A37E"/>
+  <rect x="272" y="345" width="56" height="60" rx="18" fill="#D9A37E"/>
+  <path d="M150 260 Q150 100 300 95 Q450 100 450 260 L460 420 Q300 450 140 420 Z" fill="#4C8C6B"/>
+  <circle cx="300" cy="250" r="118" fill="#D9A37E"/>
+  <path d="M190 200 Q300 120 410 200 Q380 165 300 160 Q220 165 190 200 Z" fill="#CFCFD6"/>
+  <path d="M235 245 Q252 230 269 245" stroke="#1E1E2A" stroke-width="9" fill="none" stroke-linecap="round"/>
+  <path d="M331 245 Q348 230 365 245" stroke="#1E1E2A" stroke-width="9" fill="none" stroke-linecap="round"/>
+  <circle cx="252" cy="250" r="34" fill="none" stroke="#5A3E2B" stroke-width="6"/>
+  <circle cx="348" cy="250" r="34" fill="none" stroke="#5A3E2B" stroke-width="6"/>
+  <line x1="286" y1="250" x2="314" y2="250" stroke="#5A3E2B" stroke-width="6"/>
+  <path d="M262 310 Q300 340 338 310" stroke="#1E1E2A" stroke-width="10" fill="none" stroke-linecap="round"/>
+</svg>

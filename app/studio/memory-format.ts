@@ -41,7 +41,7 @@ export function eventGroup(type: EventType): EventGroup {
 
 export const STATUS_LABEL: Record<BranchStatus, string> = { proposed: 'Proposed', exploring: 'Exploring', promising: 'Promising', winning: 'Winning', weak: 'Weak', pruned: 'Pruned' };
 export const TYPE_LABEL: Record<NodeType, string> = { goal: 'Goal', strategy: 'Strategy', pillar: 'Pillar', hypothesis: 'Hypothesis', variant: 'Variant', outcome: 'Outcome', learning: 'Learning', pivot: 'Pivot' };
-export const ROLE_LABEL: Record<Role, string> = { lead: 'Lead', researcher: 'Researcher', strategist: 'Strategist', planner: 'Planner', 'creative-producer': 'Creative producer', 'motion-designer': 'Motion designer', reviewer: 'Reviewer', analyst: 'Analyst', 'community-manager': 'Community manager' };
+export const ROLE_LABEL: Record<Role, string> = { lead: 'Lead', researcher: 'Researcher', strategist: 'Strategist', planner: 'Planner', 'creative-producer': 'Creative producer', 'motion-designer': 'Motion-graphics designer', reviewer: 'Reviewer', analyst: 'Analyst', 'community-manager': 'Community manager' };
 export const METRIC_LABEL: Record<MetricKey, string> = { views: 'views', reach: 'reach', saves_per_reach: 'saves per reach', engagement_rate: 'engagement rate', comments_per_reach: 'comments per reach', shares_per_reach: 'shares per reach', likes_per_reach: 'likes per reach' };
 export const DECISION_TITLE: Record<DecisionId, string> = {
   'file-branch': 'Which branch does this belong to?',

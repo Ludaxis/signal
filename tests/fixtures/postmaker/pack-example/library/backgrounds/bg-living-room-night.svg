@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <!-- Original flat placeholder background (a living room at night) for the Signal test pack. -->
+  <rect width="1080" height="1920" fill="#2B2D52"/>
+  <rect y="1320" width="1080" height="600" fill="#5B3A4E"/>
+  <rect x="140" y="300" width="420" height="520" rx="24" fill="#16183A"/>
+  <rect x="160" y="320" width="380" height="480" rx="14" fill="#23306B"/>
+  <circle cx="430" cy="430" r="60" fill="#F5E6A8"/>
+  <circle cx="455" cy="415" r="54" fill="#23306B"/>
+  <circle cx="230" cy="380" r="5" fill="#F5E6A8"/>
+  <circle cx="300" cy="520" r="4" fill="#F5E6A8"/>
+  <circle cx="480" cy="640" r="5" fill="#F5E6A8"/>
+  <rect x="345" y="320" width="10" height="480" fill="#16183A"/>
+  <rect x="160" y="555" width="380" height="10" fill="#16183A"/>
+  <rect x="760" y="760" width="16" height="560" fill="#C9A66B"/>
+  <path d="M680 760 L856 760 L820 640 L716 640 Z" fill="#F2C14E"/>
+  <ellipse cx="768" cy="780" rx="140" ry="40" fill="#F2C14E" fill-opacity="0.18"/>
+  <rect x="120" y="1180" width="840" height="190" rx="40" fill="#7A3E5E"/>
+  <rect x="160" y="1080" width="760" height="140" rx="40" fill="#934A70"/>
+  <ellipse cx="540" cy="1680" rx="430" ry="120" fill="#C0566E"/>
+  <ellipse cx="540" cy="1680" rx="330" ry="84" fill="#D9846A"/>
+</svg>

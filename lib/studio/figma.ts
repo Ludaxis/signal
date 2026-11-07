@@ -76,6 +76,14 @@ export async function connectFigma(token: string, f: Fetch = fetch): Promise<str
   return user;
 }
 
+/** The saved token's account name through GET /v1/me (free, read-only), or null when no token is saved. */
+export async function figmaWhoAmI(f: Fetch = fetch): Promise<string | null> {
+  const token = await getSecret(STORE, 'token');
+  if (!token) return null;
+  const me = await api<{ handle?: string; email?: string }>(f, token, '/me');
+  return me.handle || me.email || 'Figma user';
+}
+
 export async function disconnectFigma(): Promise<void> {
   await deleteSecret(STORE, 'token');
   await writeMeta({ ...(await readMeta()), user: null });

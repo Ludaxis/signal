@@ -14,7 +14,16 @@
 //   web for agents that do not research); slash commands and skills off; no session kept on disk; --max-turns
 //   caps the turns (Claude Code 2.1.319 accepts it although `claude --help` does not list it).
 // - Prompts: the built-in ones in ./team/roles.ts, or your overrides in <SIGNAL_PROMPTS_DIR>/_shared.md
-//   and <SIGNAL_PROMPTS_DIR>/<agent>/prompt.md; external text goes inside <untrusted_data>.
+//   and <SIGNAL_PROMPTS_DIR>/<agent>/prompt.md. Outside text goes inside <untrusted_data>, with `<` and `>` escaped
+//   so the material can never close the frame and talk as Signal.
+// - Post maker agents: deconstructor, copywriter, language-editor, art-director, animator and sound-designer, each
+//   with its fixed model tier, cap and turns (POSTMAKER_AGENTS in ./agent-envelopes.ts). Their runs are recorded by
+//   Post maker's own event log, not in project memory.
+// - Vision mode is an envelope change behind an explicit option: `cliArgs({ vision: true })` names Read as the one
+//   built-in (--tools Read, --allowedTools Read) and keeps every other denial, --restricted and --strict-mcp-config;
+//   the cwd holds only the files the caller hands over (contact sheets and a timeline). The default runner refuses
+//   it; only `makeClaudeCliRunner({ allowVision: true })` runs it. Re-run the --restricted check after every CLI
+//   upgrade before you allow it.
 // - Output is a proposal (JSON) checked by the caller's validator; you approve strategies and every post.
 //   Every run is recorded in project memory (runs.jsonl) when the memory switch is on.
 import { spawn } from 'node:child_process';
@@ -22,19 +31,31 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { featureEnabled, featureOffReason } from '@/lib/server/signalConfig';
+import { agentEnvelope, isPostmakerAgent, POSTMAKER_AGENT_IDS, POSTMAKER_AGENTS, type PostmakerAgentId } from './agent-envelopes';
 import { currentProject, promptsDir } from './projects';
-import { SHARED_RULES, builtinPrompt } from './team/roles';
+import { SHARED_RULES, builtinPrompt, postmakerAgentPrompt } from './team/roles';
 import { cliBin } from './tools';
 import { memoryAllowed, newId, writeRun } from './memory/store';
 import type { AgentRunRecord, Role } from './memory/types';
 
+export { agentEnvelope, COPYWRITER_POST_COPY, isPostmakerAgent, POSTMAKER_AGENT_IDS, POSTMAKER_AGENTS, type AgentEnvelope, type PostmakerAgentId } from './agent-envelopes';
+
 export const AGENT_TIMEOUT_MS = 8 * 60_000;
-export type AgentId = 'strategist' | 'content-planner' | 'researcher' | 'analyst' | 'community-manager';
+/** The Studio agents (strategy, plans, research, reports, replies). */
+export type StudioAgentId = 'strategist' | 'content-planner' | 'researcher' | 'analyst' | 'community-manager';
+export type AgentId = StudioAgentId | PostmakerAgentId;
 
 /** The most one `claude -p` run may spend when it bills your API key (passed as --max-budget-usd). */
 export const STRATEGIST_BUDGET_USD = 1.0;
 export const PLANNER_BUDGET_USD = 0.5;
-export const AGENT_BUDGET_USD: Record<AgentId, number> = { strategist: STRATEGIST_BUDGET_USD, 'content-planner': PLANNER_BUDGET_USD, researcher: 1.0, analyst: 0.5, 'community-manager': 0.2 };
+export const AGENT_BUDGET_USD: Record<AgentId, number> = {
+  strategist: STRATEGIST_BUDGET_USD,
+  'content-planner': PLANNER_BUDGET_USD,
+  researcher: 1.0,
+  analyst: 0.5,
+  'community-manager': 0.2,
+  ...(Object.fromEntries(POSTMAKER_AGENT_IDS.map((a) => [a, POSTMAKER_AGENTS[a].budgetUsd])) as Record<PostmakerAgentId, number>),
+};
 
 /** Environment variables a CLI child process (Claude Code, Codex) may inherit. No credential is on this list. */
 export const CLI_ENV_ALLOW = ['PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TERM', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'] as const;
@@ -52,6 +73,11 @@ export function allowListedEnv(source: NodeJS.ProcessEnv = process.env, extra: r
 /** Built-in tools every `claude -p` run is denied; the web tools are denied too unless the agent researches. */
 export const CLI_DENIED_TOOLS = ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Task', 'Agent', 'TodoWrite', 'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'Skill'] as const;
 export const CLI_WEB_TOOLS = ['WebSearch', 'WebFetch', 'ToolSearch'] as const;
+/** The one built-in a vision run may use: file reads, confined to the run's temp cwd by --restricted. */
+export const CLI_VISION_TOOLS = ['Read'] as const;
+/** The team role whose built-in prompt backs a Studio CLI agent id and the memory role its runs are recorded under
+ *  (Post maker agents have their own built-in prompts and are logged by Post maker). */
+const ROLE_FOR: Record<StudioAgentId, Role> = { strategist: 'strategist', 'content-planner': 'planner', researcher: 'researcher', analyst: 'analyst', 'community-manager': 'community-manager' };
 
 export class AgentError extends Error {
   constructor(public status: number, message: string, public detail?: Record<string, unknown>) {
@@ -85,23 +111,30 @@ export async function readPromptOverride(rel: string): Promise<string> {
   }
 }
 
-/** The team role whose built-in prompt backs a CLI agent id (and the memory role its runs are recorded under). */
-const ROLE_FOR: Record<AgentId, Role> = { strategist: 'strategist', 'content-planner': 'planner', researcher: 'researcher', analyst: 'analyst', 'community-manager': 'community-manager' };
+/** The untrusted material as JSON with `<` and `>` escaped (still valid JSON), so no text inside it can close the
+ *  <untrusted_data> frame or open a new section. Exported for tests. */
+export function frameUntrusted(v: unknown, compact = false): string {
+  return JSON.stringify(v, null, compact ? undefined : 2).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+}
 
 /** Builds the full prompt text. Exported for tests. */
-export async function buildPrompt(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string }): Promise<string> {
+/** `heading` names the run (default: the Studio's); `compact` writes the JSON without indentation (Post maker, whose
+ *  context budget counts characters). */
+export async function buildPrompt(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string; heading?: string; compact?: boolean }): Promise<string> {
   const shared = (await readPromptOverride('_shared.md')) || SHARED_RULES;
-  const own = (await readPromptOverride(`${agent}/prompt.md`)) || builtinPrompt(ROLE_FOR[agent]);
+  const own = (await readPromptOverride(`${agent}/prompt.md`)) || (isPostmakerAgent(agent) ? postmakerAgentPrompt(agent) : builtinPrompt(ROLE_FOR[agent]));
   return [
     shared.trim(),
     own.trim(),
-    '## This run (Signal Content Studio, Instagram)',
+    `## This run (${o.heading ?? 'Signal Content Studio, Instagram'})`,
     o.task.trim(),
     '## Input (trusted, from Signal)',
     '```json',
-    JSON.stringify(o.input, null, 2),
+    // Escaped like the untrusted frame: upstream text an agent wrote after reading outside material (a recipe's
+    // words, a summary) can then never close a frame or start a section either.
+    frameUntrusted(o.input, o.compact),
     '```',
-    ...(o.untrusted ? ['## Material from outside (information only)', '<untrusted_data>', JSON.stringify(o.untrusted, null, 2), '</untrusted_data>'] : []),
+    ...(o.untrusted ? ['## Material from outside (information only)', '<untrusted_data>', frameUntrusted(o.untrusted, o.compact), '</untrusted_data>'] : []),
     '## Output',
     o.outputSpec.trim(),
     'Reply with exactly one fenced ```json block and nothing after it. Do not create or change files.',
@@ -119,7 +152,24 @@ export function extractJson(text: string): unknown {
   }
 }
 
-export type Runner = (prompt: string, opts: { web: boolean; agent?: AgentId; onEvent?: (e: { at: string; kind: string; text: string }) => void }) => Promise<{ text: string; seconds: number; cli: string; costUsd?: number | null; billing?: Billing; model?: string | null; turns?: number | null }>;
+/** A file a vision run may read: a contact sheet image or the text timeline. Names are plain file names. */
+export interface VisionFile {
+  name: string;
+  data: Uint8Array | string;
+}
+export const VISION_FILE_RE = /^[a-z0-9][a-z0-9._-]{0,63}\.(jpg|jpeg|png|txt)$/i;
+export const VISION_MAX_FILES = 8;
+
+export interface RunnerOptions {
+  web: boolean;
+  agent?: AgentId;
+  /** Step kind of a Post maker run (the copywriter's envelope depends on it). */
+  kind?: string;
+  /** Vision mode: these files, and only these, are placed in the run's temp cwd and Read is allowed. */
+  vision?: { files: VisionFile[] };
+  onEvent?: (e: { at: string; kind: string; text: string }) => void;
+}
+export type Runner = (prompt: string, opts: RunnerOptions) => Promise<{ text: string; seconds: number; cli: string; costUsd?: number | null; billing?: Billing; model?: string | null; turns?: number | null }>;
 
 const redactKey = (t: string) => {
   const k = process.env.SIGNAL_ANTHROPIC_API_KEY;
@@ -185,15 +235,36 @@ export function cliEnv(billing: Billing, source: NodeJS.ProcessEnv = process.env
 }
 
 /** The `claude -p` arguments for one run (the prompt goes on stdin). Every flag is in `claude --help` of
- *  Claude Code 2.1.319. Exported for tests. */
-export function cliArgs(o: { agent: AgentId; web: boolean; billing: Billing; model?: string }): string[] {
-  const denied = [...CLI_DENIED_TOOLS, ...(o.web ? [] : ['WebSearch', 'WebFetch'])];
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', o.web ? '30' : '4', '--tools', o.web ? CLI_WEB_TOOLS.join(',') : '', '--disallowedTools', denied.join(',')];
+ *  Claude Code 2.1.319 except --max-turns (accepted, unlisted). A Studio agent's arguments are unchanged by the Post
+ *  maker additions; a Post maker agent takes its turns (and, on API-key billing, its cap) from its envelope.
+ *  `vision: true` names Read as the only tool and removes it from the denials; everything else stays denied,
+ *  the web included, and --restricted keeps file tools inside the cwd. Exported for tests. */
+export function cliArgs(o: { agent: AgentId; web: boolean; billing: Billing; model?: string; vision?: boolean; kind?: string }): string[] {
+  if (o.vision && o.web) throw new AgentError(400, 'A vision run cannot use the web.');
+  const env = isPostmakerAgent(o.agent) ? agentEnvelope(o.agent, o.kind) : null;
+  const turns = env ? String(env.maxTurns) : o.web ? '30' : '4';
+  const vision = o.vision === true;
+  const denied = [...CLI_DENIED_TOOLS.filter((t) => !vision || !(CLI_VISION_TOOLS as readonly string[]).includes(t)), ...(o.web ? [] : ['WebSearch', 'WebFetch'])];
+  const tools = vision ? CLI_VISION_TOOLS.join(',') : o.web ? CLI_WEB_TOOLS.join(',') : '';
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', turns, '--tools', tools, '--disallowedTools', denied.join(',')];
   if (o.web) args.push('--allowedTools', CLI_WEB_TOOLS.join(','));
-  if (o.billing === 'api-key') args.push('--max-budget-usd', AGENT_BUDGET_USD[o.agent].toFixed(2));
+  if (vision) args.push('--allowedTools', CLI_VISION_TOOLS.join(','));
+  if (o.billing === 'api-key') args.push('--max-budget-usd', (env ? env.budgetUsd : AGENT_BUDGET_USD[o.agent]).toFixed(2));
   const model = (o.model ?? '').replace(/[^a-z0-9.\-]/gi, '');
   if (model) args.push('--model', model);
   return args;
+}
+
+/** Checks the vision files (plain names, images or a text timeline, at most 8) and writes them into `dir`. */
+export async function placeVisionFiles(dir: string, files: VisionFile[]): Promise<string[]> {
+  if (files.length === 0 || files.length > VISION_MAX_FILES) throw new AgentError(400, `A vision run takes 1 to ${VISION_MAX_FILES} files.`);
+  const names = new Set<string>();
+  for (const f of files) {
+    if (!VISION_FILE_RE.test(f.name) || names.has(f.name)) throw new AgentError(400, 'A vision file needs a plain, unique image or text file name.');
+    names.add(f.name);
+  }
+  for (const f of files) await fs.writeFile(/* turbopackIgnore: true */ path.join(dir, f.name), f.data, { flag: 'wx' });
+  return [...names];
 }
 
 function spawnCli(bin: string, args: string[], cwd: string, stdin: string, timeoutMs: number, billing: Billing = 'subscription', onLine?: (line: string) => void): Promise<{ code: number | null; out: string; err: string }> {
@@ -231,70 +302,86 @@ function spawnCli(bin: string, args: string[], cwd: string, stdin: string, timeo
   });
 }
 
-/** The real runner: `claude -p` with the prompt on stdin, streaming progress events. */
-export const claudeCliRunner: Runner = async (prompt, { web, agent, onEvent }) => {
-  const bin = await cliBin('claude');
-  const work = await fs.mkdtemp(path.join(/* turbopackIgnore: true */ os.tmpdir(), 'signal-agent-'));
-  const started = Date.now();
-  const billing = await agentBilling();
-  const emit = (e: Omit<AgentEvent, 'at'>) => onEvent?.({ ...e, at: new Date().toISOString(), text: redactKey(e.text) });
-  try {
-    let cli = 'unknown';
+/** Every runner that spawns the real `claude` CLI, so a caller other than runAgent can still apply the agents switch. */
+const CLI_RUNNERS = new WeakSet<Runner>();
+/** True for a runner made by makeClaudeCliRunner (the real CLI); false for fakes. */
+export const isClaudeCliRunner = (r: Runner): boolean => CLI_RUNNERS.has(r);
+
+/** The real runner: `claude -p` with the prompt on stdin, streaming progress events. Vision runs are refused unless
+ *  the runner was made with `allowVision: true` (after a security review of the CLI's --restricted mode). */
+export function makeClaudeCliRunner(o: { allowVision?: boolean } = {}): Runner {
+  const run: Runner = async (prompt, { web, agent, kind, vision, onEvent }) => {
+    if (vision && !o.allowVision) throw new AgentError(403, 'Vision mode needs its security review first.');
+    const bin = await cliBin('claude');
+    const work = await fs.mkdtemp(path.join(/* turbopackIgnore: true */ os.tmpdir(), 'signal-agent-'));
+    const started = Date.now();
+    const billing = await agentBilling();
+    const emit = (e: Omit<AgentEvent, 'at'>) => onEvent?.({ ...e, at: new Date().toISOString(), text: redactKey(e.text) });
     try {
-      cli = (await spawnCli(bin, ['--version'], work, '', 15_000)).out.trim().slice(0, 80) || 'unknown';
-    } catch {
-      throw new AgentError(503, 'The Claude Code CLI was not found. Install it and sign in (`claude`), or set its path in Connections.');
-    }
-    emit({ kind: 'note', text: `Starting Claude Code ${cli}${billing === 'api-key' ? ' on your API key' : ' on your sign-in'}` });
-    const id: AgentId = agent ?? (web ? 'strategist' : 'content-planner');
-    const args = cliArgs({ agent: id, web, billing, model: process.env.CLAUDE_AGENT_MODEL || (billing === 'api-key' ? 'sonnet' : '') });
-    const state: { chars: number; model?: string } = { chars: 0 };
-    let res: CliResult | null = null;
-    let lastChars = 0;
-    const r = await spawnCli(bin, args, work, prompt, AGENT_TIMEOUT_MS, billing, (line) => {
-      const parsed = parseStreamLine(line, state);
-      for (const e of parsed.events) emit(e);
-      if (parsed.result) res = parsed.result;
-      if (state.chars - lastChars >= 1500) {
-        lastChars = state.chars;
-        emit({ kind: 'writing', text: `Writing… ${state.chars.toLocaleString()} characters so far` });
-      }
-    });
-    // Older CLIs may print a single JSON object instead of a stream.
-    if (!res) {
+      if (vision) await placeVisionFiles(work, vision.files);
+      let cli = 'unknown';
       try {
-        res = JSON.parse(r.out) as CliResult;
+        cli = (await spawnCli(bin, ['--version'], work, '', 15_000)).out.trim().slice(0, 80) || 'unknown';
       } catch {
-        res = null;
+        throw new AgentError(503, 'The Claude Code CLI was not found. Install it and sign in (`claude`), or set its path in Connections.');
       }
-    }
-    const final = res as CliResult | null;
-    if (!final || final.is_error || typeof final.result !== 'string') {
-      const hint = redactKey(String(final?.result || r.err || r.out.split('\n').slice(-3).join(' ') || 'no output')).replace(/\s+/g, ' ').trim().slice(-300);
-      emit({ kind: 'error', text: hint });
-      const failedCost = billing === 'api-key' && typeof final?.total_cost_usd === 'number' ? final.total_cost_usd : null;
-      const err = new AgentError(502, `Claude Code did not finish${r.code === null ? ' (timed out)' : ` (exit ${r.code})`}${final?.subtype ? ` (${final.subtype})` : ''}: ${hint}`, {
-        exit: r.code,
-        cli,
-        bin,
-        seconds: Math.round((Date.now() - started) / 1000),
-        billing,
-        costUsd: failedCost,
-        stderr: redactKey(r.err).slice(-2000),
-        stdout: redactKey(r.out).slice(-2000),
+      emit({ kind: 'note', text: `Starting Claude Code ${cli}${billing === 'api-key' ? ' on your API key' : ' on your sign-in'}` });
+      const id: AgentId = agent ?? (web ? 'strategist' : 'content-planner');
+      const tier = isPostmakerAgent(id) ? agentEnvelope(id, kind).model : billing === 'api-key' ? 'sonnet' : '';
+      const args = cliArgs({ agent: id, web, billing, model: process.env.CLAUDE_AGENT_MODEL || tier, vision: Boolean(vision), kind });
+      const state: { chars: number; model?: string } = { chars: 0 };
+      let res: CliResult | null = null;
+      let lastChars = 0;
+      const r = await spawnCli(bin, args, work, prompt, AGENT_TIMEOUT_MS, billing, (line) => {
+        const parsed = parseStreamLine(line, state);
+        for (const e of parsed.events) emit(e);
+        if (parsed.result) res = parsed.result;
+        if (state.chars - lastChars >= 1500) {
+          lastChars = state.chars;
+          emit({ kind: 'writing', text: `Writing… ${state.chars.toLocaleString()} characters so far` });
+        }
       });
-      // A run that started on the API key may have been billed: carry the known cost, else the run's cap.
-      if (failedCost != null) (err as AgentError & { costUsd?: number }).costUsd = failedCost;
-      else if (billing === 'api-key') (err as AgentError & { costUpperBoundUsd?: number }).costUpperBoundUsd = AGENT_BUDGET_USD[id];
-      throw err;
+      // Older CLIs may print a single JSON object instead of a stream.
+      if (!res) {
+        try {
+          res = JSON.parse(r.out) as CliResult;
+        } catch {
+          res = null;
+        }
+      }
+      const final = res as CliResult | null;
+      if (!final || final.is_error || typeof final.result !== 'string') {
+        const hint = redactKey(String(final?.result || r.err || r.out.split('\n').slice(-3).join(' ') || 'no output')).replace(/\s+/g, ' ').trim().slice(-300);
+        emit({ kind: 'error', text: hint });
+        const failedCost = billing === 'api-key' && typeof final?.total_cost_usd === 'number' ? final.total_cost_usd : null;
+        const err = new AgentError(502, `Claude Code did not finish${r.code === null ? ' (timed out)' : ` (exit ${r.code})`}${final?.subtype ? ` (${final.subtype})` : ''}: ${hint}`, {
+          exit: r.code,
+          cli,
+          bin,
+          seconds: Math.round((Date.now() - started) / 1000),
+          billing,
+          costUsd: failedCost,
+          stderr: redactKey(r.err).slice(-2000),
+          stdout: redactKey(r.out).slice(-2000),
+        });
+        // A run that started on the API key may have been billed: carry the known cost, else the run's cap.
+        if (failedCost != null) (err as AgentError & { costUsd?: number }).costUsd = failedCost;
+        else if (billing === 'api-key') (err as AgentError & { costUpperBoundUsd?: number }).costUpperBoundUsd = isPostmakerAgent(id) ? agentEnvelope(id, kind).budgetUsd : AGENT_BUDGET_USD[id];
+        throw err;
+      }
+      const costUsd = billing === 'api-key' && typeof final.total_cost_usd === 'number' ? final.total_cost_usd : null;
+      emit({ kind: 'done', text: `Finished in ${Math.round((Date.now() - started) / 1000)}s${costUsd != null ? ` · $${costUsd.toFixed(2)}` : ''}` });
+      return { text: final.result, seconds: Math.round((Date.now() - started) / 1000), cli, billing, costUsd, model: state.model ?? null, turns: typeof final.num_turns === 'number' ? final.num_turns : null };
+    } finally {
+      await fs.rm(/* turbopackIgnore: true */ work, { recursive: true, force: true }); // our own temp folder only
     }
-    const costUsd = billing === 'api-key' && typeof final.total_cost_usd === 'number' ? final.total_cost_usd : null;
-    emit({ kind: 'done', text: `Finished in ${Math.round((Date.now() - started) / 1000)}s${costUsd != null ? ` · $${costUsd.toFixed(2)}` : ''}` });
-    return { text: final.result, seconds: Math.round((Date.now() - started) / 1000), cli, billing, costUsd, model: state.model ?? null, turns: typeof final.num_turns === 'number' ? final.num_turns : null };
-  } finally {
-    await fs.rm(/* turbopackIgnore: true */ work, { recursive: true, force: true }); // our own temp folder only
-  }
-};
+  };
+  CLI_RUNNERS.add(run);
+  return run;
+}
+
+/** The default runner: no vision mode. */
+export const claudeCliRunner: Runner = makeClaudeCliRunner();
 
 /** Records one CLI run in project memory (runs.jsonl, the records the agent team writes too: start line, then
  *  end line; last line per id wins) so the Memory screen counts it. Only when the memory switch is on; never throws. */
@@ -309,17 +396,18 @@ async function recordCliRun(rec: AgentRunRecord): Promise<void> {
 
 const errText = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
 
-export async function runAgent<T>(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string; web?: boolean; campaign?: string | null; validate: (v: unknown) => T; onEvent?: OnEvent }, runner: Runner = claudeCliRunner): Promise<{ value: T; meta: { agent: AgentId; cli: string; seconds: number; at: string; billing: Billing; costUsd: number | null } }> {
+export async function runAgent<T>(agent: AgentId, o: { task: string; input: unknown; untrusted?: unknown; outputSpec: string; web?: boolean; kind?: string; vision?: { files: VisionFile[] }; campaign?: string | null; validate: (v: unknown) => T; onEvent?: OnEvent }, runner: Runner = claudeCliRunner): Promise<{ value: T; meta: { agent: AgentId; cli: string; seconds: number; at: string; billing: Billing; costUsd: number | null } }> {
   const allowed = await claudeAgentsAllowed();
   if (!allowed.enabled) throw new AgentError(403, allowed.reason);
   const prompt = await buildPrompt(agent, o);
   const startedAt = new Date().toISOString();
-  const rec: AgentRunRecord = { id: newId('run', Date.parse(startedAt)), role: ROLE_FOR[agent], project: currentProject().id, campaign: o.campaign ?? null, startedAt, endedAt: null, status: 'running', model: null, costUsd: null, turns: null, summary: `Claude Code CLI (${agent})`, error: null };
-  await recordCliRun(rec);
-  const finish = (patch: Partial<AgentRunRecord>) => recordCliRun({ ...rec, ...patch, endedAt: new Date().toISOString() });
+  const role = isPostmakerAgent(agent) ? null : ROLE_FOR[agent];
+  const rec: AgentRunRecord | null = role ? { id: newId('run', Date.parse(startedAt)), role, project: currentProject().id, campaign: o.campaign ?? null, startedAt, endedAt: null, status: 'running', model: null, costUsd: null, turns: null, summary: `Claude Code CLI (${agent})`, error: null } : null;
+  if (rec) await recordCliRun(rec);
+  const finish = async (patch: Partial<AgentRunRecord>) => (rec ? recordCliRun({ ...rec, ...patch, endedAt: new Date().toISOString() }) : undefined);
   let r: Awaited<ReturnType<Runner>>;
   try {
-    r = await runner(prompt, { web: o.web === true, agent, onEvent: o.onEvent as ((e: { at: string; kind: string; text: string }) => void) | undefined });
+    r = await runner(prompt, { web: o.web === true, agent, ...(o.kind ? { kind: o.kind } : {}), ...(o.vision ? { vision: o.vision } : {}), onEvent: o.onEvent as ((e: { at: string; kind: string; text: string }) => void) | undefined });
   } catch (e) {
     await finish({ status: 'error', costUsd: agentCostOf(e), error: errText(e) });
     throw e;

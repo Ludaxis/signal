@@ -1,0 +1,54 @@
+[
+  {
+    "id": "mock-narrator-fa",
+    "lang": "fa",
+    "speaker": "narrator",
+    "connector": "mock",
+    "model": "mock-tts-1",
+    "voiceId": "mock-voice-narrator-fa",
+    "settings": { "rate": 1 },
+    "consentRef": null,
+    "approvedBy": null,
+    "projection": { "diacritics": "homographs", "ezafe": "kasra", "conjO": false, "zwnj": "keep", "ipaInline": false, "lockedBy": null, "lockedAt": null, "testId": null },
+    "measuredRate": null
+  },
+  {
+    "id": "mock-elder-fa",
+    "lang": "fa",
+    "speaker": "char-elder",
+    "connector": "mock",
+    "model": "mock-tts-1",
+    "voiceId": "mock-voice-elder-fa",
+    "settings": { "rate": 0.95 },
+    "consentRef": null,
+    "approvedBy": null,
+    "projection": { "diacritics": "homographs", "ezafe": "kasra", "conjO": false, "zwnj": "keep", "ipaInline": false, "lockedBy": null, "lockedAt": null, "testId": null },
+    "measuredRate": null
+  },
+  {
+    "id": "mock-narrator-en",
+    "lang": "en",
+    "speaker": "narrator",
+    "connector": "mock",
+    "model": "mock-tts-1",
+    "voiceId": "mock-voice-narrator-en",
+    "settings": { "rate": 1 },
+    "consentRef": null,
+    "approvedBy": null,
+    "projection": null,
+    "measuredRate": null
+  },
+  {
+    "id": "mock-elder-en",
+    "lang": "en",
+    "speaker": "char-elder",
+    "connector": "mock",
+    "model": "mock-tts-1",
+    "voiceId": "mock-voice-elder-en",
+    "settings": { "rate": 0.95 },
+    "consentRef": null,
+    "approvedBy": null,
+    "projection": null,
+    "measuredRate": null
+  }
+]

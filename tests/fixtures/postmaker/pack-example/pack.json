@@ -1,0 +1,23 @@
+{
+  "schema": "signal.pack/1",
+  "id": "example-word-game",
+  "version": "1.0.0",
+  "name": "{Brand} example pack",
+  "languages": ["fa", "en"],
+  "brand": null,
+  "library": "library/library.json",
+  "fonts": [
+    { "family": "Vazirmatn", "file": "library/fonts/Vazirmatn/Vazirmatn-Variable.woff2", "sha256": "4e3fa217d38fdafc1fea4414ceb58ca5e662cf0ab5fa735a8c8c20e8b42cad92", "licence": "library/fonts/Vazirmatn/OFL.txt", "scripts": ["arabic"], "weights": [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+    { "family": "Instrument Sans", "file": "library/fonts/InstrumentSans/instrument-sans-latin-400-normal.woff2", "sha256": "9a91efaa3599a6ef01b2f49e9ec670e3a2f39baeef09c73198f1052cf3bb0850", "licence": "library/fonts/InstrumentSans/OFL.txt", "scripts": ["latin"], "weights": [400] },
+    { "family": "Instrument Sans", "file": "library/fonts/InstrumentSans/instrument-sans-latin-700-normal.woff2", "sha256": "bcf650536cae57403741af193e1e237c245f8929b936f03601279079a64fd699", "licence": "library/fonts/InstrumentSans/OFL.txt", "scripts": ["latin"], "weights": [700] }
+  ],
+  "voices": "voices.json",
+  "lexicon": { "fa": "lexicon/fa.json" },
+  "glossary": "glossary.json",
+  "style": { "fa": "style/fa.md" },
+  "templates": ["templates/pov-story-spine.json"],
+  "claims": { "allowed": [], "denied": ["free", "number one", "best game"] },
+  "musicPolicy": { "sources": ["library", "owner-upload"], "attribution": false },
+  "rigTier": { "char-lead": "B", "char-elder": "B" },
+  "requires": { "signal": ">=2.0.0 <3" }
+}

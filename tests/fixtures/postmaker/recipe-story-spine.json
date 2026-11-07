@@ -1,0 +1,64 @@
+{
+  "schema": "signal.test-fixture/recipe-story-spine-1",
+  "$description": "[Pack example] The slice recipe: the pack template pov-story-spine scaled to 30 s with its slice-30 variant (100 BPM; every segment inside the template limits and the motion presets: end card 198 frames, demo 150 frames), with lines from the original Persian guide script (fictional brand). Persian forms are proposed until a named native editor signs. voiceMs scripts the mock voice so every spoken beat lasts its frame budget: speech + the first-run hold of 13 frames (fake motion: 12 + seed % 3, seed 1).",
+  "template": { "id": "pov-story-spine", "variant": "slice-30" },
+  "holdFrames": 13,
+  "voiceMs": { "l01": 1900, "l02": 3666, "l03": 3966, "l04": 1566, "l05": 4566, "l06": 3166, "l07": 3000, "l08": 3166 },
+  "recipe": {
+    "campaignId": null,
+    "packId": "example-word-game",
+    "languages": ["fa", "en"],
+    "lengthSec": 30,
+    "shape": "9:16",
+    "fps": 30,
+    "capUsd": 0,
+    "beats": [
+      {
+        "id": "b01", "start": 0, "end": 6, "segment": "hook", "name": "POV hook", "purpose": "Set the scene in one breath", "visual": "flat living room at night, the lead on a phone",
+        "techniques": ["pov-hook", "word-kinetic-caption", "emoji-sticker", "highlight-marker"],
+        "onScreenText": { "fa": "شب یلداست، خونه‌ی مامان‌بزرگ غوغاست.\nمنم این‌ور، غرق بازی‌ام.", "en": "Grandma's house is loud tonight.\nAnd I'm deep in a game." },
+        "audio": "narration over a low bed", "motion": "word pop, gentle idles"
+      },
+      {
+        "id": "b02", "start": 6, "end": 10.4, "segment": "story", "name": "The elder calls", "purpose": "A playful ritual pulls at the lead", "visual": "the elder enters with a speech bubble",
+        "techniques": ["speech-bubble", "speaker-tag", "new-character-entry"],
+        "onScreenText": { "fa": "بیا یه فال حافظ برات بگیرم!", "en": "\"Come here, let me read your palm!\"" },
+        "audio": "elder line", "motion": "elder settles in"
+      },
+      {
+        "id": "b03", "start": 10.4, "end": 12.4, "segment": "interrupt", "name": "Dark card", "purpose": "Pattern interrupt", "visual": "dark card with a question bubble",
+        "techniques": ["pattern-interrupt-card", "music-drop"],
+        "onScreenText": { "fa": "حافظ یا گوشی؟!", "en": "Palm… or phone?!" },
+        "audio": "music drops", "motion": "bubble pop"
+      },
+      {
+        "id": "b04", "start": 12.4, "end": 17.4, "segment": "demo", "name": "Phone demo", "purpose": "Show the play", "visual": "phone insert with letter tiles",
+        "techniques": ["phone-demo", "finger-swipe", "feedback-sticker"],
+        "onScreenText": { "fa": "ببین: حروف رو می‌کشم، کلمه درمیاد.", "en": "Look: drag the letters, the word pops out." },
+        "audio": "narration over a build", "motion": "iris into the phone, swipe path"
+      },
+      {
+        "id": "b05", "start": 17.4, "end": 21, "segment": "chant", "name": "Chant cards", "purpose": "Brand on the beat", "visual": "three colour cards on downbeats",
+        "techniques": ["color-card-chant", "beat-sync-cuts"],
+        "onScreenText": { "fa": "حرفینو", "en": "Harfino" },
+        "audio": "full music, chant", "motion": "card cut and punch per card"
+      },
+      {
+        "id": "b06", "start": 21, "end": 23.4, "segment": "reveal", "name": "Letter reveal", "purpose": "Brand reveal", "visual": "letters build the brand word",
+        "techniques": ["letter-reveal", "confetti"],
+        "onScreenText": { "fa": "", "en": "" },
+        "audio": "hit", "motion": "prefix pop-in, full word punch"
+      },
+      {
+        "id": "b07", "start": 23.4, "end": 30, "segment": "endcard", "name": "End card", "purpose": "Tagline and call to action", "visual": "icon, tagline and CTA pill",
+        "techniques": ["end-card-cta", "cta-pulse"],
+        "onScreenText": { "fa": "یلدا با حرفینو بلندتره!\nامشب نوبت توئه!", "en": "One more word before bed.\nYour turn tonight." },
+        "audio": "resolve", "motion": "icon settle, CTA pulse"
+      }
+    ],
+    "style": { "captions": "word-pop", "pace": "fast", "palette": ["#2B2D52", "#F2A541", "#FFFFFF"], "type": "display", "voice": "narrator", "music": "library" },
+    "assets": [],
+    "tempo": { "bpm": 100, "downbeatMs": 0 },
+    "stopAfterRecipe": false
+  }
+}

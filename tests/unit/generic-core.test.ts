@@ -2,9 +2,10 @@
 // repository, and in this repository only in tests/fixtures/**. The generic guard checks store names; a maintainer
 // can add their own private names in an untracked file named by SIGNAL_NAME_DENYLIST (one word or phrase per line,
 // "#" starts a comment, matched case-insensitively) without writing those names into the repository.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { maintainerDenylist } from './name-denylist';
 
 const ROOT = path.resolve(__dirname, '../..');
 const ROOTS = ['lib/studio', 'app/studio', 'app/api/studio'];
@@ -34,16 +35,6 @@ function hits(re: RegExp): string[] {
   return found;
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** The maintainer's own denylist, or null when none is configured. */
-function denylist(): RegExp | null {
-  const file = process.env.SIGNAL_NAME_DENYLIST;
-  if (!file || !existsSync(file)) return null;
-  const words = readFileSync(file, 'utf8').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean);
-  return words.length ? new RegExp(words.map(escape).join('|'), 'i') : null;
-}
-
 describe('generic core', () => {
   it('scans real files', () => {
     expect(files(path.join(ROOT, 'lib/studio')).length).toBeGreaterThan(30);
@@ -54,7 +45,7 @@ describe('generic core', () => {
     expect(hits(STORES)).toEqual([]);
   });
   it('finds none of the names in the maintainer denylist (skipped without SIGNAL_NAME_DENYLIST)', () => {
-    const re = denylist();
+    const re = maintainerDenylist();
     if (!re) return;
     expect(hits(re)).toEqual([]);
   });

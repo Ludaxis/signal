@@ -1,0 +1,115 @@
+{
+  "_about": "Request and response fixtures written by hand from the official vendor documentation (read 2026-11-06). No recorded traffic, no real key, no real voice or file id. Every value is synthetic. Fields the research did not confirm are listed under unverified and must be re-checked against the vendor docs before the spend gate.",
+  "elevenlabs-tts": {
+    "_meta": {
+      "source": "https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps",
+      "docs": "vendor documentation (endpoint, body fields, alignment shape, model_id default, output formats)",
+      "readAt": "2026-11-06",
+      "unverified": ["xi-api-key header name", "output_format as a query parameter", "request-id response header"]
+    },
+    "request": { "lang": "fa", "text": "سلام، این یک خط آزمایشی است.", "voiceId": "FixtureVoice0001", "modelId": "eleven_v4", "seed": 7, "previousRequestIds": ["fixture-req-0001"] },
+    "call": {
+      "method": "POST",
+      "url": "https://api.elevenlabs.io/v1/text-to-speech/FixtureVoice0001/with-timestamps?output_format=mp3_44100_128",
+      "headers": { "Content-Type": "application/json", "Accept": "application/json" },
+      "body": { "text": "سلام، این یک خط آزمایشی است.", "model_id": "eleven_v4", "language_code": "fa", "seed": 7, "previous_request_ids": ["fixture-req-0001"] }
+    },
+    "authHeader": "xi-api-key",
+    "response": {
+      "audio_base64": "Zml4dHVyZS1hdWRpby1ieXRlcw==",
+      "alignment": { "characters": ["س", "ل", "ا", "م"], "character_start_times_seconds": [0, 0.07, 0.14, 0.21], "character_end_times_seconds": [0.07, 0.14, 0.21, 0.3] },
+      "normalized_alignment": { "characters": ["س", "ل", "ا", "م"], "character_start_times_seconds": [0, 0.07, 0.14, 0.21], "character_end_times_seconds": [0.07, 0.14, 0.21, 0.3] }
+    },
+    "responseHeaders": { "request-id": "fixture-req-0002" },
+    "expect": { "audioText": "fixture-audio-bytes", "durationMs": 300, "requestId": "fixture-req-0002", "mime": "audio/mpeg" }
+  },
+  "azure-tts": {
+    "_meta": {
+      "source": "https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts",
+      "docs": "vendor documentation (fa-IR voices, no phoneme or lexicon support for fa-IR)",
+      "readAt": "2026-11-06",
+      "unverified": ["REST endpoint and path", "Ocp-Apim-Subscription-Key header", "X-Microsoft-OutputFormat value", "word-boundary timings"]
+    },
+    "region": "westeurope",
+    "request": { "lang": "fa", "text": "یک خط <آزمایشی> & کوتاه", "voiceId": "fa-IR-DilaraNeural" },
+    "call": {
+      "method": "POST",
+      "url": "https://westeurope.tts.speech.microsoft.com/cognitiveservices/v1",
+      "headers": { "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "riff-48khz-16bit-mono-pcm" },
+      "body": "<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"fa-IR\"><voice name=\"fa-IR-DilaraNeural\">یک خط &lt;آزمایشی&gt; &amp; کوتاه</voice></speak>"
+    },
+    "authHeader": "Ocp-Apim-Subscription-Key"
+  },
+  "sync-generate": {
+    "_meta": {
+      "source": "https://sync.so/docs/models/sync-3",
+      "docs": "vendor documentation (POST /v2/generate, sync-3 takes image + audio, asynchronous with polling)",
+      "readAt": "2026-11-06",
+      "unverified": ["api host", "x-api-key header", "input array shape", "answer fields id / status / outputUrl", "poll path", "status words", "result download hosts (CDN)", "whether the result link redirects"]
+    },
+    "request": { "imageFile": "/fixture/still.png", "audioFile": "/fixture/line.wav", "durationMs": 4200, "width": 1080, "height": 1920, "imageUrl": "https://media.example.test/u/abc123/still.png", "audioUrl": "https://media.example.test/u/abc123/line.wav" },
+    "call": {
+      "method": "POST",
+      "url": "https://api.sync.so/v2/generate",
+      "headers": { "Content-Type": "application/json", "Accept": "application/json" },
+      "body": { "model": "sync-3", "input": [{ "type": "image", "url": "https://media.example.test/u/abc123/still.png" }, { "type": "audio", "url": "https://media.example.test/u/abc123/line.wav" }] }
+    },
+    "authHeader": "x-api-key",
+    "submit": { "id": "fixture-sync-job-01", "status": "PENDING" },
+    "polls": [{ "id": "fixture-sync-job-01", "status": "PROCESSING" }, { "id": "fixture-sync-job-01", "status": "COMPLETED", "outputUrl": "https://cdn.example.test/out/fixture-sync-job-01.mp4" }],
+    "pollUrl": "https://api.sync.so/v2/generate/fixture-sync-job-01"
+  },
+  "hedra-generate": {
+    "_meta": {
+      "source": "https://www.hedra.com/docs/api-reference/v3/run-a-model/run-hedra-character-3-hedra-character-3.md",
+      "docs": "vendor documentation (POST /v3/models/hedra-character-3; start_image, audio 1-4 files, prompt, aspect_ratio, 540p/720p/1080p; async polling; outputs kept 48 h)",
+      "readAt": "2026-11-06",
+      "unverified": ["x-api-key header", "images and audio passed as links", "answer fields id / status / url", "poll path", "status words", "result download hosts (CDN)", "whether the result link redirects"]
+    },
+    "request": { "imageFile": "/fixture/still.png", "audioFile": "/fixture/line.wav", "durationMs": 3000, "width": 1080, "height": 1920, "imageUrl": "https://media.example.test/u/def456/still.png", "audioUrl": "https://media.example.test/u/def456/line.wav", "prompt": "a friendly character talks to camera" },
+    "call": {
+      "method": "POST",
+      "url": "https://api.hedra.com/v3/models/hedra-character-3",
+      "headers": { "Content-Type": "application/json", "Accept": "application/json" },
+      "body": { "start_image": "https://media.example.test/u/def456/still.png", "audio": ["https://media.example.test/u/def456/line.wav"], "prompt": "a friendly character talks to camera", "aspect_ratio": "9:16", "resolution": "720p" }
+    },
+    "authHeader": "x-api-key",
+    "submit": { "id": "fixture-hedra-gen-01", "status": "queued" },
+    "polls": [{ "id": "fixture-hedra-gen-01", "status": "complete", "url": "https://cdn.example.test/hedra/fixture-hedra-gen-01.mp4" }],
+    "pollUrl": "https://api.hedra.com/v3/generations/fixture-hedra-gen-01"
+  },
+  "elevenlabs-music": {
+    "_meta": {
+      "source": "https://elevenlabs.io/docs/api-reference/music/compose",
+      "docs": "vendor documentation (POST /v1/music; prompt or composition_plan; music_length_ms 3000-600000; model_id music_v1/v2/v2_5; force_instrumental; sections 3 s to 2 min)",
+      "readAt": "2026-11-06",
+      "unverified": ["xi-api-key header name", "output_format as a query parameter", "answer is the audio bytes", "composition_plan section field names"]
+    },
+    "request": { "prompt": "Bright playful marimba loop for a short puzzle video.", "lengthMs": 30000, "tempo": { "bpm": 110, "downbeatMs": 0 }, "sections": [{ "name": "intro", "durationMs": 6000 }, { "name": "main", "durationMs": 24000 }] },
+    "call": {
+      "method": "POST",
+      "url": "https://api.elevenlabs.io/v1/music?output_format=mp3_44100_192",
+      "headers": { "Content-Type": "application/json" },
+      "body": { "prompt": "Bright playful marimba loop for a short puzzle video. Tempo 110 BPM.", "music_length_ms": 30000, "model_id": "music_v1", "force_instrumental": true, "composition_plan": { "sections": [{ "section_name": "intro", "duration_ms": 6000 }, { "section_name": "main", "duration_ms": 24000 }] } }
+    },
+    "authHeader": "xi-api-key"
+  },
+  "higgsfield-broll": {
+    "_meta": {
+      "source": "https://docs.higgsfield.ai/docs/models/seedance-2/image-to-video.md",
+      "docs": "vendor documentation (POST /bytedance/seedance-2.0/image-to-video; image_url must be public; duration 4-15; resolution; generate_audio; Idempotency-Key; answer request_id/status_url/cancel_url/expires_after; statuses; Authorization: Key id:secret)",
+      "readAt": "2026-11-06",
+      "unverified": ["per-model price"]
+    },
+    "idempotencyKey": "run-20261106-101500-ab12:broll:fa:v1",
+    "request": { "prompt": "slow push in on the board", "imageFile": "/fixture/frame.png", "imageUrl": "https://media.example.test/u/ghi789/frame.png", "durationSec": 5, "width": 1080, "height": 1920 },
+    "call": {
+      "method": "POST",
+      "url": "https://api.higgsfield.ai/bytedance/seedance-2.0/image-to-video",
+      "headers": { "Content-Type": "application/json", "Accept": "application/json", "Idempotency-Key": "run-20261106-101500-ab12:broll:fa:v1" },
+      "body": { "image_url": "https://media.example.test/u/ghi789/frame.png", "prompt": "slow push in on the board", "duration": 5, "resolution": "720p", "generate_audio": false }
+    },
+    "submit": { "status": "queued", "request_id": "fixture-hf-req-01", "status_url": "https://api.higgsfield.ai/requests/fixture-hf-req-01/status", "cancel_url": "https://api.higgsfield.ai/requests/fixture-hf-req-01/cancel", "expires_after": 604800 },
+    "status": { "status": "completed", "request_id": "fixture-hf-req-01", "video": { "url": "https://cdn.example.test/hf/fixture-hf-req-01.mp4" } }
+  }
+}

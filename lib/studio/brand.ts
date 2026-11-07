@@ -23,7 +23,10 @@ export interface BrandKit {
   instagram: string | null;
   sources: { type: 'website' | 'folder'; value: string; at: string }[];
   updatedAt: string;
+  /** Persian register for captions and narration; missing = colloquial, the house default. */
+  faRegister?: FaRegister;
 }
+export type FaRegister = 'colloquial' | 'formal';
 export interface Article { url: string; title: string; summary: string; image: string | null }
 
 export class BrandError extends Error {
@@ -416,7 +419,7 @@ export async function importFolder(dirIn: string): Promise<BrandKit> {
 }
 
 const HEX = /^#[0-9a-f]{6}$/i;
-export async function updateBrand(patch: Partial<Pick<BrandKit, 'name' | 'tagline' | 'colors' | 'voice'>>): Promise<BrandKit> {
+export async function updateBrand(patch: Partial<Pick<BrandKit, 'name' | 'tagline' | 'colors' | 'voice' | 'faRegister'>>): Promise<BrandKit> {
   const p = currentProject();
   const old = await loadBrand(p);
   const base: BrandKit = old ?? {
@@ -444,6 +447,7 @@ export async function updateBrand(patch: Partial<Pick<BrandKit, 'name' | 'taglin
       tagline: typeof patch.tagline === 'string' ? patch.tagline.trim().slice(0, 240) : base.tagline,
       colors,
       voice: Array.isArray(patch.voice) ? patch.voice.map((v) => String(v).trim().slice(0, 30)).filter(Boolean).slice(0, 6) : base.voice,
+      faRegister: patch.faRegister === 'colloquial' || patch.faRegister === 'formal' ? patch.faRegister : base.faRegister,
     },
     p,
   );

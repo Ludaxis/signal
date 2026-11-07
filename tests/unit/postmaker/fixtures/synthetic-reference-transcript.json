@@ -1,0 +1,14 @@
+{
+  "schema": "signal.test-fixture/reference-transcript-1",
+  "note": "Synthetic. Invented lines that stand in for the text an analyse run detects on a third-party reference (stored outside the repository in real use). No real video, person, brand or game.",
+  "lines": [
+    "امروز یه بازی تازه پیدا کردم و ول‌کن نیستم.",
+    "کی گفته کلمه‌ساختن کار سختیه؟",
+    "یه دقیقه وایسا، این یکی رو حل کنم!",
+    "همه‌ی دوستام الان دارن بازی می‌کنن.",
+    "I found a new game today and I can't stop.",
+    "Who said making words was hard?",
+    "Hold on, let me solve this one!",
+    "All my friends are playing now."
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "signal.fa-lexicon/1",
+  "scope": "pack",
+  "packId": "example-word-game",
+  "version": 1,
+  "updatedAt": "2026-11-07T00:00:00Z",
+  "entries": [
+    {
+      "id": "gl-brand",
+      "kind": "brand",
+      "match": { "display": ["حرفینو", "Harfino"], "mode": "word", "inflects": true },
+      "display": { "fa": "حرفینو", "en": "Harfino" },
+      "hashtags": { "fa": "#حرفینو", "en": "#Harfino" },
+      "pron": "حَرفینو",
+      "roman": "har-fi-no",
+      "notes": "[Pack example] Fictional brand of the test pack (Persian guide). Stress on the last syllable.",
+      "source": "editor",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    },
+    {
+      "id": "gl-char-elder",
+      "kind": "character",
+      "match": { "display": ["عمه"], "mode": "word", "inflects": true },
+      "display": { "fa": "عمه", "en": "Auntie" },
+      "pron": "عَمّه",
+      "roman": "am-me",
+      "notes": "[Pack example] The elder character (char-elder) is addressed by the kinship term.",
+      "source": "editor",
+      "status": "proposed",
+      "approvedBy": null,
+      "approvedAt": null
+    }
+  ]
+}

@@ -28,5 +28,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "test-results", "desktop"]
+  "exclude": ["node_modules", "test-results", "desktop", "render", "lib/studio/postmaker/render/compositions", "lib/studio/postmaker/render/components"]
 }
