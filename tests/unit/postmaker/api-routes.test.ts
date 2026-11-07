@@ -101,7 +101,8 @@ async function poll(runId: string, until: (v: RunView) => boolean): Promise<RunV
   }
   throw new Error(`run ${runId} did not get there: ${JSON.stringify((await runView(runId)).run.status)}`);
 }
-const atProof = (v: RunView) => v.run.status === 'needs-you' && v.run.pausedFor === 'check';
+// The status turns needs-you just before the Proof gate event is appended, so wait for both.
+const atProof = (v: RunView) => v.run.status === 'needs-you' && v.run.pausedFor === 'check' && v.events.at(-1)?.kind === 'gate.waiting';
 
 async function makeIt(langs: ('fa' | 'en')[] = ['fa', 'en'], capUsd?: number): Promise<{ runId: string; recipeId: string }> {
   const ref = await upload(mp4({ seconds: 30 }));
