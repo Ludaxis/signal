@@ -17,8 +17,34 @@ lib/studio/      projects · content (packages) · generate · render · reel ·
                  memory/ (timeline, decision map, learnings, judge, router, packs) ·
                  autopilot/ (settings, trust, runner, steps, pull) · pipelines/ (types, store, runner, payload) ·
                  meta · ig-unified · publish-meta ·
-                 dispatch (Upload-Post) · uploadpost · analytics · r2 · higgsfield · codex · safety
+                 dispatch (Upload-Post) · uploadpost · analytics · r2 · higgsfield · codex · safety ·
+                 lang/fa/ (Persian normaliser, linter, pronunciation) · pack (project packs) ·
+                 postmaker/ (the Post maker engine, below)
+render/          optional workspace that installs Remotion for the render child (not an app dependency)
 ```
+
+## Post maker
+
+Post maker (`lib/studio/postmaker/`, screens in `app/studio/postmaker/`, routes in `/api/studio/postmaker/*`) turns a
+reference video into a recipe, a step graph, a Proof and, on Accept, ordinary packages. See [postmaker.md](postmaker.md).
+
+```
+routes ── api/http (switch check, error codes) ── service (actions, views, polling)
+                                                   │
+           runner (runs, pauses, caps, estimates) ─┼─ graph (kinds, build, validate, scheduler, status)
+                                                   │
+           executors (script, voice, captions, compose, mix, render, check, …) ── connectors
+                                                   │                               │ one decision point:
+           store (content-addressed objects,       │                               │ kill switch → switch →
+           recipes, versions, runs, ledger)        │                               │ key → gate refs → attendance
+                                                   │                               └ every connector has a mock
+           render/ (timeline, layout, mix plan) ── child process ── Remotion (optional workspace) + Chrome
+           checks/ (rubric, verdict, safe zones, loudness) · pack/ (load, resolve, templates) · accept
+```
+
+The engine writes under `<content parent>/postmaker/`, never inside the app folder. A render runs in a child process
+with a minimal environment, so a browser crash never takes the server down. Accept writes normal packages with a
+`postmaker.json` lineage record that approval re-checks.
 
 ## Projects and the current project
 

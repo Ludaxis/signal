@@ -52,6 +52,10 @@ Status: **port** = copied, comments cleaned; **adapt** = copied and changed to u
 | `eslint.config.mjs` style rule | same | adapt | No ad-hoc `style` in the Studio; the dated allow-list names this edition's untouched screens. |
 | Today, Posts (with Gallery), Calendar, Campaigns, Brand, Results, Comments, Memory | `app/studio/*.tsx` | adapt | Copy through `t()`, project time zones, the account's posting settings (no end date allowed) instead of approvals; the make form lists the built-in formats with the Codex and Higgsfield switches. Campaign slot templates come with the Post maker screens. |
 | `app/studio/connections-making.ts`, `Connections.tsx` | same | adapt | Making rows from `connectorRows()`; the Features group lists the eight Post maker switches as rows (the paid services through `connector.switch`, so the one-time terms step always applies), then the other `signal.config.json` switches. Connect with Meta stays a browser flow; there is no server-information row. |
+| `app/studio/postmaker/**`, `postmaker.css`, the Post maker tab in `Studio.tsx`, `page.tsx` | same | adapt | The switch is read with `await featureEnabled('postmaker')` per request; Today rows, the nav badge and the global keys; wording says "this computer". |
+| `app/api/studio/postmaker/**` | same | port | The OSS `requireStudioUser` (signed owner session, same-origin) and `inProject`; the switch check is awaited. |
+| `scripts/postmaker-slice.mjs` | same | adapt | App-root paths, a temporary `signal.config.json` with every switch off instead of an approval file, output under `test-results/`. |
+| The render service package | `render/` | adapt | Renamed, MIT for its own files, Remotion pinned; installs only what the render child needs. Its README carries the licence notice. |
 | `lib/studio/{format, package-id, posting-blocks, results-templates}.ts` | same | port | Count format, package id order, Today's connection rows, Results by template. |
 | Route deltas: `content`, `calendar`, `campaigns`, `brand`, `results`, `memory`, `instagram`, `connections`, `settings` | same | adapt | Project zones, pack format names, `connectionBlocks`, `making`, `connector.test` / `connector.switch` (409 `terms-needed` until `acceptTerms`). |
 
@@ -63,6 +67,8 @@ Status: **port** = copied, comments cleaned; **adapt** = copied and changed to u
 | `tests/unit/fa-*.test.ts`, `project-time.test.ts`, `fonts-lock.test.ts`, `woff2-font.ts` | same | port / adapt |
 | `tests/setup/network-guard.ts`, `tests/fixtures/postmaker/**`, `tests/postmaker/golden/*.png` | same | port |
 | `tests/unit/generic-core*.test.ts` | `generic-core.test.ts`, `formats-pack.test.ts` | adapt (generic guard plus the optional `SIGNAL_NAME_DENYLIST` file) |
+| `tests/unit/postmaker/{api-routes,screens-api,screens-model,screens-ui,template-name}` | same | adapt (signed owner session from `lib/server/auth.ts`; the switch from `signal.config.json`) |
+| The render service's composition smoke test | `tests/unit/postmaker/render/compositions-ssr.test.tsx` | adapt (runs in the unit suite against `remotion-stub.tsx`, aliased in `vitest.config.mts`) |
 
 Test zones: tests that need daylight saving use `Europe/Berlin`. Synthetic ids: project `fixture` / `demo`, account
 `@fixture.account`, people `owner@example.test`, `Editor A`.
@@ -109,15 +115,17 @@ live result. Nothing is cached between calls.
 Every Persian form stays a proposal until the owner, or a reader they name, signs it. Agents and mock runs never
 sign.
 
-## 3. Not ported in this step (later work)
+## 3. Not ported yet (later work)
 
-- The Post maker screens (`app/studio/postmaker/**`), the Post maker tab, its Today rows and global keys, and campaign
-  slot templates, with their tests.
-- The Post maker API routes (`app/api/studio/postmaker/**`) and their route tests (they need a signed owner session
-  helper instead of upstream's login).
-- The optional Remotion render workspace (`render/`, with its own licence notice) and the `@render` runs.
-- The slice script and the end-to-end specs.
-- Public documentation: the pack guide, a condensed Post maker overview and the Persian writing guide.
+- Template work after the first Accept: making a post from a proven template, variants, repeat schedules, campaign
+  slot templates, the Proven screen, step uploads, your own music upload, pausing a run, and the creative steps added
+  upstream later (art direction, animation, sound design). The stepper shows Proven disabled until then.
+- The end-to-end browser specs (this repository runs unit, route and SSR tests only).
+- Bundling the render workspace into the Mac app (bundled mode renders mock; see `docs/mac-app.md`).
+
+Ported in the second step: the screens, the tab and its Today rows, the routes and their tests, the optional render
+workspace, the composition smoke tests, the slice script, and the public docs ([postmaker.md](postmaker.md),
+[project-pack-format.md](project-pack-format.md), [persian.md](persian.md)).
 
 ## 4. Upstream-only (never ported)
 
