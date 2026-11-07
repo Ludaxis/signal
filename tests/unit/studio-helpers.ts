@@ -40,6 +40,11 @@ export interface TestConfig {
   trustedPublish?: boolean;
   higgsfield?: boolean;
   uploadPostProfiles?: boolean;
+  /** Post maker and any other switch by its id. */
+  postmaker?: boolean;
+  features?: Record<string, boolean>;
+  /** The optional approval allow-list (absent: every generator may be approved). */
+  contentGenerators?: string[];
 }
 
 /**
@@ -66,8 +71,10 @@ export function writeTestConfig(file: string, o: TestConfig = {}): void {
     trustedPublish: o.trustedPublish ?? false,
     higgsfield: o.higgsfield ?? false,
     uploadPostProfiles: o.uploadPostProfiles ?? false,
+    postmaker: o.postmaker ?? false,
+    ...o.features,
   };
-  writeFileSync(file, JSON.stringify({ features }, null, 2));
+  writeFileSync(file, JSON.stringify({ features, ...(o.contentGenerators ? { contentGenerators: o.contentGenerators } : {}) }, null, 2));
   const accounts = o.noAccount
     ? []
     : [

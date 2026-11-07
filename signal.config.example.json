@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy to signal.config.json (git-ignored). Every switch is off until you set it to true. SIGNAL_FEATURE_<NAME>=1 in the environment overrides a switch. The kill switches SIGNAL_PUBLISH_PAUSED=1 and SIGNAL_AUTOPILOT_PAUSED=1 always win.",
+  "$comment": "Copy to signal.config.json (git-ignored). Every switch is off until you set it to true. SIGNAL_FEATURE_<NAME>=1 in the environment overrides a switch. The kill switches SIGNAL_PUBLISH_PAUSED=1 and SIGNAL_AUTOPILOT_PAUSED=1 always win. \"contentGenerators\" is optional: without it every package generator may be approved; with it, only the listed ones. \"postmaker.dayCapUsd\" is an optional day cap in USD per Post maker connector. SIGNAL_POSTMAKER_PAUSED=1 stops every Post maker service call.",
   "features": {
     "instagramApi": false,
     "unifiedLogin": false,
@@ -12,6 +12,17 @@
     "higgsfield": false,
     "uploadPostResults": false,
     "uploadPostScheduling": false,
-    "uploadPostProfiles": false
+    "uploadPostProfiles": false,
+    "postmaker": false,
+    "postmakerElevenlabs": false,
+    "postmakerAzureSpeech": false,
+    "postmakerSync": false,
+    "postmakerHedra": false,
+    "postmakerHiggsfieldVideo": false,
+    "postmakerElevenlabsMusic": false,
+    "browserAgent": false
+  },
+  "postmaker": {
+    "dayCapUsd": {}
   }
 }

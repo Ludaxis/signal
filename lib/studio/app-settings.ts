@@ -6,8 +6,11 @@
 // - A saved value wins over .env.local. Removing it brings the .env.local value back.
 // - Secret values never leave the server: the browser only learns whether a value is set and where
 //   it comes from (and the last 4 characters of a key, to tell keys apart).
-// - Switches: "Publishing" (SIGNAL_PUBLISH_PAUSED) and "Autopilot" (SIGNAL_AUTOPILOT_PAUSED). The
-//   switch in Connections is the kill switch; .env.local is only the starting value.
+// - Switches: "Publishing" (SIGNAL_PUBLISH_PAUSED), "Autopilot" (SIGNAL_AUTOPILOT_PAUSED) and "Post maker"
+//   (SIGNAL_POSTMAKER_PAUSED, stops every Post maker connector call). The switch in Connections is the kill switch;
+//   .env.local is only the starting value. Feature switches live in signal.config.json, not here.
+// - Post maker vendor groups (ElevenLabs, Azure Speech, Sync, Hedra) are checked for format only: saving a key makes
+//   no call to the vendor.
 import { deleteSecret, getSecret, listSecretNames, putSecret, tokenKey } from './secret-box';
 
 const STORE = 'settings';
@@ -66,10 +69,49 @@ export const GROUPS: Group[] = [
     where: 'console.anthropic.com → API keys.',
     fields: [{ name: 'SIGNAL_ANTHROPIC_API_KEY', label: 'API key', secret: true, check: /^sk-ant-[A-Za-z0-9_-]{20,300}$/ }],
   },
+  // Post maker vendors. Format checks only; no vendor call when saving.
+  {
+    id: 'elevenlabs',
+    title: 'ElevenLabs',
+    why: 'Voice for Post maker (paid per character, only when its switch is on).',
+    where: 'Your ElevenLabs account → API keys.',
+    fields: [{ name: 'ELEVENLABS_API_KEY', label: 'API key', secret: true, check: /^\S{20,256}$/ }],
+  },
+  {
+    id: 'azure-speech',
+    title: 'Azure Speech',
+    why: 'Backup voice for Post maker (paid per character above the free tier).',
+    where: 'Azure portal → your Speech resource → Keys and endpoint.',
+    fields: [
+      { name: 'AZURE_SPEECH_KEY', label: 'Key', secret: true, check: /^[A-Za-z0-9]{32,128}$/ },
+      { name: 'AZURE_SPEECH_REGION', label: 'Region', secret: false, check: /^[a-z0-9]{3,30}$/, placeholder: 'westeurope' },
+    ],
+  },
+  {
+    id: 'sync',
+    title: 'Sync',
+    why: 'Lip-sync for Post maker (paid per second of video).',
+    where: 'Your Sync account → API keys.',
+    fields: [{ name: 'SYNC_API_KEY', label: 'API key', secret: true, check: /^\S{16,512}$/ }],
+  },
+  {
+    id: 'hedra',
+    title: 'Hedra',
+    why: 'Backup lip-sync for Post maker (paid from your Hedra wallet).',
+    where: 'Your Hedra account → API keys.',
+    fields: [{ name: 'HEDRA_API_KEY', label: 'API key', secret: true, check: /^\S{16,512}$/ }],
+  },
 ];
 
-export const SWITCHES = { publishing: 'SIGNAL_PUBLISH_PAUSED', autopilot: 'SIGNAL_AUTOPILOT_PAUSED' } as const;
+/** The kill switch for every Post maker connector call (a Connections switch like Publishing and Autopilot). */
+export const POSTMAKER_PAUSED_ENV = 'SIGNAL_POSTMAKER_PAUSED';
+
+export const SWITCHES = { publishing: 'SIGNAL_PUBLISH_PAUSED', autopilot: 'SIGNAL_AUTOPILOT_PAUSED', postmaker: POSTMAKER_PAUSED_ENV } as const;
 export type SwitchId = keyof typeof SWITCHES;
+export const isSwitchId = (v: unknown): v is SwitchId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SWITCHES, v);
+
+/** Names of every secret field (the values a child process must never inherit). */
+export const SECRET_FIELD_NAMES: readonly string[] = GROUPS.flatMap((g) => g.fields.filter((f) => f.secret).map((f) => f.name));
 
 const FIELDS = new Map(GROUPS.flatMap((g) => g.fields.map((f) => [f.name, f] as const)));
 const ALLOWED = new Set<string>([...FIELDS.keys(), ...Object.values(SWITCHES)]);
@@ -155,7 +197,15 @@ export async function settingsStatus(): Promise<{ ready: boolean; reason: string
     const paused = v === '1' || v === 'true' || v === 'yes';
     return { on: !paused, source: saved.has(SWITCHES[id]) ? ('saved' as const) : v ? ('env' as const) : ('default' as const) };
   };
-  return { ready: k.ok, reason: k.ok ? '' : k.reason, groups, switches: { publishing: sw('publishing'), autopilot: sw('autopilot') } };
+  const switches = Object.fromEntries((Object.keys(SWITCHES) as SwitchId[]).map((id) => [id, sw(id)])) as Record<SwitchId, { on: boolean; source: 'saved' | 'env' | 'default' }>;
+  return { ready: k.ok, reason: k.ok ? '' : k.reason, groups, switches };
+}
+
+/** Whether every field of a settings group has a value (saved here or from .env.local). Never returns values. */
+export async function groupComplete(groupId: string): Promise<boolean> {
+  await ensureSettingsApplied();
+  const gr = GROUPS.find((x) => x.id === groupId);
+  return Boolean(gr) && gr!.fields.every((f) => (process.env[f.name] ?? '').trim().length > 0);
 }
 
 /**
@@ -200,7 +250,7 @@ export async function clearGroup(groupId: string): Promise<number> {
   });
 }
 
-/** Turns publishing or autopilot on (active) or off (paused). Takes effect at once. */
+/** Turns publishing, autopilot or Post maker on (active) or off (paused). Takes effect at once. */
 export async function setSwitch(id: SwitchId, on: boolean): Promise<void> {
   const k = tokenKey();
   if (!k.ok) throw new SettingsError(409, k.reason);

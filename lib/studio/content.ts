@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { TIMEZONE } from '@/lib/time';
+import { GENERATOR_NOT_ALLOWED, contentGeneratorAllowed, featureEnabled } from '@/lib/server/signalConfig';
 import { accountSettings, postingActive, currentProject } from './projects';
 import { getAccount, getMedia, instagramApiAllowed, listMedia, shortcode, type IgMedia } from './meta';
 import type { AutopilotMark } from './autopilot/types';
@@ -107,6 +108,8 @@ export interface PackageView {
   autopilot: AutopilotMark | null;
   /** Set when a pipeline made the post: <package>/pipeline.json. */
   pipeline: { id: string; name: string; slotAt: string; article: string | null } | null;
+  /** Set when Post maker made the post: <package>/postmaker.json, for the origin line. */
+  postmaker?: { template: string; version: number; recipeId: string; runId: string; lang: string; verdict: string | null } | null;
   /** State files in the folder that are not valid JSON (the package is then 'invalid' and names them in `problems`). */
   unreadable?: string[];
 }
@@ -203,13 +206,18 @@ export async function loadPackage(id: string): Promise<PackageView> {
   const spec = await readState<PackageSpec>(dir, 'package.json', unreadable);
   const problems = unreadable.length ? ['package.json could not be read (damaged or not valid JSON).'] : validSpec(spec, id);
   const files: PackageView['files'] = [];
+  const actual = new Map<string, string | null>();
   let caption = '';
-  if (spec && problems.length === 0) {
+  const specOk = Boolean(spec) && problems.length === 0;
+  if (spec && specOk) {
     for (const f of spec.files) {
       let ok = false;
       try {
-        ok = (await sha256File(path.join(dir, f.name))) === f.sha256;
+        const h = await sha256File(path.join(dir, f.name));
+        actual.set(f.name, h);
+        ok = h === f.sha256;
       } catch {
+        actual.set(f.name, null);
         ok = false;
       }
       if (!ok) problems.push(`${f.name} changed or is missing since the package was made.`);
@@ -229,6 +237,10 @@ export async function loadPackage(id: string): Promise<PackageView> {
   const scheduled = await readState<{ job_id: string; scheduled_for: string; provider?: 'upload-post' | 'signal' }>(dir, 'scheduled.json', unreadable);
   const autopilot = await readJson<AutopilotMark>(path.join(dir, 'autopilot.json')).catch(() => null);
   const pipe = await readJson<{ pipeline: string; name?: string; slotAt: string; idea?: { articleUrl?: string } }>(path.join(dir, 'pipeline.json')).catch(() => null);
+  const mark = await readState<PostmakerMarkFile>(dir, 'postmaker.json', unreadable);
+  if (mark && spec && specOk) problems.push(...postmakerProblems(mark, spec, actual));
+  // A Post maker package can be approved and sent only while the postmaker switch is on.
+  if ((mark || spec?.source?.generator === PM_GENERATOR) && !(await featureEnabled('postmaker'))) problems.push(`${PM_SWITCH_OFF}.`);
   if (approval && spec) {
     for (const f of spec.files) if (approval.hashes?.[f.name] !== f.sha256) problems.push(`Approval does not cover the current ${f.name}.`);
   }
@@ -270,9 +282,68 @@ export async function loadPackage(id: string): Promise<PackageView> {
     missedReason: plan?.missed_reason ?? null,
     campaign: camp ? { id: camp.campaign, name: camp.campaign_name ?? camp.campaign, slot: camp.slot } : null,
     autopilot: autopilot && typeof autopilot === 'object' && typeof autopilot.run === 'string' ? autopilot : null,
+    postmaker: postmakerOrigin(mark),
     pipeline: pipe && typeof pipe === 'object' && typeof pipe.pipeline === 'string' && typeof pipe.slotAt === 'string' ? { id: pipe.pipeline, name: typeof pipe.name === 'string' ? pipe.name : pipe.pipeline, slotAt: pipe.slotAt, article: typeof pipe.idea?.articleUrl === 'string' ? pipe.idea.articleUrl : null } : null,
     ...(unreadable.length ? { unreadable } : {}),
   };
+}
+
+// ---- Post maker lineage lock ---------------------------------------------------------------------------------------
+
+export const PM_RECORD_MISMATCH = 'Post maker record does not match this video';
+export const PM_MOCK_STEPS = 'Made with mock steps';
+export const PM_SWITCH_OFF = 'Post maker is off in Connections';
+/** `source.generator` of a Post maker package (the name an optional contentGenerators list uses). */
+export const PM_GENERATOR = 'postmaker';
+
+/** The fields of postmaker.json this module reads (the full shape is PostmakerMark in postmaker/types.ts). */
+interface PostmakerMarkFile {
+  schema?: unknown;
+  recipeId?: unknown;
+  runId?: unknown;
+  lang?: unknown;
+  files?: Record<string, { sha256?: unknown }>;
+  modes?: { live?: unknown; mock?: unknown };
+  template?: { name?: unknown; version?: unknown } | null;
+  verdict?: unknown;
+}
+
+/**
+ * A Post maker package must match its record: every package file is listed with the same sha256 the file has now,
+ * and no step was a mock. Either problem makes the package `changed`, so approval is refused.
+ */
+function postmakerProblems(mark: PostmakerMarkFile, spec: PackageSpec, actual: Map<string, string | null>): string[] {
+  const out: string[] = [];
+  const files = mark.files && typeof mark.files === 'object' ? mark.files : {};
+  const names = new Set(spec.files.map((f) => f.name));
+  const mismatch =
+    mark.schema !== 'signal.pm.mark/1' ||
+    spec.files.some((f) => typeof files[f.name]?.sha256 !== 'string' || files[f.name]!.sha256 !== actual.get(f.name) || files[f.name]!.sha256 !== f.sha256) ||
+    Object.keys(files).some((n) => !names.has(n));
+  if (mismatch) out.push(`${PM_RECORD_MISMATCH}.`);
+  const mock = mark.modes?.mock;
+  if (typeof mock !== 'number' || mock > 0) out.push(`${PM_MOCK_STEPS}.`);
+  return out;
+}
+
+function postmakerOrigin(mark: PostmakerMarkFile | null): PackageView['postmaker'] {
+  if (!mark || typeof mark !== 'object') return null;
+  const t = mark.template && typeof mark.template === 'object' ? mark.template : null;
+  return {
+    template: typeof t?.name === 'string' ? t.name : 'Post maker',
+    version: typeof t?.version === 'number' ? t.version : 1,
+    recipeId: typeof mark.recipeId === 'string' ? mark.recipeId : '',
+    runId: typeof mark.runId === 'string' ? mark.runId : '',
+    lang: typeof mark.lang === 'string' ? mark.lang : '',
+    verdict: typeof mark.verdict === 'string' ? mark.verdict : null,
+  };
+}
+
+export { GENERATOR_NOT_ALLOWED };
+
+/** True when a package of this generator may be approved (signal.config.json "contentGenerators"; absent = all). */
+export async function generatorAllowed(generator: string | null | undefined): Promise<boolean> {
+  return contentGeneratorAllowed(generator);
 }
 
 export async function listPackages(): Promise<PackageView[]> {
@@ -370,6 +441,7 @@ export async function approvePackage(id: string, approver: string, now = Date.no
   if (pkg.status === 'approved' || pkg.status === 'posted') throw new ContentError(409, `Post ${id} is already ${pkg.status}.`);
   if (pkg.status !== 'ready') throw new ContentError(409, pkg.problems[0] ?? `Post ${id} is ${pkg.status}, not ready to approve.`);
   assertCanApprove(await listPackages(), now, await currentLimits(now));
+  if (!(await generatorAllowed(pkg.source?.generator))) throw new ContentError(409, GENERATOR_NOT_ALLOWED);
   const hashes = Object.fromEntries(pkg.files.map((f) => [f.name, f.sha256]));
   await writeJsonExclusive(path.join(pkgDir(id), 'approval.json'), { approved_by: approver, approved_at: new Date(now).toISOString(), hashes } satisfies Approval);
   return loadPackage(id);
