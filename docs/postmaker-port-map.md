@@ -43,6 +43,18 @@ Status: **port** = copied, comments cleaned; **adapt** = copied and changed to u
 | `connectors/**` other, `executors/**` | port | Sources point at vendor documentation, never at upstream notes. |
 | `render/**` | adapt | `appDir()` and `renderServiceDir()` (default `<app>/render`) replace the upstream repository paths. Compositions and components are excluded from `tsc`; Remotion is not installed here, so the render connector reports not installed and renders stay mock. |
 
+### Studio UI system and tabs
+
+| Upstream | Here | Status | Notes |
+|---|---|---|---|
+| `design/tokens.json` studio theme, `design/scripts/*` | same | adapt | `npm run tokens` also writes `app/studio/studio-tokens.css`; `npm run tokens:check` checks the studio pairs. |
+| `app/studio/ui/**`, `url-state.ts`, `approve-undo.ts`, `content-lang.ts`, `fonts.css`, `work.css`, `plan-setup.css` | same | port | Components, the `?tab=` URL state and logical CSS only; dialogs replace every native confirm. |
+| `eslint.config.mjs` style rule | same | adapt | No ad-hoc `style` in the Studio; the dated allow-list names this edition's untouched screens. |
+| Today, Posts (with Gallery), Calendar, Campaigns, Brand, Results, Comments, Memory | `app/studio/*.tsx` | adapt | Copy through `t()`, project time zones, the account's posting settings (no end date allowed) instead of approvals; the make form lists the built-in formats with the Codex and Higgsfield switches. Campaign slot templates come with the Post maker screens. |
+| `app/studio/connections-making.ts`, `Connections.tsx` | same | adapt | Making rows from `connectorRows()`; the Features group lists the eight Post maker switches as rows (the paid services through `connector.switch`, so the one-time terms step always applies), then the other `signal.config.json` switches. Connect with Meta stays a browser flow; there is no server-information row. |
+| `lib/studio/{format, package-id, posting-blocks, results-templates}.ts` | same | port | Count format, package id order, Today's connection rows, Results by template. |
+| Route deltas: `content`, `calendar`, `campaigns`, `brand`, `results`, `memory`, `instagram`, `connections`, `settings` | same | adapt | Project zones, pack format names, `connectionBlocks`, `making`, `connector.test` / `connector.switch` (409 `terms-needed` until `acceptTerms`). |
+
 ### Tests and fixtures
 
 | Upstream | Here | Status |
@@ -99,8 +111,8 @@ sign.
 
 ## 3. Not ported in this step (later work)
 
-- The Post maker screens and the Studio UI system (`app/studio/postmaker/**`, `app/studio/ui/**`, the tab passes,
-  the Connections making rows) and their tests.
+- The Post maker screens (`app/studio/postmaker/**`), the Post maker tab, its Today rows and global keys, and campaign
+  slot templates, with their tests.
 - The Post maker API routes (`app/api/studio/postmaker/**`) and their route tests (they need a signed owner session
   helper instead of upstream's login).
 - The optional Remotion render workspace (`render/`, with its own licence notice) and the `@render` runs.

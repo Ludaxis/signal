@@ -2,6 +2,12 @@
 // POST /api/studio/connections {project, action:'check', service}   read-only checks:
 //   upload-post → reads the project's Upload-Post profile and its Instagram handle (no upload)
 //   claude | codex → runs `<cli> --version` on this machine (no model call, no usage)
+// POST {project, action:'connector.test', id}         a Post maker connector's free check (never a paid call)
+// POST {project, action:'connector.switch', id, on, acceptTerms?}   a Post maker connector's own switch in
+//   signal.config.json; turning a paid service on the first time answers 409 'terms-needed' until the request
+//   carries acceptTerms: true (the acceptance is kept in signal.config.json).
+// GET also returns `making` (one row per Post maker connector: state line, switch, cost model; never a key) and
+// `postmaker.paused` (the Post maker kill switch).
 // Instagram connect / test / disconnect stay on /api/studio/instagram.
 import { spawn } from 'node:child_process';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -21,6 +27,11 @@ import { loadBrand } from '@/lib/studio/brand';
 import { UploadPostError, getUpProfile, profileManagementAllowed, uploadQuota } from '@/lib/studio/uploadpost';
 import { accountSettings, markVerified } from '@/lib/studio/projects';
 import { cliBin } from '@/lib/studio/tools';
+import { projectTimeZone } from '@/lib/studio/time';
+import { connectorById, connectorRow, connectorRows, connectorStatus, switchConnector, testConnector } from '@/lib/studio/postmaker/connectors';
+import { postmakerPaused } from '@/lib/studio/postmaker/connectors/features';
+import { PostmakerError } from '@/lib/studio/postmaker/errors';
+import { SettingsError } from '@/lib/studio/app-settings';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -59,7 +70,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const brand = await loadBrand(project);
     const account = await accountSettings(project.id);
     const body = {
-      project: { id: project.id, name: project.name, handle: project.handle },
+      project: { id: project.id, name: project.name, handle: project.handle, timeZone: projectTimeZone(project) },
       account: { ready: lim.open, reason: lim.reason, expiresAt: Number.isFinite(lim.expiresAt) && lim.expiresAt ? lim.expiresAt : null, maxPerDay: lim.maxPerDay, automaticPosting: lim.dispatch },
       paused: publishingPaused(),
       instagram: {
@@ -91,6 +102,8 @@ export async function GET(req: NextRequest): Promise<Response> {
       agents: await claudeAgentsAllowed(),
       codex: await codexImagesAllowed(),
       brand: brand ? { name: brand.name, website: brand.website, sources: brand.sources.map((s) => s.type), updatedAt: brand.updatedAt } : null,
+      postmaker: { paused: postmakerPaused() },
+      making: await connectorRows(),
     };
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
   });
@@ -99,13 +112,14 @@ export async function GET(req: NextRequest): Promise<Response> {
 export async function POST(req: NextRequest): Promise<Response> {
   const user = await requireStudioUser(req);
   if (user instanceof Response) return user;
-  let b: { project?: unknown; action?: unknown; service?: unknown };
+  let b: { project?: unknown; action?: unknown; service?: unknown; id?: unknown; on?: unknown; acceptTerms?: unknown };
   try {
     b = (await req.json()) as typeof b;
   } catch {
     return jsonError(400, 'validation', 'Bad request.');
   }
   return inProject(req, b.project, async (project) => {
+    if (typeof b.action === 'string' && b.action.startsWith('connector.')) return makingAction(b.action, b.id, b.on, b.acceptTerms === true);
     if (b.action !== 'check') return jsonError(400, 'validation', 'Unknown action.');
     if (b.service === 'claude' || b.service === 'codex') {
       const bin = await cliBin(b.service);
@@ -127,4 +141,30 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     return jsonError(400, 'validation', 'Unknown service.');
   });
+}
+
+const pmError = (e: unknown): Response => {
+  if (e instanceof PostmakerError) return jsonError(e.status, e.status === 403 ? 'forbidden' : e.status === 404 ? 'not_found' : e.status === 400 ? 'validation' : e.code, e.message);
+  if (e instanceof SettingsError) return jsonError(e.status, e.status === 409 ? 'conflict' : 'validation', e.message);
+  throw e;
+};
+
+/** Post maker connector actions. Nothing here calls a paid service. */
+async function makingAction(action: string, id: unknown, on: unknown, acceptTerms: boolean): Promise<Response> {
+  if (typeof id !== 'string' || !/^[a-z0-9:-]{2,60}$/.test(id)) return jsonError(400, 'validation', 'Unknown service.');
+  try {
+    if (action === 'connector.test') {
+      const r = await testConnector(id);
+      const c = connectorById(id)!;
+      return NextResponse.json({ ok: r.ok, message: r.text, row: await connectorRow(c, await connectorStatus(c)) }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (action === 'connector.switch') {
+      if (typeof on !== 'boolean') return jsonError(400, 'validation', 'Bad switch.');
+      const c = await switchConnector(id, on, { acceptTerms });
+      return NextResponse.json({ ok: true, row: await connectorRow(c, await connectorStatus(c)) }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    return jsonError(400, 'validation', 'Unknown action.');
+  } catch (e) {
+    return pmError(e);
+  }
 }

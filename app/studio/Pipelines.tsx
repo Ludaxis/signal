@@ -7,12 +7,14 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import type { AutopilotRun } from '@/lib/studio/autopilot/types';
 import type { Format } from '@/lib/studio/generate';
 import type { Pipeline, PipelineAction, PipelineRow, PipelineSteps, PipelinesPayload, SourceKind, StepsPatch } from '@/lib/studio/pipelines/types';
-import { formatDateTime } from '@/lib/time';
+import { formatDateTime, zoneCity } from '@/lib/time';
+import { projectTimeZone } from '@/lib/studio/time';
 import { describeStep } from './Autopilot';
 import { useProjectId } from './Projects';
 import { Select } from './Select';
 import { ScreenSkeleton, Spinner } from './loaders';
 import { notifyChanged, useOnChanged } from './sync';
+import { useConfirm } from './ui/Dialog';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SOURCE: Record<SourceKind, { word: string; hint: string }> = {
@@ -255,7 +257,7 @@ function ApproveEditor({ p, d, patch }: { p: PipelineRow; d: PipelinesPayload; p
   );
 }
 
-function ScheduleEditor({ p, d, patch }: { p: PipelineRow; d: PipelinesPayload; patch: (s: StepPatch) => void }) {
+function ScheduleEditor({ p, patch, tz }: { p: PipelineRow; patch: (s: StepPatch) => void; tz?: string }) {
   const s = p.steps.schedule;
   const [time, setTime] = useState('');
   const [bad, setBad] = useState(false);
@@ -285,7 +287,7 @@ function ScheduleEditor({ p, d, patch }: { p: PipelineRow; d: PipelinesPayload; 
         }} />
       </div>
       <div className="st-stack" style={{ gap: 6 }}>
-        <span className="st-small" style={{ fontWeight: 600 }}>Times ({d.timeZone})</span>
+        <span className="st-small" style={{ fontWeight: 600 }}>Times ({zoneCity(projectTimeZone(tz))})</span>
         <div className="pl-chips">
           {s.times.map((t) => (
             <button key={t} type="button" className="st-chip" aria-label={`Remove ${t}`} title="Remove" disabled={s.times.length === 1} onClick={() => patch({ schedule: { times: s.times.filter((x) => x !== t) } })}>
@@ -344,6 +346,7 @@ function NameField({ value, onCommit }: { value: string; onCommit: (v: string) =
 
 // ---- one card -----------------------------------------------------------------------------------
 function Card({ p, d, act, say, names }: { p: PipelineRow; d: PipelinesPayload; act: ReturnType<typeof usePipelines>['act']; say: (t: string) => void; names: Record<string, string> }) {
+  const confirmBox = useConfirm();
   const [open, setOpen] = useState<StepKey | null>(null);
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -390,6 +393,7 @@ function Card({ p, d, act, say, names }: { p: PipelineRow; d: PipelinesPayload; 
 
   return (
     <article className="st-card pl-card st-stack" aria-label={p.name} ref={card}>
+      {confirmBox.node}
       <div className="pl-head">
         <NameField value={p.name} onCommit={(name) => void run(() => act({ action: 'update', id: p.id, patch: { name } }))} />
         <span className={`camp-status ${tone}`}>{p.status.text}</span>
@@ -415,7 +419,7 @@ function Card({ p, d, act, say, names }: { p: PipelineRow; d: PipelinesPayload; 
           {open === k && k === 'make' ? <MakeEditor p={p} d={d} patch={patch} /> : null}
           {open === k && k === 'review' ? <ReviewEditor p={p} patch={patch} /> : null}
           {open === k && k === 'approve' ? <ApproveEditor p={p} d={d} patch={patch} /> : null}
-          {open === k && k === 'schedule' ? <ScheduleEditor p={p} d={d} patch={patch} /> : null}
+          {open === k && k === 'schedule' ? <ScheduleEditor p={p} patch={patch} tz={d.timeZone} /> : null}
         </div>
       ))}
 
@@ -446,8 +450,8 @@ function Card({ p, d, act, say, names }: { p: PipelineRow; d: PipelinesPayload; 
               {p.last ? `Last run ${formatDateTime(p.last.at)}: ${p.last.made} made${p.last.problems ? `, ${p.last.problems} problems` : ''}.` : 'No run yet.'}
               {d.nextRunAt ? ` Daily run ${formatDateTime(d.nextRunAt)}.` : ''}
             </span>
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={() => {
-              if (!window.confirm(`Remove “${p.name}”? Its posts stay.`)) return;
+            <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={async () => {
+              if (!(await confirmBox.confirm({ title: `Remove pipeline “${p.name}”?`, body: 'Its posts stay.', confirmLabel: 'Remove pipeline', destructive: true }))) return;
               void run(() => act({ action: 'delete', id: p.id }), 'Removed.');
             }}>
               Remove

@@ -6,6 +6,7 @@
 // never overlap; a parent sits at the midpoint of its first and last child. Columns are aligned
 // per depth (width of the widest node in that depth). Input order decides sibling order.
 import type { BranchStatus, Graph, GraphNode } from '@/lib/studio/memory/types';
+import { zonedToUtc } from '@/lib/time';
 
 export interface TreeInput { id: string; parent: string | null }
 export interface Size { w: number; h: number }
@@ -175,8 +176,15 @@ export function statusAt(node: Pick<GraphNode, 'meta' | 'created' | 'status'>, i
   return cur === undefined ? (hist[0]?.status ?? node.status) : cur;
 }
 
-/** `YYYY-MM-DD` → the last instant of that UTC day, so a day slider includes everything created on it. */
-export function endOfDay(date: string): string {
+/**
+ * `YYYY-MM-DD` → the last instant of that day, so a day slider includes everything created on it. With a time
+ * zone the day is the project's own (project.timeZone); without one, or on a clock-change edge, the UTC day.
+ */
+export function endOfDay(date: string, tz?: string): string {
+  if (tz) {
+    const r = zonedToUtc(date.slice(0, 10), '23:59', tz);
+    if (r.ok) return new Date(Date.parse(r.iso) + 59_999).toISOString();
+  }
   return `${date.slice(0, 10)}T23:59:59.999Z`;
 }
 

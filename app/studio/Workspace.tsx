@@ -299,7 +299,7 @@ export function FigmaPanel({ figma, busy, run, say, onClose }: { figma: Workspac
         }}
       >
         <input className="st-input" style={{ flex: '1 1 260px' }} placeholder="https://www.figma.com/design/…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Figma file link" />
-        <button type="submit" className="st-btn st-btn-primary st-btn-sm" aria-busy={busy === 'figma-link'} disabled={!!busy || !url.trim()}>Link file</button>
+        <button type="submit" className="st-btn st-btn-ghost st-btn-sm" aria-busy={busy === 'figma-link'} disabled={!!busy || !url.trim()}>Link file</button>
       </form>
       {figma.files.length ? (
         <div className="st-chip-row" aria-label="Linked Figma files">
@@ -397,7 +397,7 @@ export function ToolBlock({ tool: t, busy, run }: { tool: Tool; busy: string | n
   return (
     <div className="st-stack" style={{ gap: 8 }}>
       <span className="xs st-muted" style={{ overflowWrap: 'anywhere' }}>
-        {t.path ? `${t.path}${t.source === 'env' ? ' (from .env.local)' : t.source === 'saved' ? ' (set here)' : ''}` : t.cli === 'claude' ? 'Not found. Install: npm install -g @anthropic-ai/claude-code, then run claude once to sign in.' : 'Not found. Install: npm install -g @openai/codex, then run codex login.'}
+        {t.path ? `${t.path}${t.source === 'env' ? ' (saved outside Signal)' : t.source === 'saved' ? ' (set here)' : ''}` : t.cli === 'claude' ? 'Not found. Install: npm install -g @anthropic-ai/claude-code, then run claude once to sign in.' : 'Not found. Install: npm install -g @openai/codex, then run codex login.'}
       </span>
       <div className="row-wrap" style={{ gap: 8 }}>
         <input className="st-input" style={{ flex: '1 1 220px' }} placeholder={t.cli === 'claude' ? '/opt/homebrew/bin/claude' : '/opt/homebrew/bin/codex'} value={path} onChange={(e) => setPath(e.target.value)} aria-label={`${t.label} path`} disabled={t.source === 'env'} />

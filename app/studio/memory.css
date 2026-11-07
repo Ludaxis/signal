@@ -1,5 +1,9 @@
 /* Memory tab (Memory.tsx, MemoryMindmap.tsx). Scoped under .studio .mem-*; uses the Studio tokens. */
 
+/* The mindmap canvas is a diagram laid out in physical SVG coordinates, so it stays LTR in both UI directions
+   (like media timelines): MemoryMindmap.tsx sets dir="ltr" on .mem-canvas. Inside it the
+   fades, the 90deg/270deg gradients and the node entrance from the left are therefore correct as written. */
+
 /* ---- shell ---- */
 .studio .mem-head { justify-content: space-between; align-items: center; gap: 10px; }
 .studio .mem-headline { min-width: 0; }
@@ -8,7 +12,7 @@
 .studio .mem-tabs button:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 1px; }
 .studio .mem-tab-n { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: #24252618; color: inherit; }
 .studio .mem-tabs button[aria-selected='true'] .mem-tab-n { background: #ffffff33; }
-.studio .mem-badge { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 6px 0 12px; border-radius: 999px; background: #7c5cff1a; color: var(--violet-ink); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+.studio .mem-badge { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding-block: 0; padding-inline: 12px 6px; border-radius: 999px; background: #7c5cff1a; color: var(--violet-ink); font-size: 12px; font-weight: 700; }
 .studio .mem-badge > i { width: 8px; height: 8px; border-radius: 999px; background: var(--violet); }
 .studio .mem-badge-x { all: unset; cursor: pointer; width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center; font-size: 16px; line-height: 1; color: var(--violet-ink); }
 .studio .mem-badge-x:hover { background: #7c5cff26; }
@@ -21,25 +25,25 @@
 .studio .mem-empty .notice { margin: 4px 0 0; }
 
 /* ---- status and via chips (HTML) ---- */
-.studio .mem-status { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #2425260f; color: var(--graphite); border: 1px solid transparent; }
+.studio .mem-status { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: #2425260f; color: var(--graphite); border: 1px solid transparent; }
 .studio .mem-status.mem-s-winning { background: #02bf7d2e; color: var(--brand-ink); }
 .studio .mem-status.mem-s-promising { background: #1fbfb82b; color: var(--teal-ink); }
 .studio .mem-status.mem-s-weak { background: #ffb02033; color: var(--amber-ink); }
-.studio .mem-status.mem-s-pruned { background: #f4f4f5; color: var(--graphite); text-decoration: line-through; }
-.studio .mem-status.mem-s-proposed { background: #fff; color: var(--violet-ink); border: 1px dashed var(--violet); }
+.studio .mem-status.mem-s-pruned { background: var(--paper); color: var(--graphite); text-decoration: line-through; }
+.studio .mem-status.mem-s-proposed { background: var(--surface); color: var(--violet-ink); border: 1px dashed var(--violet); }
 .studio .mem-status.mem-s-pivot-approved { background: #7c5cff1f; color: var(--violet-ink); }
-.studio .mem-via { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #2425260f; color: var(--graphite); }
+.studio .mem-via { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: #2425260f; color: var(--graphite); }
 .studio .mem-via-rule { background: #02bf7d24; color: var(--brand-ink); }
 .studio .mem-via-cache { background: #1fbfb824; color: var(--teal-ink); }
 .studio .mem-via-judge { background: #7c5cff1f; color: var(--violet-ink); }
-.studio .mem-via-escalated { background: #ff5d5226; color: #b4261c; }
+.studio .mem-via-escalated { background: #ff5d5226; color: var(--danger); }
 .studio .mem-tag { display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #2425260f; color: var(--graphite); white-space: nowrap; flex: 0 0 auto; }
 .studio .mem-tag-amber { background: #ffb0202e; color: var(--amber-ink); }
 
 /* ---- confidence bar ---- */
 .studio .mem-conf { position: relative; display: block; width: 100%; height: 6px; border-radius: 999px; background: #2425261a; overflow: visible; }
-.studio .mem-conf > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--brand); transition: width 0.5s var(--ease); }
-.studio .mem-conf > b { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; background: var(--ink); border-radius: 2px; }
+.studio .mem-conf > i { position: absolute; inset-inline-start: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--brand); transition: width 0.5s var(--ease); }
+.studio .mem-conf > b { position: absolute; top: -3px; width: 2px; height: 12px; margin-inline-start: -1px; background: var(--ink); border-radius: 2px; }
 .studio .is-below .mem-conf > i { background: var(--amber); }
 
 /* ---- mindmap ---- */
@@ -52,23 +56,23 @@
 .studio .mem-campaign .st-select-btn { min-height: 38px; }
 .studio .mem-zoom { display: flex; gap: 6px; }
 .studio .mem-zbtn { width: 36px; padding: 0; font-size: 18px; font-weight: 500; }
-.studio .mem-canvas { position: relative; height: clamp(460px, 68vh, 800px); border: 1px solid var(--rule); border-radius: 16px; background: #fff; background-image: radial-gradient(#24252614 1px, transparent 1px); background-size: 22px 22px; overflow: hidden; touch-action: none; }
+.studio .mem-canvas { position: relative; height: clamp(460px, 68vh, 800px); border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); background-image: radial-gradient(var(--rule-soft) 1px, transparent 1px); background-size: 22px 22px; overflow: hidden; touch-action: none; }
 .studio .mem-svg { display: block; width: 100%; height: 100%; cursor: grab; user-select: none; -webkit-user-select: none; }
 .studio .mem-svg:active { cursor: grabbing; }
 .studio .mem-svg:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: -3px; }
 .studio .mem-canvas.is-smooth .mem-viewport { transition: transform 0.4s var(--ease); }
 .studio .mem-viewport { transform-origin: 0 0; }
 .studio .mem-fade { position: absolute; top: 0; bottom: 0; width: 72px; pointer-events: none; }
-.studio .mem-fade-r { right: 0; background: linear-gradient(90deg, #ffffff00, #ffffffee); }
-.studio .mem-fade-l { left: 0; background: linear-gradient(270deg, #ffffff00, #ffffffee); }
+.studio .mem-fade-r { inset-inline-end: 0; background: linear-gradient(90deg, #ffffff00, #ffffffee); }
+.studio .mem-fade-l { inset-inline-start: 0; background: linear-gradient(270deg, #ffffff00, #ffffffee); }
 .studio .mem-canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 
 /* edges */
-.studio .mem-edge { fill: none; stroke: #24252640; stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; animation: mem-draw 0.6s var(--ease) both; }
+.studio .mem-edge { fill: none; stroke: var(--rule-strong); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; animation: mem-draw 0.6s var(--ease) both; }
 .studio .mem-edge.mem-s-winning { stroke: #02bf7d99; stroke-width: 2; }
 .studio .mem-edge.mem-s-promising { stroke: #1fbfb899; }
 .studio .mem-edge.mem-s-weak { stroke: #ffb020aa; }
-.studio .mem-edge.mem-s-pruned { stroke: #24252626; stroke-dasharray: 0.02 0.015; }
+.studio .mem-edge.mem-s-pruned { stroke: var(--rule); stroke-dasharray: 0.02 0.015; }
 .studio .mem-edge.mem-s-proposed { stroke: #7c5cffaa; stroke-dasharray: 0.03 0.02; }
 .studio .mem-edge.mem-s-pivot-approved { stroke: #7c5cffaa; }
 @keyframes mem-draw { from { stroke-dashoffset: 1; opacity: 0; } to { stroke-dashoffset: 0; opacity: 1; } }
@@ -77,7 +81,7 @@
 .studio .mem-node { cursor: pointer; transition: transform 0.4s var(--ease); outline: none; }
 .studio .mem-node-in { animation: mem-in 0.45s var(--ease) both; transform-box: fill-box; transform-origin: left center; }
 @keyframes mem-in { from { opacity: 0; transform: translateX(-10px) scale(0.92); } to { opacity: 1; transform: none; } }
-.studio .mem-pill { fill: #fff; stroke: var(--rule); stroke-width: 1.2; transition: stroke 0.15s var(--ease), fill 0.15s var(--ease); }
+.studio .mem-pill { fill: var(--surface); stroke: var(--rule); stroke-width: 1.2; transition: stroke 0.15s var(--ease), fill 0.15s var(--ease); }
 .studio .mem-node:hover .mem-pill { stroke: var(--ink); }
 .studio .mem-node:focus-visible .mem-pill { stroke: var(--brand-ink); stroke-width: 3; }
 .studio .mem-node.is-selected .mem-pill { stroke: var(--ink); stroke-width: 2; }
@@ -93,26 +97,26 @@
 .studio .mem-ring-fg { fill: none; stroke: var(--brand-ink); stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 0.5s var(--ease); }
 .studio .mem-strike { stroke: var(--graphite); stroke-width: 1.4; }
 .studio .mem-toggle { cursor: pointer; }
-.studio .mem-toggle circle { fill: #fff; stroke: var(--rule); stroke-width: 1.2; transition: fill 0.15s var(--ease), stroke 0.15s var(--ease); }
+.studio .mem-toggle circle { fill: var(--surface); stroke: var(--rule); stroke-width: 1.2; transition: fill 0.15s var(--ease), stroke 0.15s var(--ease); }
 .studio .mem-toggle path { stroke: var(--ink); stroke-width: 1.8; stroke-linecap: round; }
 .studio .mem-toggle text { font: 700 10px 'Instrument Sans', ui-sans-serif, system-ui, sans-serif; fill: var(--ink); }
 .studio .mem-toggle:hover circle { fill: var(--paper); stroke: var(--ink); }
 
 /* status colouring */
-.studio .mem-s-winning .mem-pill { fill: #e3f8ef; stroke: var(--brand); }
+.studio .mem-s-winning .mem-pill { fill: var(--brand-soft); stroke: var(--brand); }
 .studio .mem-s-winning .mem-chip rect { fill: var(--brand); }
 .studio .mem-s-winning .mem-chip text { fill: var(--ink); }
 .studio .mem-s-promising .mem-pill { fill: #e4f8f7; stroke: var(--teal); }
 .studio .mem-s-promising .mem-chip rect { fill: #1fbfb840; }
 .studio .mem-s-promising .mem-chip text { fill: var(--teal-ink); }
-.studio .mem-s-exploring .mem-pill { fill: #fff; stroke: #24252640; }
-.studio .mem-s-weak .mem-pill { fill: #fff4dc; stroke: var(--amber); }
+.studio .mem-s-exploring .mem-pill { fill: var(--surface); stroke: var(--rule-strong); }
+.studio .mem-s-weak .mem-pill { fill: var(--amber-soft); stroke: var(--amber); }
 .studio .mem-s-weak .mem-chip rect { fill: #ffb02040; }
 .studio .mem-s-weak .mem-chip text { fill: var(--amber-ink); }
 .studio .mem-s-pruned { opacity: 0.55; }
-.studio .mem-s-pruned .mem-pill { fill: var(--paper); stroke: #24252626; }
+.studio .mem-s-pruned .mem-pill { fill: var(--paper); stroke: var(--rule); }
 .studio .mem-s-pruned .mem-label { fill: var(--graphite); }
-.studio .mem-s-proposed .mem-pill { fill: #fff; stroke: var(--violet); stroke-dasharray: 5 4; stroke-width: 1.6; }
+.studio .mem-s-proposed .mem-pill { fill: var(--surface); stroke: var(--violet); stroke-dasharray: 5 4; stroke-width: 1.6; }
 .studio .mem-s-proposed .mem-chip rect { fill: #7c5cff1f; }
 .studio .mem-s-proposed .mem-chip text { fill: var(--violet-ink); }
 .studio .mem-s-pivot-approved .mem-pill { fill: #efeaff; stroke: var(--violet); }
@@ -124,22 +128,22 @@
 .studio .mem-s-none.mem-t-goal .mem-glyph { stroke: var(--brand); }
 .studio .mem-s-none.mem-t-goal .mem-ev circle { fill: var(--paper); }
 .studio .mem-s-none.mem-t-goal .mem-ev text { fill: var(--paper); }
-.studio .mem-s-none.mem-t-strategy .mem-pill { fill: #fff; stroke: var(--ink); stroke-width: 1.6; }
+.studio .mem-s-none.mem-t-strategy .mem-pill { fill: var(--surface); stroke: var(--ink); stroke-width: 1.6; }
 .studio .mem-s-none.mem-t-strategy .mem-chip rect { fill: var(--ink); }
 .studio .mem-s-none.mem-t-strategy .mem-chip text { fill: var(--paper); }
 .studio .mem-s-none.mem-t-learning .mem-pill { fill: #f5fbe9; stroke: #7fbf2f; }
 .studio .mem-s-none.mem-t-learning .mem-glyph { stroke: #4f8a12; }
-.studio .mem-s-none.mem-t-outcome .mem-pill { fill: var(--paper); stroke: #24252626; }
+.studio .mem-s-none.mem-t-outcome .mem-pill { fill: var(--paper); stroke: var(--rule); }
 .studio .mem-s-none.mem-t-outcome .mem-label { fill: var(--graphite); font-weight: 500; }
 
 /* legend */
-.studio .mem-legend { position: absolute; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 10px; border-radius: 999px; background: #ffffffe6; border: 1px solid var(--rule-soft); font-size: 11px; color: var(--graphite); max-width: calc(100% - 20px); pointer-events: none; }
+.studio .mem-legend { position: absolute; inset-inline-start: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 10px; border-radius: 999px; background: #ffffffe6; border: 1px solid var(--rule-soft); font-size: 11px; color: var(--graphite); max-width: calc(100% - 20px); pointer-events: none; }
 .studio .mem-key { display: inline-flex; align-items: center; gap: 5px; }
-.studio .mem-key > i { width: 10px; height: 10px; border-radius: 999px; background: #fff; border: 1.5px solid #24252640; }
-.studio .mem-key.mem-s-winning > i { background: #e3f8ef; border-color: var(--brand); }
+.studio .mem-key > i { width: 10px; height: 10px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--rule-strong); }
+.studio .mem-key.mem-s-winning > i { background: var(--brand-soft); border-color: var(--brand); }
 .studio .mem-key.mem-s-promising > i { background: #e4f8f7; border-color: var(--teal); }
-.studio .mem-key.mem-s-weak > i { background: #fff4dc; border-color: var(--amber); }
-.studio .mem-key.mem-s-pruned > i { background: var(--paper); border-color: #24252626; }
+.studio .mem-key.mem-s-weak > i { background: var(--amber-soft); border-color: var(--amber); }
+.studio .mem-key.mem-s-pruned > i { background: var(--paper); border-color: var(--rule); }
 .studio .mem-key.mem-s-pruned { text-decoration: line-through; opacity: 0.7; }
 .studio .mem-key.mem-s-proposed > i { border: 1.5px dashed var(--violet); }
 .studio .mem-key-note { opacity: 0.8; }
@@ -183,13 +187,13 @@
 .studio .mem-chips { gap: 6px; align-items: center; }
 .studio .mem-chips .st-chip { min-height: 32px; padding: 0 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 .studio .mem-chips .st-chip:disabled { opacity: 0.4; cursor: not-allowed; }
-.studio .mem-chip-n { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: #24252614; }
+.studio .mem-chip-n { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--rule-soft); }
 .studio .st-chip[aria-pressed='true'] .mem-chip-n { background: #ffffff2e; }
 .studio .mem-search { flex: 0 1 260px; min-width: 180px; }
 .studio .mem-search .st-input { min-height: 38px; }
 .studio .mem-days { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
 .studio .mem-dayhead { margin: 0 0 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14px; font-weight: 600; position: sticky; top: 0; background: var(--paper); padding: 6px 0; z-index: 1; }
-.studio .mem-events { list-style: none; margin: 0; padding: 0; background: #fff; border: 1px solid var(--rule); border-radius: 14px; }
+.studio .mem-events { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; }
 .studio .mem-event { display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; border-top: 1px solid var(--rule-soft); }
 .studio .mem-event:first-child { border-top: 0; }
 .studio .mem-event .mem-gicon { flex: 0 0 auto; margin-top: 2px; }
@@ -242,16 +246,16 @@
 .studio .mem-judge { display: block; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; white-space: nowrap; }
 .studio .mem-below { color: var(--amber-ink); font-weight: 600; }
 .studio .mem-td-answer { font-weight: 600; min-width: 90px; overflow-wrap: anywhere; }
-.studio .mem-outcome { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 999px; background: #2425260f; color: var(--graphite); vertical-align: middle; }
+.studio .mem-outcome { display: inline-block; margin-inline-start: 6px; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: #2425260f; color: var(--graphite); vertical-align: middle; }
 .studio .mem-outcome.is-right { background: #02bf7d24; color: var(--brand-ink); }
-.studio .mem-outcome.is-wrong { background: #ff5d5226; color: #b4261c; }
+.studio .mem-outcome.is-wrong { background: #ff5d5226; color: var(--danger); }
 .studio .mem-probs { display: flex; flex-direction: column; gap: 3px; min-width: 190px; }
 .studio .mem-prob { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 6px; font-size: 11px; color: var(--graphite); }
 .studio .mem-prob-k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studio .mem-prob > i { display: block; height: 5px; border-radius: 999px; background: #24252633; }
 .studio .mem-prob.is-answer > i { background: var(--brand); }
 .studio .mem-prob.is-answer { color: var(--ink); font-weight: 600; }
-.studio .mem-prob-v { text-align: right; font-variant-numeric: tabular-nums; }
+.studio .mem-prob-v { text-align: end; font-variant-numeric: tabular-nums; }
 .studio .mem-td-conf { min-width: 120px; }
 .studio .mem-confcell { display: flex; flex-direction: column; gap: 5px; }
 .studio .mem-td-cost { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -268,7 +272,7 @@
 .studio .mem-runstatus.is-running > i { background: var(--violet); animation: st-pulse 1.2s ease-in-out infinite; }
 .studio .mem-runstatus.is-error > i { background: var(--coral); }
 .studio .mem-runstatus.is-stopped-budget > i { background: var(--amber); }
-.studio .mem-run-when { margin-left: auto; }
+.studio .mem-run-when { margin-inline-start: auto; }
 .studio .mem-run-summary { margin: 0; }
 .studio .mem-run-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 
@@ -279,9 +283,9 @@
 @media (max-width: 760px) {
   .studio .mem-split.has-panel { grid-template-columns: minmax(0, 1fr); }
   .studio .mem-scrim { display: block; }
-  .studio .mem-panel { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30; max-height: 72vh; border-radius: 18px 18px 0 0; animation: mem-sheet 0.3s var(--ease) both; }
+  .studio .mem-panel { position: fixed; inset-inline-start: 0; inset-inline-end: 0; bottom: 0; top: auto; z-index: 30; max-height: 72vh; border-radius: 18px 18px 0 0; animation: mem-sheet 0.3s var(--ease) both; }
   .studio .mem-panel-head { padding-top: 14px; }
-  .studio .mem-panel-head::before { content: ''; position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 999px; background: #24252633; }
+  .studio .mem-panel-head::before { content: ''; position: absolute; top: 6px; inset-inline: 0; width: 36px; height: 4px; margin-inline: auto; border-radius: 999px; background: #24252633; }
   .studio .mem-canvas { height: clamp(380px, 58vh, 560px); }
   .studio .mem-legend { gap: 4px 8px; font-size: 10px; padding: 5px 8px; }
   .studio .mem-key-note { display: none; }
@@ -291,7 +295,7 @@
   .studio .mem-search { flex: 1 1 100%; min-width: 0; }
   .studio .mem-event { flex-wrap: wrap; }
   .studio .mem-event-body { flex-basis: calc(100% - 28px); }
-  .studio .mem-open { margin-left: 28px; }
+  .studio .mem-open { margin-inline-start: 28px; }
   .studio .mem-tabs { align-self: stretch; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .studio .mem-tabs::-webkit-scrollbar { display: none; }
   .studio .mem-tabs button { flex: 1 0 auto; justify-content: center; padding: 0 10px; }
@@ -299,11 +303,11 @@
   .studio .mem-tablewrap { background: transparent; border: 0; }
   .studio .mem-table, .studio .mem-table tbody, .studio .mem-table tr, .studio .mem-table td { display: block; }
   .studio .mem-table thead { display: none; }
-  .studio .mem-table tr { background: #fff; border: 1px solid var(--rule); border-radius: 12px; padding: 6px 0; margin-bottom: 10px; }
+  .studio .mem-table tr { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 6px 0; margin-bottom: 10px; }
   .studio .mem-table tr.is-escalated { border-color: #ff5d5266; }
   .studio .mem-table tr.is-escalated td { background: transparent; }
   .studio .mem-table td { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: start; padding: 7px 14px; border: 0; min-width: 0; }
-  .studio .mem-table td::before { content: attr(data-label); grid-column: 1; grid-row: 1; font-size: 11px; font-weight: 600; color: var(--graphite); text-transform: uppercase; letter-spacing: 0.02em; padding-top: 2px; }
+  .studio .mem-table td::before { content: attr(data-label); grid-column: 1; grid-row: 1; font-size: 11px; font-weight: 600; color: var(--graphite); padding-top: 2px; }
   .studio .mem-table td > * { grid-column: 2; justify-self: start; max-width: 100%; }
   .studio .mem-table td > .mem-probs, .studio .mem-table td > .mem-confcell { justify-self: stretch; }
   .studio .mem-totals { gap: 8px; }

@@ -1,9 +1,10 @@
 'use client';
-// Signal Content Studio: Today, Campaigns, Pipelines, Calendar, Posts, Library, Results, Comments, Brand, Memory and Connections for the selected project.
-// Everything shown here is real: packages on disk, approvals, posts and plans. No sample data.
+// Signal Content Studio: Today, Campaigns, Pipelines, Calendar, Posts (with the Gallery that replaced Library), Results,
+// Comments, Brand, Memory and Connections for the selected project. Everything shown here is real: posts on disk,
+// approvals and plans. No sample data. Today: one Needs you list, Next up, Latest.
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Calendar, useCalendarRange } from './Calendar';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Calendar } from './Calendar';
 import { CurrentProjectLabel, ProjectSwitcher, useProjectId } from './Projects';
 import { Brand } from './Brand';
 import { Campaigns } from './Campaigns';
@@ -11,17 +12,36 @@ import { Pipelines } from './Pipelines';
 import { Comments } from './Comments';
 import { Connections } from './Connections';
 import { Memory } from './Memory';
-import { useRealPosts, type RealPackage } from './RealPosts';
+import { GenerateBar, thumbUrl, useRealPosts, type RealPackage, type Say } from './RealPosts';
 import { Posts } from './Posts';
 import { Results } from './Results';
-import { AutopilotSummary } from './Autopilot';
-import { LazyImage, LoadError, LoadMoreSentinel, Reveal, ScreenSkeleton, useProgressiveList } from './loaders';
-import { connectedMessage, parseQuota, quotaText, type UpQuota } from './UploadPostPicker';
+import { LazyImage, LoadError, ScreenSkeleton } from './loaders';
+import { connectedMessage } from './UploadPostPicker';
 import { notifyChanged } from './sync';
-import { addDays, formatDateTime, todayInZone } from '@/lib/time';
+import { formatDateIn, formatWhenIn } from '@/lib/studio/time';
+import { t } from './copy/en';
+import { Button, CountBadge, Drawer, Notice, Pill, useToast } from './ui';
+import { filesChanged, isOverdue, needsYou, needsYouOrder, postedNewestFirst, postStatusWord } from './posts-rules';
+import { useStudioView, useUrlReady, type View } from './url-state';
 
-type View = 'today' | 'campaigns' | 'pipelines' | 'calendar' | 'posts' | 'library' | 'results' | 'comments' | 'brand' | 'memory' | 'connections';
-const TITLES: Record<View, string> = { today: 'Today', campaigns: 'Campaigns', pipelines: 'Pipelines', calendar: 'Calendar', posts: 'Posts', library: 'Library', results: 'Results', comments: 'Comments', brand: 'Brand', memory: 'Memory', connections: 'Connections' };
+const TITLES: Record<View, string> = {
+  today: t('tab.today'),
+  campaigns: t('tab.campaigns'),
+  pipelines: t('tab.pipelines'),
+  calendar: t('tab.calendar'),
+  posts: t('tab.posts'),
+  library: t('tab.library'),
+  results: t('tab.results'),
+  comments: t('tab.comments'),
+  brand: t('tab.brand'),
+  memory: t('tab.memory'),
+  connections: t('tab.connections'),
+};
+const PlusIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
 
 function Icon({ d, size = 18 }: { d: ReactNode; size?: number }) {
   return (
@@ -106,48 +126,43 @@ const ICONS: Record<View, ReactNode> = {
   ),
 };
 
-const WAITING: RealPackage['status'][] = ['ready', 'approved', 'sending', 'submitted', 'uncertain'];
-/** Planned column of the Posts board: made and waiting for the owner's OK (the nav badge). */
-const PLANNED: RealPackage['status'][] = ['ready', 'changed', 'invalid'];
+/** Rows in Today's Needs you list before "See all in Posts". */
+export const NEEDS_YOU_ROWS = 5;
+/** Rows in Next up. */
+const NEXT_UP_ROWS = 3;
 
 export function Studio() {
-  const [view, setView] = useState<View>('today');
-  const [toast, setToast] = useState('');
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The open tab lives in the URL (?tab=), so reload, deep links and Back work.
+  const [view, navigate] = useStudioView();
+  const ready = useUrlReady();
+  const toast = useToast();
   const mainRef = useRef<HTMLElement | null>(null);
   const router = useRouter();
   const pid = useProjectId();
   const posts = useRealPosts();
+  const [making, setMaking] = useState(false);
 
-  const say = useCallback((t: string) => {
-    setToast(t);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(''), 3800);
-  }, []);
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  const toastSay = toast.say;
+  const say = useCallback<Say>((text, opts) => toastSay(text, opts), [toastSay]);
   // Back from Meta's login (callback adds ?ig=connected|error&msg=…): show the result on the Connections screen.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const ig = q.get('ig');
     if (!ig) return;
-    const t = setTimeout(() => {
-      setView('connections');
+    const timer = setTimeout(() => {
+      navigate('connections', { replace: true });
       say((q.get('msg') ?? (ig === 'connected' ? 'Instagram connected.' : 'Connecting failed.')).slice(0, 300));
-      window.history.replaceState(null, '', window.location.pathname);
     }, 0);
-    return () => clearTimeout(t);
-  }, [say]);
+    return () => clearTimeout(timer);
+  }, [say, navigate]);
   // Back from Upload-Post's connect page (?connected=<profile>): open Connections, check the profile again and say what it found.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const profile = q.get('connected');
     if (!profile) return;
     let alive = true;
-    const t = setTimeout(() => {
-      setView('connections');
-      window.history.replaceState(null, '', window.location.pathname);
+    const timer = setTimeout(() => {
+      navigate('connections', { replace: true });
       void connectedMessage(profile).then((m) => {
         if (!alive) return;
         say(m);
@@ -156,17 +171,40 @@ export function Studio() {
     }, 0);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
-  }, [say]);
+  }, [say, navigate]);
+  // Library became the Gallery view of Posts: old links land there.
+  useEffect(() => {
+    if (ready && view === 'library') navigate('posts', { replace: true, params: { view: 'gallery' } });
+  }, [ready, view, navigate]);
 
-  const go = (v: View) => {
-    setView(v);
-    if (v === 'today' || v === 'library' || v === 'results') void posts.reload();
+  // Whatever changed the tab (a nav click, Back or Forward): refresh the posts it shows, move focus and scroll up.
+  const shown = useRef<View | null>(null);
+  const reloadPosts = posts.reload;
+  useEffect(() => {
+    if (!ready) return;
+    const before = shown.current;
+    shown.current = view;
+    if (before === null || before === view) return;
+    if (view === 'today' || view === 'results') void reloadPosts();
     mainRef.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-  const planned = (posts.data?.packages ?? []).filter((p) => PLANNED.includes(p.status)).length;
+  }, [view, ready, reloadPosts]);
+  const go = useCallback(
+    (v: View, params?: Record<string, string>) => {
+      if (v !== view || params) return navigate(v, params ? { params } : undefined);
+      // The open tab again: refresh it in place (no new history entry).
+      if (v === 'today' || v === 'results') void reloadPosts();
+      mainRef.current?.focus({ preventScroll: true });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [view, navigate, reloadPosts],
+  );
+  // The nav badge and Today's list count the same "Needs you" set.
+  const badge = needsYou(posts.data?.packages ?? []).length;
+  const openMake = useCallback(() => setMaking(true), []);
+  const makePost = openMake;
 
   const logout = async () => {
     await fetch('/api/session', { method: 'DELETE' }).catch(() => undefined);
@@ -186,290 +224,271 @@ export function Studio() {
       <aside className="st-aside">
         <div className="st-brand">
           <div className="st-tube" aria-hidden="true">
-            <i style={{ height: '62%', background: '#02bf7d' }} />
+            <i className="st-tube-fill" />
           </div>
           <div className="st-stack">
-            <span className="brand-name">Signal</span>
-            <span className="xs st-muted">Content Studio</span>
+            <span className="brand-name">{t('shell.brand')}</span>
+            <span className="xs st-muted">{t('shell.product')}</span>
           </div>
         </div>
         <ProjectSwitcher />
-        <nav aria-label="Studio" className="st-stack" style={{ gap: 4 }}>
+        <nav aria-label={t('shell.nav')} className="st-stack st-nav-list">
           {nav('today')}
           {nav('campaigns')}
           {nav('pipelines')}
           {nav('calendar')}
-          {nav(
-            'posts',
-            planned ? (
-              <span className="pill" style={{ background: '#ffb020' }} aria-label={`${planned} planned, waiting for you`}>
-                {planned}
-              </span>
-            ) : null,
-          )}
-          {nav('library')}
+          {nav('posts', <CountBadge count={badge} label={t('shell.postsBadge', { count: badge })} />)}
           {nav('results')}
           {nav('comments')}
           {nav('brand')}
           {nav('memory')}
           {nav('connections')}
         </nav>
-        <button type="button" className="st-btn st-btn-ghost st-btn-sm" style={{ marginTop: 'auto' }} onClick={() => void logout()}>
-          Sign out
+        <button type="button" className="st-btn st-btn-ghost st-btn-sm st-signout" onClick={() => void logout()}>
+          {t('shell.signOut')}
         </button>
       </aside>
 
       <main className="st-main" id="main" tabIndex={-1} ref={mainRef}>
         <header className="header">
-          <div className="st-stack" style={{ gap: 4 }}>
+          <div className="st-stack st-header-text">
             <span className="xs st-muted">
               <CurrentProjectLabel />
             </span>
-            <h1 className="page-title">{TITLES[view]}</h1>
+            <h1 className="page-title">{TITLES[view === 'library' ? 'posts' : view]}</h1>
           </div>
-          <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-            {view !== 'posts' ? (
-              <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => go('posts')}>
-                Make a post
-              </button>
-            ) : null}
-            {view !== 'calendar' ? (
-              <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => go('calendar')}>
-                Open calendar
-              </button>
-            ) : null}
+          {/* One secondary action in the header; each screen's own primary sits in its content. */}
+          <div className="st-header-actions">
+            <Button level="secondary" dense icon={PlusIcon} onClick={makePost}>
+              {t('shell.makePost')}
+            </Button>
           </div>
         </header>
 
-        {view === 'today' ? posts.error && !posts.data ? <LoadError title="Today could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Today key={pid ?? 'none'} data={posts.data} go={go} say={say} /> : null}
-        {view === 'calendar' ? (
-          <section className="screen" aria-label="Calendar">
-            <Calendar say={say} onOpenPosts={() => go('posts')} />
-          </section>
-        ) : null}
-        {view === 'posts' ? (
-          <section className="screen st-stack" style={{ gap: 16 }} aria-label="Posts">
-            <Posts key={pid ?? 'none'} say={say} />
-          </section>
-        ) : null}
-        {view === 'library' ? posts.error && !posts.data ? <LoadError title="The library could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Library data={posts.data} /> : null}
-        {view === 'results' ? posts.error && !posts.data ? <LoadError title="Results could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Results data={posts.data} reload={posts.reload} say={say} /> : null}
-        {view === 'campaigns' ? <Campaigns key={pid ?? 'none'} say={say} openPosts={() => go('posts')} /> : null}
-        {view === 'pipelines' ? <Pipelines key={pid ?? 'none'} say={say} /> : null}
-        {view === 'comments' ? <Comments key={pid ?? 'none'} say={say} onManage={() => go('connections')} /> : null}
-        {view === 'memory' ? <Memory key={pid ?? 'none'} say={say} /> : null}
-        {view === 'connections' ? <Connections key={pid ?? 'none'} say={say} openBrand={() => go('brand')} /> : null}
-        {view === 'brand' ? <Brand key={pid ?? 'none'} say={say} onMade={() => go('posts')} /> : null}
+        {/* Until the URL is read (hydration), no tab mounts: a deep link opens its own tab first. */}
+        {!ready ? null : (
+          <>
+            {view === 'today' ? posts.error && !posts.data ? <Notice kind="error" title={t('today.couldNotLoad')} details={posts.error} onRetry={() => void posts.reload()} /> : <Today key={pid ?? 'none'} data={posts.data} go={go} onMake={makePost} /> : null}
+            {view === 'calendar' ? (
+              <section className="screen" aria-label={t('calendar.region')}>
+                <Calendar say={say} onOpenPosts={() => go('posts')} />
+              </section>
+            ) : null}
+            {view === 'posts' ? (
+              <section className="screen" aria-label={t('tab.posts')}>
+                <Posts key={pid ?? 'none'} say={say} onMake={makePost} />
+              </section>
+            ) : null}
+            {view === 'results' ? posts.error && !posts.data ? <LoadError title="Results could not be loaded." message={posts.error} onRetry={posts.reload} /> : <Results data={posts.data} reload={posts.reload} say={say} /> : null}
+            {view === 'campaigns' ? <Campaigns key={pid ?? 'none'} say={say} openPosts={() => go('posts')} /> : null}
+            {view === 'pipelines' ? <Pipelines key={pid ?? 'none'} say={say} /> : null}
+            {view === 'comments' ? <Comments key={pid ?? 'none'} say={say} onManage={() => go('connections')} /> : null}
+            {view === 'memory' ? <Memory key={pid ?? 'none'} say={say} /> : null}
+            {view === 'connections' ? <Connections key={pid ?? 'none'} say={say} openBrand={() => go('brand')} /> : null}
+            {view === 'brand' ? <Brand key={pid ?? 'none'} say={say} onMade={() => go('posts')} /> : null}
+          </>
+        )}
       </main>
 
-      {toast ? (
-        <div className="st-toast" role="status">
-          <span className="dot" style={{ background: '#02bf7d' }} />
-          {toast}
-        </div>
+      {making ? (
+        <Drawer open title={t('make.title')} onClose={() => setMaking(false)}>
+          <GenerateBar
+            key={posts.data?.project?.id ?? 'p'}
+            codex={posts.data?.codex}
+            higgsfield={posts.data?.higgsfield}
+            formats={posts.data?.formats ?? []}
+            say={say}
+            onMade={() => {
+              setMaking(false);
+              void posts.reload();
+            }}
+          />
+        </Drawer>
       ) : null}
+
+      {toast.node}
     </div>
   );
 }
 
 type Data = ReturnType<typeof useRealPosts>['data'];
-const thumbOf = (p: RealPackage, project: string) => {
-  const f = p.files.find((x) => x.role === 'cover') ?? p.files.find((x) => x.role === 'slide');
-  return f ? `/api/studio/content/${p.id}/file/${encodeURIComponent(f.name)}?project=${encodeURIComponent(project)}` : null;
-};
 
-function Today({ data, go, say }: { data: Data; go: (v: View) => void; say: (t: string) => void }) {
-  const today = todayInZone();
-  const [yy, mm] = today.split('-').map(Number) as [number, number];
-  const monthStart = `${today.slice(0, 8)}01`;
-  const monthEnd = addDays(mm === 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`, -1);
-  const month = useCalendarRange(monthStart, monthEnd);
-  const quota = useUploadPostQuota(data?.project?.id ?? null);
+/**
+ * The one notice line on Today about the account's posting settings: only when they end within 3 days or at most 2
+ * posts are left in the account limits, under 12 words, with a link to Connections. Null otherwise. Settings with no
+ * end date (`expiresAt` not a finite time) never end.
+ */
+export function approvalNotice(exp: { open: boolean; expiresAt: number | null; posted: number; maxPosts: number } | undefined, now: number): string | null {
+  if (!exp?.open) return null;
+  if (typeof exp.expiresAt === 'number' && Number.isFinite(exp.expiresAt)) {
+    const msLeft = exp.expiresAt - now;
+    if (msLeft <= 3 * 86_400_000) return t('today.expires', { days: Math.max(0, Math.floor(msLeft / 86_400_000)) });
+  }
+  if (exp.maxPosts > 0 && exp.posted >= exp.maxPosts - 2) return t('today.capNear', { left: Math.max(0, exp.maxPosts - exp.posted) });
+  return null;
+}
+
+/** The name of a Connections service for a Needs you row (its id when Connections has no name for it). */
+function serviceName(id: string): string {
+  return id === 'upload-post' ? t('connections.uploadPost') : id;
+}
+
+/** The state line of a Needs you row. */
+function needLine(p: RealPackage, tz: string | null, now: number): string | null {
+  if (filesChanged(p)) return t('posts.filesChanged');
+  if (isOverdue(p, now) || (p.status === 'approved' && p.missedAt)) return t('posts.overdue');
+  return p.plannedFor ? formatWhenIn(tz, p.plannedFor, now) : null;
+}
+
+function Thumb({ p }: { p: RealPackage }) {
+  const src = thumbUrl(p);
+  return src ? <LazyImage className="today-thumb" src={src} alt="" /> : <span className="today-thumb today-thumb-empty" aria-hidden="true" />;
+}
+
+export function Today({ data, go, onMake }: { data: Data; go: (v: View, params?: Record<string, string>) => void; onMake: () => void }) {
   const [now] = useState(() => Date.now());
-  if (!data) return <ScreenSkeleton variant="cards" count={3} label="Loading today" />;
+  if (!data) return <ScreenSkeleton variant="cards" count={3} label={t('today.loading')} />;
+  const tz = data.project?.timeZone ?? null;
   const pk = data.packages.filter((p) => p.status !== 'discarded');
-  const waiting = pk.filter((p) => WAITING.includes(p.status) || (p.status === 'posted' && !p.labelConfirmed));
-  const posted = pk.filter((p) => p.posted).sort((a, b) => (a.posted!.posted_at < b.posted!.posted_at ? 1 : -1));
-  const exp = data.account;
-  const noEnd = exp.open && !Number.isFinite(exp.expiresAt);
-  const daysLeft = exp.open && !noEnd ? Math.max(0, Math.ceil((exp.expiresAt - now) / 86_400_000)) : 0;
+  const needs = needsYouOrder(needsYou(pk, now));
+  const posted = postedNewestFirst(pk);
   const next = pk
-    .filter((p) => p.plannedFor && !p.posted && Date.parse(p.plannedFor) > now - 3_600_000)
-    .sort((a, b) => (a.plannedFor! < b.plannedFor! ? -1 : 1))[0];
-  const due = pk.filter((p) => p.plannedFor && !p.posted && Date.parse(p.plannedFor) <= now && !['failed'].includes(p.status));
-  const thisMonth = (month.data?.items ?? []).filter((i) => i.kind === 'posted' && i.when && i.when.slice(0, 7) === today.slice(0, 7)).length;
-  const projectId = data.project?.id ?? '';
+    .filter((p) => !p.posted && (p.scheduled?.scheduled_for ?? p.plannedFor) && Date.parse((p.scheduled?.scheduled_for ?? p.plannedFor)!) > now)
+    .sort((a, b) => ((a.scheduled?.scheduled_for ?? a.plannedFor)! < (b.scheduled?.scheduled_for ?? b.plannedFor)! ? -1 : 1))
+    .slice(0, NEXT_UP_ROWS);
+  const notice = approvalNotice(data.account, now);
+  const openPost = (id: string) => go('posts', { post: id });
+  // A connection that blocks a post within 24 h comes first: it is the most urgent row.
+  const blocks = (data.connectionBlocks ?? []).slice(0, NEEDS_YOU_ROWS);
+  const postRows = Math.max(0, NEEDS_YOU_ROWS - blocks.length);
+  const total = blocks.length + needs.length;
 
   return (
-    <section className="screen st-stack" style={{ gap: 20 }} aria-label="Today">
-      {due.length ? (
-        <button type="button" className="tap-card real-summary due" onClick={() => go('posts')}>
-          <span className="pill real-pill">Due now</span>
-          <span style={{ fontSize: 15, fontWeight: 600 }}>
-            {due.length === 1 ? `Post ${due[0]!.id} is planned for ${formatDateTime(due[0]!.plannedFor)}` : `${due.length} planned posts are due`}
-          </span>
-          <span className="st-small st-muted">Open Posts →</span>
-        </button>
+    <section className="screen st-stack today-screen" aria-label={t('tab.today')}>
+      {notice ? (
+        <p className="today-notice st-small" role="note">
+          <span>{notice}</span>
+          <Button level="tertiary" dense onClick={() => go('connections')}>
+            {t('notice.openConnections')}
+          </Button>
+        </p>
       ) : null}
-      <div className="grid4">
-        <button type="button" className="tap-card stat" onClick={() => go('posts')}>
-          <span className="label">Waiting for you</span>
-          <span className="stat-num" style={{ color: waiting.length ? '#a05e00' : undefined }}>
-            {waiting.length}
-          </span>
-          <span className="st-small st-muted">Open Posts →</span>
-        </button>
-        <div className="st-card stat">
-          <span className="label">Posted</span>
-          <span className="stat-num">
-            {exp.posted}
-            <span className="stat-of">/{exp.maxPosts || '—'}</span>
-          </span>
-          <span className="st-small st-muted">{exp.open ? `${Math.max(0, exp.maxPosts - exp.posted)} left` : 'Limits not set'}</span>
-        </div>
-        <div className="st-card stat">
-          <span className="label">Posting period</span>
-          <span className="stat-num" style={{ color: exp.open ? (!noEnd && daysLeft <= 3 ? '#a05e00' : '#017a50') : '#b4261c' }}>
-            {exp.open ? (noEnd ? 'On' : `${daysLeft}d`) : 'Off'}
-          </span>
-          <span className="st-small st-muted">{exp.open ? `${noEnd ? 'no end date' : `until ${new Date(exp.expiresAt).toLocaleDateString()}`} · ${exp.maxPerDay}/day` : 'Manage projects → Set posting limits'}</span>
-        </div>
-        <div className="st-card stat">
-          <span className="label">Posted this month</span>
-          <span className="stat-num">{month.data ? thisMonth : month.error ? '—' : '…'}</span>
-          <span className="st-small st-muted">All accounts{quota ? ` · ${quotaText(quota)}` : ''}</span>
 
-        </div>
-      </div>
-
-      <AutopilotSummary say={say} openCampaigns={() => go('campaigns')} />
+      <section className="st-card st-stack today-card" aria-labelledby="today-needs">
+        <h2 id="today-needs" className="today-h">
+          {t('today.needsYou')}
+          {total ? (
+            <span className="pb-count" data-content>
+              {total}
+            </span>
+          ) : null}
+        </h2>
+        {total === 0 ? (
+          <div className="today-empty">
+            <p className="st-small">{t('today.nothing')}</p>
+            <Button level="primary" onClick={onMake}>
+              {t('shell.makePost')}
+            </Button>
+          </div>
+        ) : (
+          <ul className="today-rows">
+            {blocks.map((b) => (
+              <li key={`block-${b.service}`}>
+                <button type="button" className="today-row" data-block={b.service} onClick={() => go('connections', { service: b.service })} aria-label={t('today.block.open', { service: serviceName(b.service) })}>
+                  <span className="today-thumb today-thumb-empty" aria-hidden="true" />
+                  <span className="today-row-text">
+                    <span className="today-row-title">{t('today.block.title', { service: serviceName(b.service) })}</span>
+                    <span className="xs st-muted">{t('today.block.line', { count: b.count, id: b.postId, when: formatWhenIn(tz, b.plannedFor, now) })}</span>
+                  </span>
+                  <Pill status="Needs you" />
+                </button>
+              </li>
+            ))}
+            {needs.slice(0, postRows).map((p) => {
+              const line = needLine(p, tz, now);
+              return (
+                <li key={p.id}>
+                  <button type="button" className="today-row" onClick={() => openPost(p.id)} aria-label={t('posts.open', { id: p.id })}>
+                    <Thumb p={p} />
+                    <span className="today-row-text">
+                      <span className="today-row-title" data-content>
+                        {p.title}
+                      </span>
+                      {line ? (
+                        <span className="xs st-muted" data-content={line === t('posts.overdue') || line === t('posts.filesChanged') ? undefined : true}>
+                          {line}
+                        </span>
+                      ) : null}
+                    </span>
+                    <Pill status={postStatusWord(p.status)} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {needs.length > postRows ? (
+          <div>
+            <Button level="tertiary" dense onClick={() => go('posts')}>
+              {t('today.seeAll')}
+            </Button>
+          </div>
+        ) : null}
+      </section>
 
       <div className="grid2">
-        <div className="st-card st-stack" style={{ padding: 18, gap: 10 }}>
-          <span className="label">Next planned</span>
-          {next ? (
-            <div className="row-wrap" style={{ gap: 12, alignItems: 'center' }}>
-              {thumbOf(next, projectId) ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img className="real-thumb" src={thumbOf(next, projectId)!} alt="" />
-              ) : null}
-              <div className="st-stack" style={{ gap: 2 }}>
-                <span style={{ fontWeight: 600 }}>{next.title}</span>
-                <span className="st-small st-muted">{formatDateTime(next.plannedFor)} · {next.status === 'approved' ? 'approved' : 'needs approval'}</span>
-              </div>
-            </div>
+        <section className="st-card st-stack today-card" aria-labelledby="today-next">
+          <h2 id="today-next" className="today-h">
+            {t('today.nextUp')}
+          </h2>
+          {next.length ? (
+            <ul className="today-rows">
+              {next.map((p) => (
+                <li key={p.id}>
+                  <button type="button" className="today-row" onClick={() => openPost(p.id)} aria-label={t('posts.open', { id: p.id })}>
+                    <Thumb p={p} />
+                    <span className="today-row-text">
+                      <span className="today-row-title" data-content>
+                        {p.title}
+                      </span>
+                      <span className="xs st-muted" data-content>
+                        {formatWhenIn(tz, p.scheduled?.scheduled_for ?? p.plannedFor, now)}
+                      </span>
+                    </span>
+                    <Pill status={postStatusWord(p.status)} />
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <span className="st-small st-muted">Nothing planned yet.</span>
+            <p className="st-small st-muted">{t('today.nothingNext')}</p>
           )}
           <div>
-            <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => go('calendar')}>
-              Plan the week
-            </button>
+            <Button level="secondary" dense onClick={() => go('calendar')}>
+              {t('today.openCalendar')}
+            </Button>
           </div>
-        </div>
-        <div className="st-card st-stack" style={{ padding: 18, gap: 10 }}>
-          <span className="label">Latest posts</span>
+        </section>
+        <section className="st-card st-stack today-card" aria-labelledby="today-latest">
+          <h2 id="today-latest" className="today-h">
+            {t('today.latest')}
+          </h2>
           {posted.length ? (
             <div className="today-posts">
               {posted.slice(0, 4).map((p) => (
-                <a key={p.id} className="today-post" href={p.posted!.url ?? '#'} target="_blank" rel="noreferrer" title={p.title}>
-                  {thumbOf(p, projectId) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={thumbOf(p, projectId)!} alt={p.title} />
-                  ) : null}
-                  <span className="xs st-muted">{new Date(p.posted!.posted_at).toLocaleDateString()}</span>
-                </a>
+                <button key={p.id} type="button" className="today-post" onClick={() => openPost(p.id)} aria-label={t('posts.open', { id: p.id })}>
+                  <Thumb p={p} />
+                  <span className="xs st-muted" data-content>
+                    {formatDateIn(tz, p.posted!.posted_at, now)}
+                  </span>
+                </button>
               ))}
             </div>
           ) : (
-            <span className="st-small st-muted">No posts yet.</span>
+            <p className="st-small st-muted">{t('today.noLatest')}</p>
           )}
-        </div>
+        </section>
       </div>
-    </section>
-  );
-}
-
-/**
- * Upload-Post's monthly upload count, from GET /api/studio/connections (uploadPost.quota). Until the
- * server sends it, nothing is shown: no fixed plan figure is guessed here.
- */
-function useUploadPostQuota(projectId: string | null): UpQuota | null {
-  const [quota, setQuota] = useState<UpQuota | null>(null);
-  useEffect(() => {
-    if (!projectId) return;
-    let alive = true;
-    void (async () => {
-      try {
-        const r = await fetch(`/api/studio/connections?project=${encodeURIComponent(projectId)}`, { cache: 'no-store' });
-        const j = (await r.json().catch(() => null)) as { uploadPost?: { quota?: unknown } } | null;
-        if (alive) setQuota(r.ok ? parseQuota(j?.uploadPost?.quota) : null);
-      } catch {
-        if (alive) setQuota(null);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [projectId]);
-  return quota;
-}
-
-function Library({ data }: { data: Data }) {
-  const [filter, setFilter] = useState<'posted' | 'all'>('posted');
-  const items = useMemo(
-    () =>
-      (data?.packages ?? [])
-        .filter((p) => p.status !== 'discarded')
-        .filter((p) => filter === 'all' || p.status === 'posted')
-        .sort((a, b) => (b.id < a.id ? -1 : 1)),
-    [data, filter],
-  );
-  const list = useProgressiveList(items, 12, 12);
-  if (!data) return <ScreenSkeleton variant="grid" count={8} label="Loading the library" />;
-  const projectId = data.project?.id ?? '';
-  return (
-    <section className="screen st-stack" style={{ gap: 16 }} aria-label="Library">
-      <div className="st-chip-row" role="group" aria-label="Filter">
-        {(['posted', 'all'] as const).map((f) => (
-          <button key={f} type="button" className="st-chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>
-            {f === 'posted' ? 'Posted' : 'All packages'}
-          </button>
-        ))}
-      </div>
-      {items.length === 0 ? <span className="st-small st-muted">Nothing yet.</span> : null}
-      <div className="lib-grid">
-        {list.visible.map((p, i) => (
-          <Reveal key={p.id} index={i}>
-          <div className="st-card lib-card">
-            {thumbOf(p, projectId) ? (
-              <LazyImage className="lib-thumb" src={thumbOf(p, projectId)!} alt="" />
-            ) : (
-              <div className="lib-empty" />
-            )}
-            <div className="st-stack" style={{ gap: 4, padding: 12 }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>
-                {p.id} · {p.title}
-              </span>
-              <span className="xs st-muted">
-                {p.posted ? `Posted ${formatDateTime(p.posted.posted_at)}` : p.plannedFor ? `Planned ${formatDateTime(p.plannedFor)}` : p.status}
-              </span>
-              {p.metrics?.metrics ? (
-                <span className="xs lib-nums">
-                  <b>{p.metrics.metrics.views ?? '—'}</b> views · <b>{p.metrics.metrics.likes ?? '—'}</b> likes · <b>{p.metrics.metrics.saves ?? '—'}</b> saves
-                </span>
-              ) : null}
-              {p.posted?.url ? (
-                <a className="real-link st-small" href={p.posted.url} target="_blank" rel="noreferrer">
-                  View on Instagram
-                </a>
-              ) : null}
-            </div>
-          </div>
-          </Reveal>
-        ))}
-      </div>
-      <LoadMoreSentinel hasMore={list.hasMore} sentinel={list.sentinel} more={list.more} />
     </section>
   );
 }

@@ -4,6 +4,7 @@
 // when it has newer events (graph.json and learnings.json are caches of the timeline and posts). demo=1 returns the deterministic example payload so the tab can
 // be previewed before memory is switched on; it is marked as example data by the UI.
 import { NextResponse, type NextRequest } from 'next/server';
+import { projectTimeZone } from '@/lib/studio/time';
 import { requireStudioUser } from '@/lib/server/studioAuth';
 import { inProject } from '@/lib/server/studioProject';
 import { listCampaigns } from '@/lib/studio/campaigns';
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (user instanceof Response) return user;
   const demo = new URL(req.url).searchParams.get('demo') === '1';
   return inProject(req, null, async (project) => {
-    const info = { id: project.id, name: project.name, handle: project.handle };
+    const info = { id: project.id, name: project.name, handle: project.handle, timeZone: projectTimeZone(project) };
     if (demo) return NextResponse.json(demoPayload(info), NO_STORE);
 
     const gate = await memoryAllowed();

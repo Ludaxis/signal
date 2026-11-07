@@ -1,30 +1,20 @@
 'use client';
-// Calendar: a week of every project's posts (Studio time zone). Drag a package onto a day to plan
-// it, move planned ones between days, or open one to set the exact time. Planning never posts:
-// a planned package still needs your approval on the Posts board, and Today shows it when it is due.
-// A scheduled package is different: it really goes out at its time, so moving or cancelling it asks first.
+// Calendar: a week of posts in the project's time zone. Drag a post onto a day to
+// plan it, move planned ones between days, or open one to set the exact time. Planning never posts: a planned
+// post still needs approval on Posts. A scheduled post really goes out at its time, so moving or unscheduling it
+// asks first (shared Dialog). "All accounts" counts days in the default zone and labels
+// each project's chips in that project's own zone. Times are 24-hour HH:MM; the zone is named once per screen.
 import { useRouter } from 'next/navigation';
 import { notifyChanged, useOnChanged } from './sync';
+import { navigateTo, useUrlParam } from './url-state';
 import { useCallback, useEffect, useState, type DragEvent } from 'react';
-import { createPortal } from 'react-dom';
-import { setProjectId, useProjectId, useScrollLock } from './Projects';
+import { setProjectId, useProjectId } from './Projects';
 import { Skeleton } from './loaders';
-import { useConfirm } from './Posts';
-import { OVERDUE_TEXT, isOverdue } from './posts-rules';
-import {
-  TIMEZONE,
-  addDays,
-  zonedParts,
-  zonedToUtc,
-  describeDstChange,
-  dstChanges,
-  formatDateLabel,
-  formatTime,
-  formatWeekRange,
-  startOfWeek,
-  todayInZone,
-  weekDates,
-} from '@/lib/time';
+import { t } from './copy/en';
+import { Button, Chip, ChipRow, Drawer, IconButton, Notice, Pill, useConfirm, type ConfirmFn } from './ui';
+import { OVERDUE_TEXT, isOverdue, postStatusWord, type PostStatus } from './posts-rules';
+import { addDays, formatDateLabel, formatTime, formatWeekRange, startOfWeek, weekDates, type DstChange } from '@/lib/time';
+import { DEFAULT_TIME_ZONE, dstChangesIn, formatWhenIn, partsIn, projectTimeZone, timeZoneLabel, todayIn, wallToUtcIn } from '@/lib/studio/time';
 
 export interface CalItem {
   project: string;
@@ -36,28 +26,46 @@ export interface CalItem {
   kind: 'posted' | 'planned' | 'unplanned';
   thumb: string | null;
   url: string | null;
+  /** The campaign the post was made for (the `?campaign=<id>` filter). */
+  campaign?: { id: string; name: string } | null;
 }
-interface CalData { timezone: string; projects: { id: string; name: string; handle: string }[]; items: CalItem[]; unplanned: CalItem[] }
+interface CalProject {
+  id: string;
+  name: string;
+  handle: string;
+  timeZone?: string;
+}
+interface CalData {
+  timezone: string;
+  timeZoneLabel?: string;
+  projects: CalProject[];
+  items: CalItem[];
+  unplanned: CalItem[];
+  /** Campaign names of the shown projects (the filter chip names one even in a week without its posts). */
+  campaigns?: { id: string; project: string; name: string }[];
+}
 
-export function useCalendarRange(from: string, to: string, project?: string | null) {
+/** Calendar data for a range: one project (`project`), or every account (`project` null; `all` asks for the default-zone grid). */
+export function useCalendarRange(from: string, to: string, project?: string | null, all = false) {
   const [data, setData] = useState<CalData | null>(null);
   const [error, setError] = useState('');
   const router = useRouter();
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/api/studio/calendar?from=${from}&to=${to}${project ? `&project=${encodeURIComponent(project)}` : ''}`, { cache: 'no-store' });
+      const scope = project ? `&project=${encodeURIComponent(project)}` : all ? '&scope=all' : '';
+      const r = await fetch(`/api/studio/calendar?from=${from}&to=${to}${scope}`, { cache: 'no-store' });
       if (r.status === 401) {
         router.push('/login?next=%2Fstudio');
         return;
       }
       const j = (await r.json()) as CalData & { error?: { message: string } };
-      if (!r.ok) throw new Error(j.error?.message ?? 'Could not load the calendar.');
+      if (!r.ok) throw new Error(j.error?.message ?? t('calendar.couldNotLoad'));
       setData(j);
       setError('');
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [from, to, project, router]);
+  }, [from, to, project, all, router]);
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -73,30 +81,32 @@ export function useCalendarRange(from: string, to: string, project?: string | nu
 
 const DEFAULT_TIME = '18:00';
 const LOCKED = ['posted', 'sending', 'submitted', 'uncertain'];
-const STATUS_TEXT: Record<string, string> = {
-  posted: 'Posted',
-  ready: 'Needs approval',
-  approved: 'Approved',
-  scheduled: 'Scheduled',
-  sending: 'Sending',
-  submitted: 'Publishing',
-  uncertain: 'Check status',
-  failed: 'Not posted',
-  changed: 'Files changed',
-};
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** How far ahead the day picker reaches. */
+const DAYS_AHEAD = 120;
 
 /** A planned (not scheduled) approved post whose time has passed: nothing posts it by itself. */
 const overdue = (i: CalItem, now = Date.now()) => i.kind === 'planned' && isOverdue({ status: i.status, plannedFor: i.when }, now);
-const statusText = (i: CalItem) => (overdue(i) ? 'Time passed' : (STATUS_TEXT[i.status] ?? i.status));
+/** The status-dictionary word for a chip (the Calendar shows no raw status either). */
+const statusWord = (i: CalItem) => postStatusWord(i.status as PostStatus) ?? postStatusWord('ready');
 
-/** The question asked before a real schedule moves (it goes out at the new time instead). */
-export function moveScheduleQuestion(item: CalItem, date: string, time: string): string {
-  return `Post ${item.id} is scheduled: it really goes out at its time. Move the schedule to ${formatDateLabel(date)}, ${time}?`;
+/** The clock-change notice for a week: one line naming the day and the shift. */
+export function clockChangeText(c: DstChange): string {
+  const day = formatDateLabel(c.date);
+  return c.direction === 'back' ? t('calendar.clocksBack', { day }) : t('calendar.clocksForward', { day });
 }
-/** The question asked before a real schedule is cancelled. */
-export function cancelScheduleQuestion(item: CalItem): string {
-  return `Cancel the schedule for post ${item.id}? It will not go out by itself. It stays approved and planned for ${item.when ? `${formatDateLabel(zonedParts(item.when).date)
-}, ${formatTime(item.when)}` : 'its time'}, so you can schedule or post it again.`;
+
+/** The confirm before a real schedule moves (a question naming the object, one consequence line). */
+export function moveScheduleRequest(item: CalItem, when: string) {
+  return { title: t('calendar.moveTitle', { id: item.id, when }), body: t('calendar.moveBody'), confirmLabel: t('calendar.moveConfirm') };
+}
+/** The confirm before a real schedule is cancelled. */
+export function unscheduleRequest(item: CalItem, tz?: string) {
+  return {
+    title: t('calendar.unscheduleTitle', { id: item.id }),
+    body: t('calendar.unscheduleBody', { when: item.when ? formatWhenIn(projectTimeZone(tz), item.when) : '—' }),
+    confirmLabel: t('calendar.unscheduleConfirm'),
+  };
 }
 
 async function plan(item: CalItem, iso: string | null): Promise<void> {
@@ -107,24 +117,55 @@ async function plan(item: CalItem, iso: string | null): Promise<void> {
   });
   if (!r.ok) {
     const j = (await r.json().catch(() => null)) as { error?: { message: string } } | null;
-    throw new Error(j?.error?.message ?? 'Could not plan the post.');
+    throw new Error(j?.error?.message ?? t('calendar.couldNotPlan'));
   }
   notifyChanged('content', 'calendar', 'campaigns');
 }
 
+const PrevIcon = (
+  <svg className="icon-mirror" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 6l-6 6 6 6" />
+  </svg>
+);
+const NextIcon = (
+  <svg className="icon-mirror" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 6l6 6-6 6" />
+  </svg>
+);
+
 export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpenPosts: () => void }) {
-  const today = todayInZone();
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
-  const days = weekDates(weekStart);
   const pid = useProjectId();
   const [scope, setScope] = useState<'project' | 'all'>('project');
-  const cal = useCalendarRange(days[0]!, days[6]!, scope === 'project' ? pid : null);
+  // The zone the server counted days in (the project's time zone; the default zone for "All accounts" and for
+  // older projects). Until the first answer it is the default zone; kept from the last answer so the shown week
+  // can follow it.
+  const [zone, setZone] = useState<string | null>(null);
+  // The week the user moved to; null means "the current week in the grid's zone", so a project east of the
+  // default zone opens on its own Monday once the server has told us its zone.
+  const [picked, setPicked] = useState<string | null>(null);
+  const tz = scope === 'all' ? DEFAULT_TIME_ZONE : projectTimeZone(zone);
+  const today = todayIn(tz);
+  const weekStart = picked ?? startOfWeek(today);
+  const days = weekDates(weekStart);
+  const cal = useCalendarRange(days[0]!, days[6]!, scope === 'project' ? pid : null, scope === 'all');
+  if (scope === 'project' && cal.data && cal.data.timezone !== zone) setZone(cal.data.timezone);
   const [open, setOpen] = useState<CalItem | null>(null);
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const changes = dstChanges(days);
+  const changes = dstChangesIn(tz, days);
   const confirmBox = useConfirm();
 
+  // Campaigns › "Show all" opens the Calendar on `?campaign=<id>`: only that campaign's posts, with a chip to clear.
+  const campaign = useUrlParam('campaign');
+  const ofCampaign = (i: CalItem) => !campaign || i.campaign?.id === campaign;
+  const campaignName = campaign ? (cal.data?.campaigns?.find((c) => c.id === campaign)?.name ?? [...(cal.data?.items ?? []), ...(cal.data?.unplanned ?? [])].find((i) => i.campaign?.id === campaign)?.campaign?.name ?? null) : null;
+  const shownItems = (cal.data?.items ?? []).filter(ofCampaign);
+  const shownUnplanned = (cal.data?.unplanned ?? []).filter(ofCampaign);
+  const clearCampaign = () => navigateTo('calendar', { replace: true });
+
+  const projects = cal.data?.projects ?? [];
+  /** The zone a project's own times are shown and planned in. */
+  const zoneOf = (project: string) => projectTimeZone(projects.find((p) => p.id === project)?.timeZone ?? (scope === 'all' ? null : tz));
   const key = (i: CalItem) => `${i.project}/${i.id}`;
   const all = [...(cal.data?.items ?? []), ...(cal.data?.unplanned ?? [])];
   const find = (k: string | null) => all.find((i) => key(i) === k) ?? null;
@@ -135,20 +176,22 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
     setOver(null);
     if (!it) return;
     if (it.project !== project) {
-      say('A post can only move within its own account.');
+      say(t('calendar.ownAccount'));
       return;
     }
-    const time = it.when ? zonedParts(it.when).time : DEFAULT_TIME;
-    const r = zonedToUtc(date, time);
+    const own = zoneOf(it.project);
+    const time = it.when ? partsIn(own, it.when).time : DEFAULT_TIME;
+    const r = wallToUtcIn(own, date, time);
     if (!r.ok) {
       say(r.message);
       return;
     }
+    const when = formatWhenIn(own, r.iso);
     const scheduled = it.status === 'scheduled';
-    if (scheduled && !(await confirmBox.confirm(moveScheduleQuestion(it, date, time)))) return;
+    if (scheduled && !(await confirmBox.confirm(moveScheduleRequest(it, when)))) return;
     try {
       await plan(it, r.iso);
-      say(scheduled ? `Schedule for post ${it.id} moved to ${formatDateLabel(date)}, ${time}` : `Post ${it.id} planned for ${formatDateLabel(date)}, ${time}`);
+      say(scheduled ? t('calendar.moved', { id: it.id, when }) : t('calendar.planned', { id: it.id, when }));
       await cal.reload();
     } catch (e) {
       say((e as Error).message);
@@ -157,12 +200,18 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
 
   const chip = (i: CalItem) => {
     const locked = LOCKED.includes(i.status);
+    const own = zoneOf(i.project);
+    const late = overdue(i);
+    const word = statusWord(i);
+    const time = i.when ? formatTime(i.when, own) : null;
+    // In "All accounts", a project in another zone says so in its own label (screen readers and the tooltip).
+    const zoneNote = scope === 'all' && own !== tz ? ` ${own}` : '';
     return (
       <button
         key={key(i)}
         type="button"
-        className={`cal2-item k-${i.kind} s-${i.status} ${overdue(i) ? 'is-overdue' : ''}`}
-        title={overdue(i) ? OVERDUE_TEXT : undefined}
+        className={`cal2-item k-${i.kind} s-${i.status} ${late ? 'is-overdue' : ''}`}
+        title={late ? OVERDUE_TEXT : undefined}
         draggable={!locked}
         onDragStart={(e: DragEvent) => {
           e.dataTransfer.setData('text/plain', key(i));
@@ -174,7 +223,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           setOver(null);
         }}
         onClick={() => setOpen(i)}
-        aria-label={`${i.title}, ${overdue(i) ? OVERDUE_TEXT : (STATUS_TEXT[i.status] ?? i.status)}${i.when ? `, ${formatTime(i.when)}` : ''}`}
+        aria-label={`${i.title}, ${late ? OVERDUE_TEXT : word}${time ? `, ${time}${zoneNote}` : ''}`}
       >
         {i.thumb ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -183,91 +232,115 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
           <span className="cal2-noimg" />
         )}
         <span className="cal2-meta">
-          <span className="cal2-time">{i.when ? formatTime(i.when) : `#${i.id}`}</span>
-          <span className="cal2-title">{i.title.replace(/^.*?·\s*/, '')}</span>
-          <span className="cal2-status">{statusText(i)}</span>
+          {/* An unplanned chip has no time; its title already names the post (no "#12"). */}
+          {time ? (
+            <span className="cal2-time" data-content>
+              {time}
+            </span>
+          ) : null}
+          <span className="cal2-title" data-content>
+            {i.title.replace(/^.*?·\s*/, '')}
+          </span>
+          <span className="cal2-status">{word}</span>
         </span>
       </button>
     );
   };
 
-  const projects = cal.data?.projects ?? [];
-  const cell = (project: string, date: string) => (cal.data?.items ?? []).filter((i) => i.project === project && i.when && zonedParts(i.when).date === date);
+  const cell = (project: string, date: string) => shownItems.filter((i) => i.project === project && i.when && partsIn(tz, i.when).date === date);
 
   return (
-    <div className="st-stack" style={{ gap: 16 }}>
-      <div className="row-wrap" style={{ gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
-        <div className="st-stack" style={{ gap: 2 }}>
-          <span style={{ fontWeight: 600, fontSize: 16 }}>{formatWeekRange(weekStart)}</span>
-          <span className="xs st-muted">{TIMEZONE} time · drag a post onto a day</span>
+    <div className="st-stack cal-screen">
+      <div className="calw-head">
+        <div className="st-stack calw-head-text">
+          <span className="cal-week" data-content>
+            {formatWeekRange(weekStart)}
+          </span>
+          <span className="xs st-muted">{scope === 'project' && cal.data?.timeZoneLabel ? cal.data.timeZoneLabel : timeZoneLabel(tz)}</span>
         </div>
-        <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-        <div className="st-chip-row" role="group" aria-label="Accounts shown">
-          <button type="button" className="st-chip" aria-pressed={scope === 'project'} onClick={() => setScope('project')}>
-            This account
-          </button>
-          <button type="button" className="st-chip" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
-            All accounts
-          </button>
-        </div>
-        <div className="row-wrap" style={{ gap: 6 }} role="group" aria-label="Change week">
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
-            ← Previous
-          </button>
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" aria-pressed={weekStart === startOfWeek(today)} onClick={() => setWeekStart(startOfWeek(today))}>
-            This week
-          </button>
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setWeekStart(addDays(weekStart, 7))}>
-            Next →
-          </button>
-        </div>
+        <div className="cal-controls">
+          <ChipRow label={t('calendar.accounts')}>
+            <Chip selected={scope === 'project'} onClick={() => setScope('project')}>
+              {t('calendar.thisAccount')}
+            </Chip>
+            <Chip
+              selected={scope === 'all'}
+              onClick={() => {
+                setScope('all');
+                setPicked(null);
+              }}
+            >
+              {t('calendar.allAccounts')}
+            </Chip>
+          </ChipRow>
+          <div className="cal-weeknav" role="group" aria-label={t('calendar.changeWeek')}>
+            <IconButton aria-label={t('calendar.previous')} icon={PrevIcon} onClick={() => setPicked(addDays(weekStart, -7))} />
+            <Button level="secondary" dense aria-pressed={weekStart === startOfWeek(today)} onClick={() => setPicked(null)}>
+              {t('calendar.thisWeek')}
+            </Button>
+            <IconButton aria-label={t('calendar.next')} icon={NextIcon} onClick={() => setPicked(addDays(weekStart, 7))} />
+          </div>
         </div>
       </div>
 
-      {changes.map((c) => (
-        <div key={c.date} className="cal2-dst st-small">
-          <strong>Clock change this week.</strong> {describeDstChange(c)} Posts keep their local time.
+      {campaign ? (
+        <div className="u-row u-gap-2">
+          <ChipRow label={t('calendar.filter')}>
+            <Chip selected onClick={clearCampaign}>
+              {campaignName ? t('calendar.campaignChip', { name: campaignName }) : t('calendar.campaignChipUnnamed')}
+            </Chip>
+          </ChipRow>
+          <Button level="tertiary" dense onClick={clearCampaign}>
+            {t('calendar.clear')}
+          </Button>
         </div>
+      ) : null}
+
+      {changes.slice(0, 1).map((c) => (
+        <p key={c.date} className="cal2-dst st-small" role="note">
+          {clockChangeText(c)}
+        </p>
       ))}
 
-      {cal.error ? (
-        <p className="real-error st-small" role="alert">
-          {cal.error}{' '}
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => void cal.reload()}>
-            Try again
-          </button>
-        </p>
-      ) : null}
+      {cal.error ? <Notice kind="error" title={t('calendar.couldNotLoad')} details={cal.error} onRetry={() => void cal.reload()} /> : null}
       {!cal.data && cal.error ? null : !cal.data ? (
-        <div className="st-card ld-card" role="status" aria-busy="true" aria-label="Loading the calendar">
-          <span className="st-vh">Loading the calendar…</span>
+        <div className="st-card ld-card" role="status" aria-busy="true" aria-label={t('calendar.loading')}>
           <div className="ld-cal">
             {Array.from({ length: 8 }, (_, i) => (
               <Skeleton key={`h${i}`} h={14} w={i === 0 ? '70%' : '55%'} />
             ))}
             {Array.from({ length: 16 }, (_, i) => (
-              <Skeleton key={`c${i}`} h={i % 8 === 0 ? 36 : 84} r={10} style={{ opacity: i % 3 === 1 ? 1 : 0.55 }} />
+              <Skeleton key={`c${i}`} h={i % 8 === 0 ? 36 : 84} r={10} />
             ))}
           </div>
         </div>
       ) : (
         <>
           <div className="cal2-scroll">
-            <div className="cal2-grid" style={{ gridTemplateColumns: `170px repeat(7, minmax(120px, 1fr))` }} role="table" aria-label={`Week of ${formatWeekRange(weekStart)}`}>
+            <div className="cal2-grid cal2-week" role="table" aria-label={t('calendar.week', { range: formatWeekRange(weekStart) })}>
               <div className="cal2-corner" role="columnheader">
-                Account
+                {t('calendar.account')}
               </div>
               {days.map((d) => (
                 <div key={d} className={`cal2-head ${d === today ? 'today' : ''}`} role="columnheader" aria-current={d === today ? 'date' : undefined}>
-                  {formatDateLabel(d)}
-                  {d === today ? <span className="cal2-todaydot">Today</span> : null}
+                  <span data-content>{formatDateLabel(d)}</span>
+                  {d === today ? <span className="cal2-todaydot">{t('calendar.today')}</span> : null}
                 </div>
               ))}
               {projects.map((p) => (
-                <div key={p.id} role="row" style={{ display: 'contents' }}>
+                <div key={p.id} role="row" className="cal2-row">
                   <div className="cal2-account" role="rowheader">
-                    <span style={{ fontWeight: 600 }}>{p.name}</span>
-                    <span className="xs st-muted">{p.handle}</span>
+                    <span className="cal2-account-name" data-content>
+                      {p.name}
+                    </span>
+                    <span className="xs st-muted" data-content>
+                      {p.handle}
+                    </span>
+                    {scope === 'all' && projectTimeZone(p.timeZone) !== tz ? (
+                      <span className="xs st-muted" data-content>
+                        {projectTimeZone(p.timeZone)}
+                      </span>
+                    ) : null}
                   </div>
                   {days.map((d) => {
                     const items = cell(p.id, d);
@@ -292,7 +365,7 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
                         }}
                       >
                         {items.map(chip)}
-                        {items.filter((i) => i.kind !== 'unplanned').length > 1 ? <span className="cal2-warn">More than one post this day</span> : null}
+                        {items.filter((i) => i.kind !== 'unplanned').length > 1 ? <span className="cal2-warn">{t('calendar.twoPosts')}</span> : null}
                       </div>
                     );
                   })}
@@ -301,36 +374,36 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
             </div>
           </div>
 
-          <div className="st-card st-stack" style={{ padding: 16, gap: 10 }}>
-            <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-              <span className="label">Not planned yet</span>
-              <span className="xs st-muted">Drag onto a day</span>
-            </div>
-            {cal.data.unplanned.length ? (
+          <section className="st-card st-stack cal-tray" aria-label={t('calendar.notPlanned')}>
+            <span className="label">{t('calendar.notPlanned')}</span>
+            {shownUnplanned.length ? (
               <div className="cal2-tray">
-                {cal.data.unplanned.map((i) => (
-                  <div key={key(i)} className="st-stack" style={{ gap: 4 }}>
-                    {scope === 'all' ? <span className="xs st-muted">{projects.find((p) => p.id === i.project)?.handle}</span> : null}
+                {shownUnplanned.map((i) => (
+                  <div key={key(i)} className="st-stack cal-tray-item">
+                    {scope === 'all' ? (
+                      <span className="xs st-muted" data-content>
+                        {projects.find((p) => p.id === i.project)?.handle}
+                      </span>
+                    ) : null}
                     {chip(i)}
                   </div>
                 ))}
               </div>
             ) : (
-              <span className="st-small st-muted">Everything is planned.</span>
+              <span className="st-small st-muted">{t('calendar.allPlanned')}</span>
             )}
-          </div>
+          </section>
 
           {/* Mobile list */}
           <div className="cal2-list">
             {days.map((d) => {
-              const items = (cal.data?.items ?? []).filter((i) => i.when && zonedParts(i.when).date === d);
+              const items = shownItems.filter((i) => i.when && partsIn(tz, i.when).date === d);
               return (
-                <section key={d} className="st-stack" style={{ gap: 6 }} aria-label={formatDateLabel(d, true)}>
-                  <span style={{ fontWeight: 600 }}>
+                <section key={d} className="st-stack cal-list-day" aria-label={formatDateLabel(d, true)}>
+                  <span className="cal-list-date" data-content>
                     {formatDateLabel(d)}
-                    {d === today ? <span className="st-muted"> · today</span> : null}
                   </span>
-                  {items.length ? items.map(chip) : <span className="xs st-muted">Nothing planned</span>}
+                  {items.length ? items.map(chip) : <span className="xs st-muted">{t('calendar.nothingPlanned')}</span>}
                 </section>
               );
             })}
@@ -341,6 +414,8 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
       {open ? (
         <PlanDrawer
           item={open}
+          tz={zoneOf(open.project)}
+          showZone={scope === 'all' && zoneOf(open.project) !== tz}
           handle={projects.find((p) => p.id === open.project)?.handle ?? ''}
           onClose={() => setOpen(null)}
           confirm={confirmBox.confirm}
@@ -361,114 +436,139 @@ export function Calendar({ say, onOpenPosts }: { say: (t: string) => void; onOpe
   );
 }
 
-function PlanDrawer({ item, handle, confirm, onClose, onSaved, onReview }: { item: CalItem; handle: string; confirm: (m: string) => Promise<boolean>; onClose: () => void; onSaved: (m: string) => Promise<void>; onReview: () => void }) {
-  const p = item.when ? zonedParts(item.when) : null;
-  const [date, setDate] = useState(p?.date ?? todayInZone());
+/** The days the drawer offers, from today in the project's zone (en-GB labels, never a US date picker). */
+function dayOptions(tz: string, current: string | null): string[] {
+  const first = todayIn(tz);
+  const out = Array.from({ length: DAYS_AHEAD }, (_, i) => addDays(first, i));
+  if (current && current > out.at(-1)!) out.push(current);
+  return out;
+}
+
+function PlanDrawer({ item, tz, showZone, handle, confirm, onClose, onSaved, onReview }: { item: CalItem; tz: string; showZone: boolean; handle: string; confirm: ConfirmFn; onClose: () => void; onSaved: (m: string) => Promise<void>; onReview: () => void }) {
+  const p = item.when ? partsIn(tz, item.when) : null;
+  const first = todayIn(tz);
+  const [date, setDate] = useState(p && p.date >= first ? p.date : first);
   const [time, setTime] = useState(p?.time ?? DEFAULT_TIME);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const locked = LOCKED.includes(item.status);
   const scheduled = item.status === 'scheduled';
-  useScrollLock();
-  useEffect(() => {
-    // Escape inside the confirm box only closes the box (it stops the event before it gets here).
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+  const timeOk = TIME_RE.test(time);
+  const dirty = !locked && (date !== (p?.date ?? first) || time !== (p?.time ?? DEFAULT_TIME));
 
   const save = async (clear: boolean) => {
     setErr('');
     let iso: string | null = null;
     if (!clear) {
-      const r = zonedToUtc(date, time);
+      if (!timeOk) {
+        setErr(t('calendar.timeError'));
+        return;
+      }
+      const r = wallToUtcIn(tz, date, time);
       if (!r.ok) {
         setErr(r.message);
         return;
       }
       iso = r.iso;
     }
-    // A real schedule goes out at its time: moving or cancelling it asks first.
-    if (scheduled && !(await confirm(clear ? cancelScheduleQuestion(item) : moveScheduleQuestion(item, date, time)))) return;
+    const when = iso ? formatWhenIn(tz, iso) : '';
+    // A real schedule goes out at its time: moving or unscheduling it asks first.
+    if (scheduled && !(await confirm(clear ? unscheduleRequest(item, tz) : moveScheduleRequest(item, when)))) return;
     setBusy(true);
     try {
       await plan(item, iso);
-      await onSaved(
-        scheduled
-          ? clear
-            ? `Schedule for post ${item.id} cancelled. It stays approved and planned, and will not go out by itself.`
-            : `Schedule for post ${item.id} moved to ${formatDateLabel(date)}, ${time}`
-          : clear
-            ? `Post ${item.id} is no longer planned`
-            : `Post ${item.id} planned for ${formatDateLabel(date)}, ${time}`,
-      );
+      await onSaved(scheduled ? (clear ? t('calendar.unscheduled', { id: item.id }) : t('calendar.moved', { id: item.id, when })) : clear ? t('calendar.unplanned', { id: item.id }) : t('calendar.planned', { id: item.id, when }));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  const late = overdue(item);
 
-  // Portal to the Studio root: animated screens create their own containing block for position: fixed.
-  const host = typeof document !== 'undefined' ? document.querySelector('.studio') : null;
-  const node = (
-    <div className="proj-overlay" role="dialog" aria-modal="true" aria-label={`Post ${item.id}`}>
-      <div className="proj-panel st-stack" style={{ gap: 14, width: 'min(440px, 100%)' }}>
-        <div className="row-wrap" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontWeight: 600, fontSize: 17 }}>Post {item.id}</span>
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={onClose}>
-            Close
-          </button>
-        </div>
+  return (
+    <Drawer
+      open
+      title={t('post.title', { id: item.id })}
+      status={<Pill status={statusWord(item)} />}
+      dirty={dirty && !busy}
+      onClose={onClose}
+      primary={
+        locked ? null : (
+          <Button level="primary" busy={busy} disabled={busy} reason={t('post.busyReason')} onClick={() => void save(false)}>
+            {t('calendar.save')}
+          </Button>
+        )
+      }
+      secondary={
+        <>
+          {!locked && item.when ? (
+            <Button level="secondary" disabled={busy} reason={t('post.busyReason')} onClick={() => void save(true)}>
+              {scheduled ? t('calendar.unschedule') : t('calendar.unplan')}
+            </Button>
+          ) : null}
+          <Button level="tertiary" onClick={onReview}>
+            {t('calendar.openInPosts')}
+          </Button>
+        </>
+      }
+    >
+      <div className="st-stack cal-drawer">
         {item.thumb ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img className="cal2-preview" src={item.thumb} alt="" />
         ) : null}
-        <span style={{ fontWeight: 600 }}>{item.title}</span>
-        <span className="st-small st-muted">
-          {handle} · {statusText(item)}
+        <span className="cal-drawer-title" data-content>
+          {item.title}
         </span>
-        {overdue(item) ? (
-          <p className="real-outcome st-small real-uncertain" role="status">
-            <strong>{OVERDUE_TEXT}</strong> A planned time is not a schedule: nothing was posted. Open it in Posts to post or schedule it, or pick a new time here.
+        <span className="st-small st-muted" data-content>
+          {handle}
+        </span>
+        {late ? (
+          <p className="st-small cal-late" role="status">
+            {OVERDUE_TEXT}
           </p>
         ) : null}
         {locked ? (
           <span className="st-small">
-            {item.kind === 'posted' ? `Posted ${formatDateLabel(zonedParts(item.when!).date)} at ${formatTime(item.when)}.` : 'Being sent; its time can’t change.'}{' '}
+            {item.kind === 'posted' && item.when ? t('calendar.lockedPosted', { when: formatWhenIn(tz, item.when) }) : t('calendar.lockedSending')}{' '}
             {item.url ? (
               <a className="real-link" href={item.url} target="_blank" rel="noreferrer">
-                View on Instagram
+                {t('post.viewLive')}
               </a>
             ) : null}
           </span>
         ) : (
           <>
-            <div className="row-wrap" style={{ gap: 10 }}>
+            <div className="cal-fields">
               <label className="wiz-field">
-                Day
-                <input className="st-input" type="date" value={date} min={todayInZone()} onChange={(e) => setDate(e.target.value)} />
+                {t('calendar.day')}
+                <select className="st-input" value={date} onChange={(e) => setDate(e.target.value)} data-content>
+                  {dayOptions(tz, date).map((d) => (
+                    <option key={d} value={d}>
+                      {formatDateLabel(d)}
+                      {d.slice(0, 4) === first.slice(0, 4) ? '' : ` ${d.slice(0, 4)}`}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="wiz-field">
-                Time ({TIMEZONE})
-                <input className="st-input" type="time" value={time} step={300} onChange={(e) => setTime(e.target.value)} />
+                {t('calendar.time')}
+                <input
+                  className="st-input"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="18:00"
+                  maxLength={5}
+                  value={time}
+                  aria-invalid={!timeOk || undefined}
+                  onChange={(e) => setTime(e.target.value.trim())}
+                />
               </label>
             </div>
-            <span className="xs st-muted">
-              {scheduled
-                ? 'This post is scheduled: it goes out at this time. A new time moves the real schedule; Cancel schedule stops it going out (it stays approved and planned).'
-                : 'Planning doesn’t post: you still approve it on Posts.'}
-            </span>
-            <div className="row-wrap" style={{ gap: 8 }}>
-              <button type="button" className="st-btn st-btn-primary st-btn-sm" disabled={busy} onClick={() => void save(false)}>
-                {scheduled ? 'Move schedule' : item.when ? 'Save time' : 'Plan'}
-              </button>
-              {item.when ? (
-                <button type="button" className="st-btn st-btn-ghost st-btn-sm" disabled={busy} onClick={() => void save(true)}>
-                  {scheduled ? 'Cancel schedule' : 'Remove from calendar'}
-                </button>
-              ) : null}
-            </div>
+            {showZone ? <span className="xs st-muted">{timeZoneLabel(tz)}</span> : null}
+            <span className="xs st-muted">{scheduled ? t('calendar.scheduledLine') : t('calendar.plannedOnly')}</span>
           </>
         )}
         {err ? (
@@ -476,13 +576,7 @@ function PlanDrawer({ item, handle, confirm, onClose, onSaved, onReview }: { ite
             {err}
           </p>
         ) : null}
-        <div>
-          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={onReview}>
-            Open in Posts
-          </button>
-        </div>
       </div>
-    </div>
+    </Drawer>
   );
-  return host ? createPortal(node, host) : node;
 }

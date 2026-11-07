@@ -40,6 +40,11 @@ export const en = {
   'drawer.discardBody': 'Your edits are not saved.',
   'drawer.discardConfirm': 'Discard changes',
 
+  // Long task progress
+  'task.usuallySeconds': 'Usually about {seconds} s.',
+  'task.usuallyMinutes': 'Usually about {minutes} min.',
+  'task.slow': 'Taking longer than usual. It is still working; you can leave this screen open.',
+
   // Toast
   'toast.undo': 'Undo',
 
@@ -57,6 +62,9 @@ export const en = {
 
   // ---- Work group: Today, Posts with Gallery, Calendar.
   // Today
+  'today.block.title': 'Connect {service}',
+  'today.block.line': '{count, plural, one {Post {id} is planned for {when}.} other {# posts planned, first {when}.}}',
+  'today.block.open': 'Open {service} in Connections',
   'today.needsYou': 'Needs you',
   'today.nothing': 'Nothing needs you.',
   'today.seeAll': 'See all in Posts',
@@ -110,6 +118,25 @@ export const en = {
   'posts.slot.notMade': 'Not made yet',
   'posts.slot.make': 'Make',
   'posts.slot.making': 'Making',
+
+  // Posts: why a move on the board is refused, and the toast when a two-step move stopped halfway
+  'posts.refuse.movedOnItsOwn': 'Post {id} moved on its own. The board was refreshed.',
+  'posts.refuse.posted': 'Post {id} is already posted. Take it down on Instagram.',
+  'posts.refuse.rejected': 'Post {id} stays rejected. Make a new post.',
+  'posts.refuse.sending': 'Post {id} is sending. Check its status first.',
+  'posts.refuse.approved': 'Post {id} is approved. Reject it to stop it.',
+  'posts.refuse.failed': 'Post {id} failed. Open it to check its status.',
+  'posts.refuse.scheduled': 'Post {id} is scheduled. Unschedule it first.',
+  'posts.partial.approved': 'Post {id} was approved',
+  'posts.partial.unscheduled': 'The schedule for post {id} was cancelled',
+  'posts.partial.updated': 'Post {id} was updated',
+  'posts.partial.notScheduled': 'not scheduled',
+  'posts.partial.notPosted': 'not posted',
+  'posts.partial.notRecorded': 'not recorded as posted',
+  'posts.partial.notRejected': 'not rejected',
+  'posts.partial.notFinished': 'not finished',
+  'posts.partial.withError': '{did}, but {not}: {error}',
+  'posts.partial.noError': '{did}, but {not}.',
 
   // Posts: drawer, 60 words
   'post.title': 'Post {id}',
@@ -224,16 +251,21 @@ export const en = {
   'calendar.unscheduleBody': 'It stays approved and planned for {when}.',
   'calendar.unscheduleConfirm': 'Unschedule post',
   'calendar.couldNotPlan': 'Could not plan the post.',
+  'calendar.filter': 'Filter',
+  'calendar.campaignChip': 'Campaign: {name}',
+  'calendar.campaignChipUnnamed': 'This campaign',
+  'calendar.clear': 'Clear',
 
   // Make a post (header drawer until Post maker, ships)
   'make.title': 'Make a post',
   'make.format': 'Post format',
-  'make.format.auto': 'Next in rotation',
   'make.codexOff': 'Codex images are off for this account.',
+  'make.higgsfieldOff': 'Higgsfield is off.',
   'make.noFormat': 'No post format is ready for this project yet.',
   'make.intro.brief': 'Describe the image. Codex draws it; Signal adds the headline and labels.',
   'make.intro.website': "Two slides from your website's next page. Import it in Brand first.",
-  'make.intro.levels': 'Made from a category and its item art in your levels.',
+  'make.intro.hfImage': 'Describe the image. Higgsfield makes it, paid per request.',
+  'make.intro.hfReel': 'Describe the first frame. Higgsfield animates a 5-second Reel, paid per request.',
   'make.prompt': 'What should the image show?',
   'make.promptExample': 'For example: a quiet street at dusk, soft light, photo style',
   'make.promptShort': 'Describe the image in a few words first.',
@@ -244,10 +276,6 @@ export const en = {
   'make.submit': 'Make it',
   'make.making': 'Making',
   'make.progress': 'Making the post',
-  'make.step.category': 'Choosing a category',
-  'make.step.items': 'Picking the item art',
-  'make.step.frames': 'Rendering frames',
-  'make.step.encode': 'Encoding the video',
   'make.step.prompt': 'Writing the image prompt',
   'make.step.drawing': 'Codex is drawing the image',
   'make.step.text': 'Adding text and labels',
@@ -255,7 +283,26 @@ export const en = {
   'make.step.photo': 'Fetching the photo',
   'make.step.slides': 'Rendering slides',
   'make.step.save': 'Saving the post',
+  'make.step.brief': 'Reading the brief',
+  'make.step.visual': 'Making the visual',
+  'make.step.hfImage': 'Higgsfield is making the image',
+  'make.step.hfStill': 'Higgsfield is making the still',
+  'make.step.animate': 'Animating the video',
+  'make.step.convert': 'Converting for Instagram',
+  'make.step.headline': 'Adding headline and labels',
   'make.couldNotMake': 'Could not make the post.',
+
+  // Autopilot mark on a post (Posts drawer)
+  'autopilot.mark.badge': 'Made by autopilot',
+  'autopilot.mark.autoApproved': 'Auto-approved ({count} in a row).',
+  'autopilot.mark.publishes': 'Publishes {when} unless you pull it.',
+  'autopilot.mark.notScheduled': 'Not scheduled yet: it will not go out until it is.',
+  'autopilot.mark.approvedAt': 'Approved automatically {when}.',
+  'autopilot.mark.pull': 'Pull this post',
+  'autopilot.mark.pullTitle': 'Pull post {id}?',
+  'autopilot.mark.pullBody': 'Its schedule is cancelled and the post is rejected. Nothing goes out.',
+  'autopilot.mark.pullConfirm': 'Pull post',
+  'autopilot.mark.pulled': 'Post {id} pulled. It will not go out.',
 
   // Persian content block
   'fa.mock': 'Mock',

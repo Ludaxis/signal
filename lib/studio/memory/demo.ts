@@ -326,7 +326,7 @@ function buildRuns(project: string): AgentRunRecord[] {
   ];
 }
 
-export function demoPayload(project: { id: string; name: string; handle: string }): MemoryPayload {
+export function demoPayload(project: { id: string; name: string; handle: string; timeZone?: string }): MemoryPayload {
   const events = buildEvents(project.id, EVENTS);
   const nodes = buildNodes(events);
   const learnings = buildLearnings();

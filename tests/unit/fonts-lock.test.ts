@@ -1,6 +1,7 @@
-// The bundled core faces: every file matches its pinned sha256, each face has its OFL licence beside it, and each
-// face's provenance is either its project's official GitHub release or an installed npm package (package name,
-// version and the sha256 of the file inside it).
+// The bundled core faces: every file matches its pinned sha256, each face has its OFL licence beside it, each face's
+// provenance is either its project's official GitHub release or an installed npm package (package name, version and
+// the sha256 of the file inside it), and the Studio stylesheet loads exactly the locked Persian files (the Studio UI
+// loads Instrument Sans through the @fontsource package import instead).
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -89,5 +90,13 @@ describe('fonts.lock.json', () => {
       .map((e) => join(e.parentPath, e.name).slice(fonts.length + 1))
       .sort();
     expect(onDisk).toEqual(lock.fonts.flatMap((f) => f.files.map((x) => x.path)).sort());
+  });
+
+  it('fonts.css declares one @font-face per locked Persian face, pointing at the locked file', () => {
+    const css = readFileSync(join(web, 'app', 'studio', 'fonts.css'), 'utf8');
+    for (const font of lock.fonts.filter((f) => f.role !== 'latin')) {
+      const file = font.files.find((f) => f.path.endsWith('.woff2'))!;
+      expect(css).toMatch(new RegExp(`font-family: '${font.family}';\\s*src: url\\('/fonts/${file.path.replace(/[.]/g, '\\.')}'\\) format\\('woff2'\\);`));
+    }
   });
 });

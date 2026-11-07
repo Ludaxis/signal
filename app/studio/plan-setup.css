@@ -1,0 +1,84 @@
+/* Plan, Learn and Setup tabs: Campaigns, Brand, Results, Comments, Memory, Connections.
+   Tokens only, logical properties only. No font or font-family rule here: Persian content
+   takes its face from the :lang(fa) block at the end of ui/ui.css, which must stay the last word on fonts. */
+
+/* ---- layout helpers used by these screens instead of inline styles ---- */
+.studio .u-stack { display: flex; flex-direction: column; }
+.studio .u-row { display: flex; flex-wrap: wrap; align-items: center; }
+.studio .u-between { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.studio .u-gap-1 { gap: var(--space-1); }
+.studio .u-gap-2 { gap: var(--space-2); }
+.studio .u-gap-3 { gap: var(--space-3); }
+.studio .u-gap-4 { gap: var(--space-4); }
+.studio .u-gap-5 { gap: var(--space-5); }
+.studio .u-m0 { margin: 0; }
+.studio .u-pt-2 { padding-block-start: var(--space-2); }
+.studio .u-normal { font-weight: 400; }
+.studio .u-fill { flex: 1 1 200px; min-inline-size: 0; }
+.studio .u-wrap { overflow-wrap: anywhere; }
+
+/* ---- Campaigns ---- */
+.studio .camp-card { gap: var(--space-3); }
+.studio .camp-card .camp-name { font-size: var(--t-h3); }
+.studio .camp-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); color: var(--graphite); }
+.studio .camp-line { overflow-wrap: anywhere; }
+.studio .camp-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.studio .camp-section { display: flex; flex-direction: column; gap: var(--space-2); border-block-start: 1px solid var(--rule-soft); padding-block-start: var(--space-3); }
+.studio .camp-slot-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 220px; min-inline-size: 0; }
+.studio .camp-slot-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.studio .camp-template { color: var(--graphite); }
+.studio .camp-bar { inline-size: var(--w, 0%); }
+.studio .camp-research { margin: var(--space-2) 0 0; padding-inline-start: var(--space-5); }
+.studio .camp-activity-head { display: flex; align-items: center; gap: var(--space-2); }
+
+/* ---- Brand ---- */
+.studio .brand-card { gap: var(--space-3); }
+.studio .brand-font-row { display: grid; grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); gap: var(--space-1) var(--space-3); align-items: baseline; padding-block: var(--space-2); border-block-end: 1px solid var(--rule-soft); }
+.studio .brand-font-row:last-child { border-block-end: 0; }
+.studio .brand-font-name { font-size: var(--t-sm); color: var(--graphite); }
+.studio .brand-font-face { font-size: var(--t-sm); font-weight: 600; }
+.studio .brand-font-preview-wrap { grid-column: 2; min-inline-size: 0; }
+.studio .brand-font-row > .brand-font-preview { grid-column: 2; }
+.studio .brand-font-preview { margin: 0; font-size: var(--t-lg); line-height: var(--t-lg-lh); overflow-wrap: anywhere; }
+.studio .brand-font-preview.is-display { font-size: var(--t-h2); line-height: var(--t-h2-lh); }
+.studio .brand-voice-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.studio .brand-voice-lang { min-inline-size: 96px; font-size: var(--t-sm); color: var(--graphite); }
+.studio .brand-colour-name { font-weight: 600; font-size: var(--t-sm); }
+.studio .brand-swatch { background: var(--swatch, transparent); }
+.studio .brand-preview { background: linear-gradient(170deg, var(--from, var(--brand)), var(--to, var(--brand-ink))); }
+.studio .brand-lex-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.studio .brand-lex-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding-block: var(--space-2); border-block-end: 1px solid var(--rule-soft); }
+
+/* ---- Results ---- */
+.studio .res-best-time { font-size: var(--t-h2); }
+.studio .res-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-inline-size: 0; }
+.studio .res-title { font-weight: 600; }
+
+/* ---- Comments ---- */
+.studio .ig-comment-text { margin: 2px 0 var(--space-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.studio .ig-comment-depth-1 { margin-inline-start: 22px; }
+.studio .ig-comment-depth-2 { margin-inline-start: 44px; }
+.studio .ig-comment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio .ig-post { gap: var(--space-3); }
+
+/* ---- Memory ---- */
+.studio .mem-lead { margin: 0; }
+.studio .mem-example { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); background: var(--amber-soft); color: var(--amber-ink); font-size: var(--t-sm); font-weight: 600; }
+.studio .mem-conf > i { inline-size: var(--v, 0%); }
+.studio .mem-conf > b { inset-inline-start: var(--at, 0%); }
+
+/* ---- Connections ---- */
+.studio .cx-group { display: flex; flex-direction: column; gap: var(--space-2); }
+.studio .cx-group-title { margin: 0; font-size: var(--t-sm); font-weight: 600; color: var(--graphite); }
+.studio .cx-rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-md); }
+.studio .cx-rows > li + li { border-block-start: 1px solid var(--rule-soft); }
+.studio .cx-rows .row { padding-block: var(--space-3); padding-inline: var(--space-4); }
+.studio .cx-row-name { all: unset; cursor: pointer; font-size: var(--t-md); font-weight: 600; color: var(--ink); }
+.studio .cx-row-name:hover { text-decoration: underline; }
+.studio .cx-row-name:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 2px; border-radius: var(--radius-sm, 4px); }
+.studio .cx-line-amber { color: var(--amber-ink); font-weight: 600; }
+.studio .cx-row-target { box-shadow: 0 0 0 2px var(--brand-ink); border-radius: var(--radius-md); }
+.studio .cx-drawer-block { display: flex; flex-direction: column; gap: var(--space-2); padding-block: var(--space-3); border-block-end: 1px solid var(--rule-soft); }
+.studio .cx-drawer-block:last-child { border-block-end: 0; }
+.studio .cx-switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.studio .cx-more > .more-body { gap: var(--space-5); padding-top: var(--space-2); }
