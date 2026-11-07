@@ -25,7 +25,8 @@ export interface MediaTask {
 
 export interface StillTask {
   kind: 'still';
-  composition: 'StorySpine';
+  /** CharacterTest: the cut-out character test composition (goldens and pivot checks only). */
+  composition: 'StorySpine' | 'CharacterTest';
   props: Record<string, unknown>;
   out: string;
   frame: number;

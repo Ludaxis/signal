@@ -12,11 +12,12 @@ import type { FakeConfig } from '@/lib/studio/postmaker/executors/fakes';
 import { saveDetectedText, addReferenceFile, referenceSource } from '@/lib/studio/postmaker/references';
 import type { RenderChain } from '@/lib/studio/postmaker/render/renderer';
 import type { Deconstruct, ServiceProject } from '@/lib/studio/postmaker/service';
-import { readRun } from '@/lib/studio/postmaker/store/runs';
+import { readEvents, readRun } from '@/lib/studio/postmaker/store/runs';
 import type { Lang, Recipe, Run } from '@/lib/studio/postmaker/types';
 import type { RenderChainDeps } from '@/lib/studio/postmaker/executors/render-chain';
 import { serviceExecutors } from '@/lib/studio/postmaker/wiring';
 import { PostmakerError } from '@/lib/studio/postmaker/errors';
+import { loadProjectPack } from '@/lib/studio/postmaker/pack/load';
 
 export const WEB = path.resolve(__dirname, '../../..');
 export const FIXTURES = path.join(WEB, 'tests/fixtures/postmaker');
@@ -50,7 +51,7 @@ export async function fixtureBuilders(): Promise<Builders> {
 /** A project whose content folder sits in `dir` and whose pack is the built fixture pack. */
 export const sliceProject = (dir: string, packDir: string): ServiceProject => ({ id: 'example-project', handle: '@example', contentDir: path.join(dir, 'posts'), timeZone: 'Asia/Tehran', pack: { dir: packDir } });
 
-/** Drops the reference file through the same upload path the API uses (`addReferenceFile`). */
+/** Drops the reference file through the same upload path the API uses. */
 export async function uploadReference(root: string, project: ServiceProject, file: string, now?: number) {
   const body = Readable.toWeb(createReadStream(file)) as unknown as ReadableStream<Uint8Array>;
   return addReferenceFile(root, project, body, { by: 'slice@example.test', rights: 'own', ...(now ? { now } : {}) });
@@ -81,9 +82,14 @@ export function sliceVoice(fixture: SliceFixture = sliceFixture()) {
   return { fn, scale };
 }
 
-/** The service registry (script and post-copy in mock mode, check, render chain) with the slice voice. */
-export function sliceExecutors(o: { root: string; render: RenderChain; fakes: FakeConfig; renderDeps?: Omit<Partial<RenderChainDeps>, 'chain'> }) {
-  return serviceExecutors({ root: o.root, render: o.render, claudeCli: null, fakes: o.fakes, renderDeps: o.renderDeps });
+/**
+ * The service registry (script and post-copy in mock mode, check, render chain) with the slice
+ * voice. With the project, the creative chain runs on its pack as the service wires it (art, motion, music,
+ * SFX, and compose drawing the characters and backgrounds).
+ */
+export function sliceExecutors(o: { root: string; render: RenderChain; fakes: FakeConfig; renderDeps?: Omit<Partial<RenderChainDeps>, 'chain'>; project?: ServiceProject }) {
+  const project = o.project;
+  return serviceExecutors({ root: o.root, render: o.render, claudeCli: null, fakes: o.fakes, renderDeps: o.renderDeps, ...(project ? { loadPack: () => loadProjectPack(project, o.root) } : {}) });
 }
 
 /** Polls the run until it stops (done, needs-you, failed, stopped) and, when done, until it waits at Proof. */
@@ -93,8 +99,11 @@ export async function waitForRun(root: string, runId: string, o: { timeoutMs?: n
     const r = await readRun(root, runId);
     if (r && r.status !== 'running' && r.status !== 'queued') {
       const atProofNext = r.status === 'done' && !r.packageIds.length && r.steps.some((x) => x.nodeId === 'check' && x.status === 'done');
-      // markAtProof runs after the run settles: a done run whose check ran moves to needs-you · check
-      if (!(o.proof ?? true) || !atProofNext) return r;
+      // markAtProof runs after the run settles: a done run whose check ran moves to needs-you · check, and the status
+      // turns needs-you just before the Proof gate event is appended, so a run at Proof also waits for that event.
+      const atProof = r.status === 'needs-you' && r.pausedFor === 'check';
+      const gateWritten = !atProof || (await readEvents(root, runId)).events.at(-1)?.kind === 'gate.waiting';
+      if (!(o.proof ?? true) || (!atProofNext && gateWritten)) return r;
     }
     if (Date.now() > end) throw new Error(`run ${runId} did not stop in time (${r?.status}/${r?.pausedFor})`);
     await new Promise((res) => setTimeout(res, 20));

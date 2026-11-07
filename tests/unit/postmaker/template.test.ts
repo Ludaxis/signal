@@ -13,7 +13,7 @@ import { segmentBounds } from '@/lib/studio/postmaker/render/presets';
 
 const FILE = path.resolve(__dirname, '../../fixtures/postmaker/pack-example/templates/pov-story-spine.json');
 const raw = () => JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, unknown> & { segments: Record<string, unknown>[] };
-const tpl = (): PackTemplate => parseTemplate(raw(), { fileId: 'pov-story-spine', packLanguages: ['fa', 'en'], characterIds: ['char-lead', 'char-elder'] });
+const tpl = (): PackTemplate => parseTemplate(raw(), { fileId: 'pov-story-spine', packLanguages: ['fa', 'en'], characterIds: ['char-lead', 'char-elder', 'char-cutout'] });
 const variant = (id: string) => tpl().variants!.find((v) => v.id === id)!;
 
 const code = (fn: () => unknown, c: string) => {

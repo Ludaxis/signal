@@ -3,9 +3,8 @@
 // byte count, typed by magic bytes, never by name or Content-Type), probed in this process, and kept under
 // `postmaker/uploads/<up-…>/` (content folder, outside the repository) until an edit uses it. Accepted: MP4/MOV video
 // ≤ 500 MB and ≤ 300 s, PNG/JPG/WebP images ≤ 20 MB, WAV sound ≤ 100 MB. The edit checks the port type (an image port
-// takes an image, and so on) and stores the bytes as an object; nothing is ever deleted here (deletion is gated).
-// The route takes the same raw body (or a small multipart form) as the reference route; which one the API keeps is
-// the Product Lead's open ruling (raw body vs multipart).
+// takes an image, and so on) and stores the bytes as an object; nothing is ever deleted here.
+// The route takes the same raw body (or a small multipart form) as the reference route.
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';

@@ -20,7 +20,7 @@
     { "id": "reveal", "share": 0.08, "minSec": 2, "shot": "card", "require": ["brandRevealLetters", "confetti"], "music": "hit" },
     { "id": "endcard", "share": 0.11, "minSec": 6, "maxSec": 9, "shot": "card", "require": ["appIcon", "tagline", "cta", "idles"], "music": "resolve" }
   ],
-  "cast": { "lead": "char-lead", "foil": "char-elder" },
+  "cast": { "lead": "char-cutout", "foil": "char-elder" },
   "styles": { "caption": "plate-highlight", "palette": "pack", "cardPalette": ["primary", "accent", "secondary", "background-dark"] },
   "options": { "storyboard": false, "draftPreview": false },
   "variants": [

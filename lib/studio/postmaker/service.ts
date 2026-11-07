@@ -28,9 +28,11 @@ import type { LlmRequest, LlmResult } from './connectors/cli';
 import { resolveFonts } from './render/fonts';
 import { defaultRenderChain, type RenderChain } from './render/renderer';
 import { serviceExecutors } from './wiring';
+import { approveAsset, makeRequestedAsset, packNames, rejectAsset } from './executors/art-assets';
 import { campaignSlotHolder, recipeStillMaking, recordCampaignSlot, SLOT_TAKEN_TEXT } from './repeat-state';
 import { buildPipeline, facesOf, type BuildOptions } from './graph/build';
-import { LOCAL_CONNECTORS } from './graph/kinds';
+import { LOCAL_CONNECTORS, ROLE_CAP_USD } from './graph/kinds';
+import { release, reserve, settle } from './store/ledger';
 import { deriveStatus } from './graph/status';
 import { edgesOf, validatePipeline } from './graph/validate';
 import { loadProjectPack } from './pack/load';
@@ -62,8 +64,10 @@ export interface DeconstructInput {
   reference: Reference;
   options: { languages: Recipe['languages']; lengthSec: number; shape: Recipe['shape']; campaignId?: string | null; capUsd?: number; stopAfterRecipe?: boolean };
   project: ServiceProject;
-  /* * `recipe.regenerate-beat`: the beat read again and the person's note (untrusted data for the agent). */
+  /** `recipe.regenerate-beat`: the beat read again and the person's note (untrusted data for the agent). */
   beat?: { id: string; note: string | null };
+  /** Told how the reference was read (a live deconstructor call and its cost, or the free mock read). */
+  onRead?: (r: { mode: 'live' | 'mock'; costUsd: number | null }) => void;
 }
 /** Turns a reference into a recipe draft (the `analyse` step; deconstructor replaces the mock default). */
 export type Deconstruct = (i: DeconstructInput) => Promise<Omit<RecipeDraft, 'projectId' | 'referenceId'>>;
@@ -84,6 +88,8 @@ export interface ServiceDeps {
   analyseTools?: AnalyseTools;
   /** What every template can make; default the core builder's limits. */
   templateLimits?: TemplateLimits;
+  /** Tests: whether the deconstructor runs live for Regenerate beat (default: the claude-cli connector's decision). */
+  deconstructLive?: boolean;
 }
 
 type G = typeof globalThis & { __signalPostmakerServiceDeps?: ServiceDeps };
@@ -131,7 +137,7 @@ export async function engineFor(project: ServiceProject, o: { attended?: boolean
   const engine = new PostmakerEngine({
     root,
     project: { id: project.id, timeZone: project.timeZone },
-    executors: d.executors ?? serviceExecutors({ root, render, billing: await agentBilling(), pack: policy }),
+    executors: d.executors ?? serviceExecutors({ root, render, billing: await agentBilling(), pack: policy, loadPack: () => loadProjectPack(project, root) }),
     // Ruling 8: with the real render chain, the free adapters rebuild captions and the timeline with builders.
     ...(render ? { adapterFonts: () => resolveFonts().fonts } : {}),
     ...(policy?.claims ? { pack: { claims: policy.claims } } : {}),
@@ -192,7 +198,10 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
   return async (input) => {
     const { reference, options } = input;
     const src = reference.kind === 'video' ? referenceSource(o.root, reference) : null;
-    if (!src) return mockDeconstruct(input);
+    if (!src) {
+      input.onRead?.({ mode: 'mock', costUsd: 0 });
+      return mockDeconstruct(input);
+    }
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'signal-pm-analyse-'));
     try {
       const userNotes = input.beat?.note ? [input.beat.note] : undefined;
@@ -207,7 +216,11 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
           note = VISION_FALLBACK_NOTE;
         }
       }
-      r ??= await read('mock');
+      if (r) input.onRead?.({ mode: 'live', costUsd: r.costUsd });
+      else {
+        r = await read('mock');
+        input.onRead?.({ mode: 'mock', costUsd: 0 });
+      }
       await saveDetectedText(o.root, reference.id, r.detectedText, Date.now(), note);
       return { campaignId: options.campaignId ?? null, packId: null, languages: options.languages, lengthSec: options.lengthSec, shape: options.shape, fps: 30, capUsd: options.capUsd ?? 0, ...recipeFields(r), stopAfterRecipe: options.stopAfterRecipe ?? false };
     } finally {
@@ -216,9 +229,41 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
   };
 }
 
+/** Whether the deconstructor would run live now (the claude-cli connector's attended decision). */
+async function deconstructorLive(): Promise<boolean> {
+  const cli = connectorById('claude-cli') as RegisteredConnector<LlmRequest, LlmResult> | null;
+  return cli ? (await connectorAllowed(cli, { attended: true })).live : false;
+}
+
+/**
+ * A live deconstructor read behind Regenerate beat goes through the run ledger like every paid call: the
+ * deconstructor's role cap is reserved against the project's day ceiling and the connector's own day cap before the
+ * read; afterwards the real cost is settled (unknown: the reserve), a read that fell back to the free mock releases it,
+ * and a failed read counts at the reserve. The mock read stays $0 and unledgered.
+ */
+async function ledgeredBeatRead<T>(root: string, project: ServiceProject, recipe: Recipe, beatId: string, live: boolean, read: (onRead: NonNullable<DeconstructInput['onRead']>) => Promise<T>): Promise<T> {
+  if (!live) return read(() => {});
+  const d = deps();
+  const usd = ROLE_CAP_USD.analyse ?? 2;
+  const runId = `beat-${recipe.id}-${beatId}-${randomBytes(3).toString('hex')}`;
+  const r = await reserve(root, { project: { id: project.id, timeZone: project.timeZone }, runId, nodeId: 'analyse', connector: 'claude-cli', usd, runCapUsd: usd, ...(d.dayCeilingUsd !== undefined ? { dayCeilingUsd: d.dayCeilingUsd } : {}), connectorDayCapUsd: (await (d.connectorDayCapUsd ?? connectorDayCap)('claude-cli')) ?? null, now: d.now?.() });
+  if (!r.ok) throw new PostmakerError(409, 'day-ceiling', r.limit === 'connector-day' ? 'Claude has reached its daily limit. Try again tomorrow.' : 'The daily limit is reached. Try again tomorrow.');
+  let seen: { mode: 'live' | 'mock'; costUsd: number | null } | null = null;
+  try {
+    const out = await read((x) => (seen = x));
+    const s = seen as { mode: 'live' | 'mock'; costUsd: number | null } | null;
+    if (s?.mode === 'mock') await release(root, r.id);
+    else await settle(root, r.id, { usd: typeof s?.costUsd === 'number' ? s.costUsd : 0, known: typeof s?.costUsd === 'number', note: 'regenerate beat' });
+    return out;
+  } catch (e) {
+    await settle(root, r.id, { usd: 0, known: false, note: 'regenerate beat failed' }).catch(() => undefined);
+    throw e;
+  }
+}
+
 async function defaultDeconstruct(root: string): Promise<Deconstruct> {
   const cli = connectorById('claude-cli') as RegisteredConnector<LlmRequest, LlmResult> | null;
-  const live = cli ? (await connectorAllowed(cli, { attended: true })).live : false;
+  const live = await deconstructorLive();
   const call = cli ? connectorCall(cli, { runId: 'postmaker', nodeId: 'analyse', workDir: os.tmpdir(), onEvent: () => {}, idempotencyKey: `pm-${randomBytes(6).toString('hex')}`, deps: {} }) : null;
   return analyseDeconstruct({ root, live, vision: connectorCanSee(cli), call, tools: deps().analyseTools });
 }
@@ -588,7 +633,9 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
       if (!cur.beats.some((b) => b.id === a.beatId)) throw new PostmakerError(404, 'not_found', 'Unknown beat.');
       const reference = await readReference(root, cur.referenceId);
       const options = { languages: cur.languages, lengthSec: cur.lengthSec, shape: cur.shape, stopAfterRecipe: true };
-      const fresh = await (deps().deconstruct ?? (await defaultDeconstruct(root)))({ reference, options, project, beat: { id: a.beatId, note: a.note ?? null } });
+      const live = deps().deconstructLive ?? (await deconstructorLive());
+      const deconstruct = deps().deconstruct ?? (await defaultDeconstruct(root));
+      const fresh = await ledgeredBeatRead(root, project, cur, a.beatId, live, (onRead) => deconstruct({ reference, options, project, beat: { id: a.beatId, note: a.note ?? null }, onRead }));
       const beats = mergeBeat(cur.beats, fresh.beats, a.beatId, cur.languages);
       const changed = JSON.stringify(beats) !== JSON.stringify(cur.beats);
       const { schema: _s, id: _i, version: _v, ...rest } = cur;
@@ -676,6 +723,15 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
       const st = (await engine.status(a.recipeId))[a.nodeId];
       return ok({ signoff, gate: st?.gate ?? null });
     }
+    case 'asset.make': {
+      // A request from the app is a person's press (attended); the daily run never reaches this action.
+      const pack = await loadProjectPack(project, root).catch(() => null);
+      return ok(await makeRequestedAsset(root, a.requestId, { attended: true, by, holder: project.id, names: await packNames(pack), now: deps().now }));
+    }
+    case 'asset.approve':
+      return ok({ asset: await approveAsset(root, { assetId: a.assetId, name: a.name, by, allowedUses: a.allowedUses }) });
+    case 'asset.reject':
+      return ok({ asset: await rejectAsset(root, { assetId: a.assetId, name: a.name, by }) });
     case 'note.add': {
       const run = await readRun(root, a.runId);
       if (!run) throw new PostmakerError(404, 'not_found', 'Unknown run.');

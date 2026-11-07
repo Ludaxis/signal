@@ -30,6 +30,11 @@ export interface ExecInput {
   previous: { version: StepVersion; data: Record<string, unknown> } | null;
   /** Contract violations from the last take ("Line l03 must be …"), appended to the context on a retry. */
   violations: string[];
+  /**
+   * keep-contracts only: the contract values the current dependents were made from (by key), which the new output
+   * must keep (`totalFrames` while compose is current). Absent on a run and in allow-breaks.
+   */
+  keep?: Contract | null;
   take: number;
   context: ContextBundle | null;
   runId: string;

@@ -25,6 +25,8 @@ import { getBytes, getJson } from '../store/objects';
 import { readVersion } from '../store/versions';
 import type { CheckResult, Lang, PreviewStrip, ReviewerPath, RoutesDoc, RubricSheet, SignOff, StepCheck, StepVersion } from '../types';
 import { runDeterministic, type CheckSubject, type DeterministicReport } from '../checks/deterministic';
+import type { CharacterPresence } from '../checks/tierCeiling';
+import type { LoudnessReport } from '../render/loudness';
 import type { LabelFrame } from '../checks/aiLabel';
 import type { FontUse } from '../checks/fonts';
 import type { LoudnessMeasure } from '../checks/loudness';
@@ -34,6 +36,7 @@ import { routesFor } from '../checks/routes';
 import type { LayoutFrame, Reserve } from '../checks/safeZoneReport';
 import { checkAnswerApplicability, draftSheet } from '../checks/sheet';
 import type { ExecInput, ExecResult, Executor } from './types';
+import { isMotionStepDoc } from './motion';
 
 /** The Post maker reviewer's envelope on `check`, read from the one role registry. */
 export function reviewerEnvelope(): { title: string; model: 'opus' | 'sonnet' | 'haiku'; maxBudgetUsd: number; maxTurns: number; tools: readonly string[] } {
@@ -218,6 +221,24 @@ async function jsonPort<T>(root: string, v: StepVersion | undefined, port: strin
 
 const AI_KINDS = new Set(['voice', 'lipsync', 'broll']);
 
+/** On-screen frames per character of the compiled motion, with its rig tier (ceiling). */
+export function presenceOf(doc: { compiled: { characters: { charId: string; from: number; to: number }[] }; world: { rigs: Record<string, { tier?: string }> } }): CharacterPresence[] {
+  const frames = new Map<string, number>();
+  for (const c of doc.compiled.characters) frames.set(c.charId, (frames.get(c.charId) ?? 0) + Math.max(0, c.to - c.from));
+  return [...frames].sort(([a], [b]) => (a < b ? -1 : 1)).map(([id, onScreenFrames]) => ({ id, tier: (doc.world.rigs[id]?.tier ?? 'B') as CharacterPresence['tier'], onScreenFrames }));
+}
+
+/** The mix version's audio checks the row cites: narration over the bed and the SFX cues. */
+export function mixAudioOf(v: StepVersion | undefined, lang: Lang): CheckSubject['audio'] {
+  if (!v) return null;
+  const pick = (suffix: string) => v.checks.find((c) => c.id === `mix:${lang}:${suffix}`) ?? null;
+  const bed = pick('narration-bed');
+  const sfx = pick('sfx');
+  const dropped = pick('sfx-dropped');
+  if (!bed && !sfx) return null;
+  return { narrationBed: bed ? { ok: bed.ok, text: bed.text } : null, sfx: sfx ? { ok: sfx.ok, text: sfx.text, dropped: dropped?.text ?? null } : null };
+}
+
 /** One subject per `video:<lang>` input, read from the lineage of that render (every upstream version, by hash). */
 export async function gatherFromStore(root: string, i: ExecInput, deps: CheckDeps = {}): Promise<CheckSubject[]> {
   const out: CheckSubject[] = [];
@@ -234,6 +255,12 @@ export async function gatherFromStore(root: string, i: ExecInput, deps: CheckDep
     const postCopy = (capIn?.data as PostCopyDoc | null) ?? null;
     const meta = await jsonPort<{ aiGenerated?: boolean }>(root, at('post-copy'), 'meta');
     const measured = await jsonPort<RenderMeasurements>(root, u.version, 'measurements');
+    const motionDoc = await jsonPort<unknown>(root, at('motion'), 'motion');
+    const scenes = await jsonPort<{ aiGenerated?: boolean }>(root, at('art'), 'scenes');
+    const mixLoudness = await jsonPort<LoudnessReport>(root, at('mix'), 'loudness');
+    // Who is on screen and for how long, with the pack rig tier (the ceiling, quality bar)
+    const characters = isMotionStepDoc(motionDoc) ? { list: presenceOf(motionDoc) } : null;
+    const motion = isMotionStepDoc(motionDoc) ? { characters: motionDoc.compiled.characters, clipFrames: Object.fromEntries(Object.entries(motionDoc.world.rigs).map(([c, r]) => [c, r.clipFrames])) } : null;
     // The strip comes from compose:<lang>; a render that carries its own wins; the fixture strip is the last resort.
     const preview = (await jsonPort<PreviewStrip>(root, u.version, 'preview')) ?? (await jsonPort<PreviewStrip>(root, at('compose'), 'preview')) ?? (deps.strip ? await deps.strip(lang, i) : null);
     const videoRef = u.refs.find((r) => r.kind === 'video');
@@ -269,7 +296,8 @@ export async function gatherFromStore(root: string, i: ExecInput, deps: CheckDep
       signoffs.push(...v.signoffs);
       if (deps.signoffs) signoffs.push(...(await deps.signoffs(i.recipe.id, v.nodeId)));
     }
-    const aiUsed = [...lin.values()].some((v) => AI_KINDS.has(kindOf(v.nodeId)) || (kindOf(v.nodeId) === 'art' && v.provenance.connector !== null && /codex|higgsfield/.test(v.provenance.connector)));
+    // Follow-up: an AI-generated asset the scene plan puts on screen (scenes.aiGenerated) needs the label too
+    const aiUsed = scenes?.aiGenerated === true || [...lin.values()].some((v) => AI_KINDS.has(kindOf(v.nodeId)) || (kindOf(v.nodeId) === 'art' && v.provenance.connector !== null && /codex|higgsfield/.test(v.provenance.connector)));
     const reserves = deps.reserves ? deps.reserves({ width, height }) : [];
 
     out.push({
@@ -277,7 +305,7 @@ export async function gatherFromStore(root: string, i: ExecInput, deps: CheckDep
       medium: 'video',
       fps,
       frames: { video: videoRef?.meta?.frames ?? null, timeline: timeline?.durationInFrames ?? null, master: master?.meta?.frames ?? null },
-      loudness: measured?.loudness ?? (typeof master?.meta?.lufs === 'number' ? { i: master.meta.lufs, tp: null, lra: null } : null),
+      loudness: measured?.loudness ?? (mixLoudness ? { i: mixLoudness.master.integratedLufs, tp: mixLoudness.master.truePeakDbtp, lra: mixLoudness.master.lraLu ?? null } : typeof master?.meta?.lufs === 'number' ? { i: master.meta.lufs, tp: null, lra: null } : null),
       layout: measured?.layout && reserves.length ? { frames: measured.layout, reserves, cutFrames: measured.cutFrames ?? timeline?.layers.slice(1).map((l) => l.from) ?? [] } : null,
       captions: alignment && pages ? { alignment, pages } : null,
       aiLabel: measured?.aiLabel ? { totalFrames: videoRef?.meta?.frames ?? timeline?.durationInFrames ?? 0, frames: measured.aiLabel, metaFlag: typeof meta?.aiGenerated === 'boolean' ? meta.aiGenerated : null, aiUsed } : null,
@@ -285,8 +313,10 @@ export async function gatherFromStore(root: string, i: ExecInput, deps: CheckDep
       fonts: measured?.fonts && deps.fonts ? { used: measured.fonts, allowed: deps.fonts } : null,
       pacing,
       luminance: measured?.luminance ?? null,
-      characters: null,
+      characters,
       lipsync: null,
+      audio: mixAudioOf(at('mix'), lang),
+      motion,
       langLint: nt ? { errors: nt.checks.filter((c) => c.required && !c.ok).length, ruleIds: [...new Set(nt.checks.filter((c) => c.required && !c.ok).map((c) => c.id.split(':')[3] ?? c.id))] } : null,
       signoffs,
       hashes,

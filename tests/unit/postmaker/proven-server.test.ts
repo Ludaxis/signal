@@ -39,7 +39,7 @@ async function untilAtProof(runId: string): Promise<Run> {
   throw new Error('the run did not reach Proof');
 }
 
-describe('(server): an accepted stub-Premium proof is a Proven template card on Home', () => {
+describe('Proven on the server: an accepted stub-Premium proof is a Proven template card on Home', () => {
   it('Home lists it Proven with its card: steps of the snapshot, the proof run cost and time, languages, length, shape', { timeout: 30_000 }, async () => {
     const s = await cleanRun({ verdict: 'premium', langs: ['en'] });
     const r = await acceptProof({ engine: s.engine, root: tmp.root, project: postsProject(), runId: s.run.id, asDraft: false, templateName: 'Story spine', by: ACTOR.email });
@@ -66,7 +66,7 @@ describe('(server): an accepted stub-Premium proof is a Proven template card on 
   });
 });
 
-describe('(server): Make a post and Run proof on a variant', () => {
+describe('Proven on the server: Make a post and Run proof on a variant', () => {
   it('Make a post runs with trigger "make-a-post"; Run proof on a variant makes a run with that variantId', { timeout: 60_000 }, async () => {
     const s = await cleanRun({ verdict: 'premium', langs: ['en'] });
     const r = await acceptProof({ engine: s.engine, root: tmp.root, project: postsProject(), runId: s.run.id, asDraft: false, templateName: 'Story spine', by: ACTOR.email });

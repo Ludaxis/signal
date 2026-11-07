@@ -178,6 +178,9 @@ export const PostmakerActionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('run.raise-cap'), runId, capUsd: usd }),
   z.strictObject({ action: z.literal('gate.sign-off'), ...stepRef, version, gate: gateId, name: z.string().min(1).max(80), verdict: z.enum(['pass', 'fail']), perLine: perLine.optional() }),
   z.strictObject({ action: z.literal('note.add'), runId, atSec: z.number().finite().min(0).max(300), box: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)]).optional(), text: z.string().min(1).max(1000), nodeId: nodeId.optional() }),
+  z.strictObject({ action: z.literal('asset.make'), requestId: z.string().regex(/^ar-[0-9a-f]{12}$/) }),
+  z.strictObject({ action: z.literal('asset.approve'), assetId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/), name: z.string().min(1).max(80), allowedUses: z.array(z.enum(['organic', 'paid-ads', 'store-listing'])).min(1).max(3).optional() }),
+  z.strictObject({ action: z.literal('asset.reject'), assetId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/), name: z.string().min(1).max(80) }),
   z.strictObject({ action: z.literal('proof.accept'), runId, asDraft: z.boolean(), templateName: z.string().trim().min(1).max(TEMPLATE_NAME_MAX) }),
   z.strictObject({ action: z.literal('proof.score'), runId, lang, scores: z.array(z.strictObject({ criterion: z.enum(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12']), score: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]), note: z.string().trim().min(1).max(140) })).min(1).max(12) }),
   z

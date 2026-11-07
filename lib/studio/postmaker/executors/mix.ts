@@ -6,7 +6,13 @@
 // The narration-versus-bed delta (quality automated check, ≥ 8 dB) is measured at 3 sampled lines: ffmpeg
 // ebur128 over the line's middle 3 s of the voice stem and of the music stem, each at its planned gain; without
 // ffmpeg (or on the fake renderer) the planned delta is reported instead.
+// With `sfx` deps the mix also carries the SFX stem (executors/sfx.ts: cues from the script requests the music
+// document carries and the timeline's gesture and sticker events, resolved to pack `sfx` assets by tag, a missing
+// asset dropped with a warning, stem peaks ≤ −6 dBFS) and writes it as `sfx.<lang>.wav`. When the music step is the
+// Executor, the mix also checks the licence record, every chant cut against the conformed grid (±2 frames) and
+// that no lip-sync vendor audio reaches the master (quality automated checks).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { clickTrackWav, sineWav } from '../connectors/mock/audio';
 import { loudnormArgs, parseLoudnorm } from '../connectors/local';
@@ -14,8 +20,12 @@ import type { MixPlanDoc } from '../graph/adapters';
 import { normalise, parseEbur128, run, type LoudnessReport } from '../render/loudness';
 import { dbAt, lineWindow, MIX_TARGETS, planMix, plannedNarrationDelta, sampleVoice, type MixPlan, type NarrationDelta } from '../render/mixPlan';
 import { isFullTimeline, type Timeline } from '../render/timeline';
+import { offGridCuts } from '../render/conform';
+import type { Pcm } from '../render/pcm';
 import type { ArtifactRef, StepCheck } from '../types';
+import { isMusicDoc, type MusicDoc } from './music';
 import { lineIdOf, mediaRefs, spawnOf, renderChainDeps, workDirOf, type RenderChainDeps } from './render-chain';
+import { buildSfxStem, decodeSfx, resolveCues, sfxCueList, type SfxDeps } from './sfx';
 import type { ExecInput, Executor } from './types';
 
 const isWav = (b: Buffer | null | undefined): b is Buffer => Boolean(b && b.length > 44 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WAVE');
@@ -122,8 +132,9 @@ export async function narrationDeltas(d: RenderChainDeps, plan: MixPlan, files: 
 }
 
 /** The whole mix: stems → plan → AudioMaster render → two-pass loudnorm → loudness report. */
-export async function mixTimeline(d: RenderChainDeps, i: Pick<ExecInput, 'inputs' | 'signal'>, t: Timeline, dir: string, tag: string): Promise<MixResult> {
+export async function mixTimeline(d: RenderChainDeps, i: Pick<ExecInput, 'inputs' | 'signal'>, t: Timeline, dir: string, tag: string, extra: { sfx?: { file: string; peakDbfs: number } | null } = {}): Promise<MixResult> {
   const { files, synthesised } = await stageStems(d, i, t, dir);
+  const sfx = extra.sfx ?? null;
   const pub = (f: string) => `jobs/${tag}/${path.basename(f)}`;
   const voice = await Promise.all(files.voice.map(async (v) => ({ id: v.id, lineId: v.lineId, src: pub(v.file), from: v.from, frames: v.frames, measuredLufs: await lufsOf(d, v.file) })));
   const musicLufs = files.music ? await lufsOf(d, files.music) : null;
@@ -132,11 +143,12 @@ export async function mixTimeline(d: RenderChainDeps, i: Pick<ExecInput, 'inputs
     segments: t.segments,
     voice,
     music: files.music ? { src: pub(files.music), measuredLufs: musicLufs } : null,
+    sfx: sfx ? [{ id: 'sfx-stem', src: pub(sfx.file), from: 0, frames: t.durationInFrames, peakDbfs: Number.isFinite(sfx.peakDbfs) ? sfx.peakDbfs : null }] : [],
   });
   const raw = path.join(dir, 'master.raw.wav');
   const s = Date.now();
   await d.chain.run([{ kind: 'media', composition: 'AudioMaster', props: { plan }, out: raw, codec: 'wav' }], {
-    publicFiles: [...files.voice.map((v) => ({ from: v.file, to: pub(v.file) })), ...(files.music ? [{ from: files.music, to: pub(files.music) }] : [])],
+    publicFiles: [...files.voice.map((v) => ({ from: v.file, to: pub(v.file) })), ...(files.music ? [{ from: files.music, to: pub(files.music) }] : []), ...(sfx ? [{ from: sfx.file, to: pub(sfx.file) }] : [])],
     workDir: dir,
     signal: i.signal,
   });
@@ -149,21 +161,111 @@ export async function mixTimeline(d: RenderChainDeps, i: Pick<ExecInput, 'inputs
   return { plan, master, loudness, rawMasterMs, synthesised, narration };
 }
 
-export function mixExecutor(dIn: Partial<RenderChainDeps> = {}): Executor {
+/** The music document behind the `track` input (read from the music version's `beatGrid` output), or null. */
+export async function musicDocOf(d: RenderChainDeps, i: Pick<ExecInput, 'inputs'>): Promise<MusicDoc | null> {
+  const u = i.inputs.find((x) => x.port === 'track');
+  const ref = u?.version.outputs.find((o) => o.port === 'beatGrid' && o.kind === 'json');
+  if (!ref || !d.readObject) return null;
+  try {
+    const doc = JSON.parse((await d.readObject(ref.sha256)).toString('utf8')) as unknown;
+    return isMusicDoc(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Chant card cuts of a composed timeline (frames). */
+export const chantCuts = (t: Pick<Timeline, 'elements' | 'segments'>): number[] => {
+  const chant = t.segments.filter((s) => s.segment === 'chant');
+  return t.elements.filter((e) => e.kind === 'card' && chant.some((s) => e.from >= s.from - 2 && e.from < s.to)).map((e) => e.from);
+};
+
+/** The conformed grid's beat onsets (ms) from the music document. */
+export const musicOnsetsMs = (m: Pick<MusicDoc, 'grid'>): number[] => {
+  const out: number[] = [];
+  for (let t = m.grid.firstOnsetMs; t < m.grid.lengthMs + 1; t += m.grid.beatMs) out.push(t);
+  return out;
+};
+
+/** Quality checks that read the music document: licence, chant cuts on the conformed grid, no vendor audio. */
+export function musicChecks(lang: string, t: Pick<Timeline, 'elements' | 'segments'>, m: MusicDoc | null, inputs: Pick<ExecInput, 'inputs'>['inputs']): StepCheck[] {
+  const out: StepCheck[] = [];
+  // Lip-sync vendor clips carry the vendor's audio: the mix takes the voice stems only (quality).
+  const vendor = inputs.filter((u) => u.nodeId.startsWith('lipsync'));
+  out.push({ id: `mix:${lang}:vendor-audio`, ok: vendor.length === 0, required: true, text: vendor.length ? 'Lip-sync vendor audio reached the mix.' : 'No lip-sync vendor audio in the mix.' });
+  if (!m) return out;
+  // A real track (library or upload) is checked in every mode; a mock lineage only shows it (mock never posts).
+  if (m.track.assetId) out.push({ id: `mix:${lang}:licence`, ok: m.track.licenceComplete, required: !m.mock, text: m.track.licenceComplete ? 'Music licence record complete.' : 'The music licence record is incomplete.' });
+  const cuts = chantCuts(t);
+  if (cuts.length && m.source !== 'none') {
+    const off = offGridCuts(cuts, musicOnsetsMs(m));
+    out.push({
+      id: `mix:${lang}:downbeats`,
+      ok: off.length === 0,
+      required: true,
+      text: off.length ? `${off.length} chant ${off.length === 1 ? 'cut is' : 'cuts are'} off the music's beat (first at frame ${off[0]!.frame}, ${off[0]!.offFrames} frames)` : `All ${cuts.length} chant cuts sit on the music's beat (±2 frames)`,
+      evidence: cuts.join(', '),
+    });
+  }
+  return out;
+}
+
+export function mixExecutor(dIn: Partial<RenderChainDeps> = {}, o: { sfx?: SfxDeps } = {}): Executor {
   const d = renderChainDeps(dIn);
   return {
     kind: 'mix',
-    implVersion: 'mix@3',
-    deterministic: true,
+    implVersion: o.sfx ? 'mix@4' : 'mix@3',
+    deterministic: !o.sfx?.call,
     estimate: () => ({ usdLow: 0, usdHigh: 0, seconds: 30, basis: 'On this computer', verified: true }),
     async run(i) {
       const lang = i.lang!;
       const t = i.byPort.timeline as Timeline | MixPlanDoc;
       if (!isFullTimeline(t)) throw new Error('mix needs a composed timeline (compose:<lang> first)');
       const dir = workDirOf(d, i);
-      const r = await mixTimeline(d, i, t, dir, `${i.runId}-${i.node.id}`.replace(/[^a-z0-9-]/gi, '-'));
+      const music = await musicDocOf(d, i);
       const checks: StepCheck[] = [];
-      // integration: a mock or stand-in master (a click track has no bed, so a music-only mock mix cannot reach
+      let costUsd: number | null = 0;
+      let model: string | null = null;
+      let stem: { file: string; peakDbfs: number; bytes: Buffer; cues: number } | null = null;
+      if (o.sfx) {
+        const library = await o.sfx.library(i);
+        if (library) {
+          const available = [...new Set(library.flatMap((s) => (s.asset.kind === 'sfx' ? s.asset.tags : [])))];
+          const cl = await sfxCueList(i, t, music?.sfxRequests ?? [], o.sfx.call, available);
+          costUsd = cl.costUsd;
+          model = cl.model;
+          if (cl.note) checks.push(cl.note);
+          const { placed, dropped } = resolveCues(cl.list, library, { final: i.params.final === true, use: i.params.use === 'paid-ads' || i.params.use === 'store-listing' ? i.params.use : 'organic' });
+          const audio = new Map<string, Pcm>();
+          for (const id of new Set(placed.map((p) => p.assetId))) {
+            const a = library.find((s) => s.asset.id === id)!;
+            const bytes = await readFile(a.file).catch(() => null);
+            const pcm = bytes ? await decodeSfx(bytes, a.file, { ffmpeg: d.ffmpeg, workDir: dir, signal: i.signal }) : null;
+            if (pcm) audio.set(id, pcm);
+          }
+          const unread = placed.filter((p) => !audio.has(p.assetId));
+          const built = buildSfxStem(placed.filter((p) => audio.has(p.assetId)), audio, t.durationInFrames);
+          const file = path.join(dir, 'sfx.wav');
+          writeFileSync(file, built.wav);
+          stem = { file, peakDbfs: built.peakDbfs, bytes: built.wav, cues: built.clips.length };
+          const ceiling = MIX_TARGETS.sfxPeakDbfs;
+          checks.push({
+            id: `mix:${lang}:sfx`,
+            ok: !Number.isFinite(built.peakDbfs) || built.peakDbfs <= ceiling + 1e-6,
+            required: true,
+            text: built.clips.length ? `SFX: ${built.clips.length} cues, stem peak ${built.peakDbfs.toFixed(1)} dBFS (at most ${ceiling})` : 'No SFX cues in this version.',
+            evidence: built.clips.map((c) => `${c.cue}@${c.frame}`).join(', ') || undefined,
+          });
+          const lost = [...dropped.map((x) => `${x.cue}@${x.frame}`), ...unread.map((x) => `${x.cue}@${x.frame}`)];
+          if (lost.length) {
+            const text = `Dropped ${lost.length} SFX ${lost.length === 1 ? 'cue' : 'cues'} with no sound in the library: ${[...new Set([...dropped, ...unread].map((x) => x.cue))].join(', ')}`;
+            checks.push({ id: `mix:${lang}:sfx-dropped`, ok: false, required: false, text, evidence: lost.join(', ') });
+            o.sfx.onWarning?.(text, i);
+          }
+        }
+      }
+      const r = await mixTimeline(d, i, t, dir, `${i.runId}-${i.node.id}`.replace(/[^a-z0-9-]/gi, '-'), { sfx: stem });
+      // Integration: a mock or stand-in master (a click track has no bed, so a music-only mock mix cannot reach
       // -14 LUFS under the true-peak ceiling) is still measured and shown, but does not stop the run: mock output only
       // accepts as draft and never posts. A live mix without stand-ins keeps the loudness gate.
       const standIn = i.mode === 'mock' || r.synthesised.length > 0;
@@ -180,18 +282,20 @@ export function mixExecutor(dIn: Partial<RenderChainDeps> = {}): Executor {
           evidence: n.lines.map((x) => `${x.lineId} @${x.frame}: ${x.deltaDb.toFixed(1)} dB`).join('; '),
         });
       }
+      if (o.sfx || music) checks.push(...musicChecks(lang, t, music, i.inputs));
       if (r.synthesised.length) checks.push({ id: `mix:${lang}:synthesised`, ok: true, required: false, text: `Stand-in audio for: ${r.synthesised.join(', ')}` });
       return {
         outputs: [
           { port: 'mixPlan', name: `mix.${lang}.json`, kind: 'json', mime: 'application/json', lang, data: r.plan },
           { port: 'master', name: `master.${lang}.wav`, kind: 'audio', mime: 'audio/wav', lang, data: null, bytes: r.master, meta: { frames: t.durationInFrames, sampleRate: 48_000, ...(r.loudness ? { lufs: r.loudness.master.integratedLufs } : {}) } },
           ...(r.loudness ? [{ port: 'loudness', name: `loudness.${lang}.json`, kind: 'json' as const, mime: 'application/json', lang, data: r.loudness }] : []),
+          ...(stem ? [{ port: 'sfx', name: `sfx.${lang}.wav`, kind: 'audio' as const, mime: 'audio/wav', lang, data: null, bytes: stem.bytes, meta: { frames: t.durationInFrames, sampleRate: 48_000 } }] : []),
         ],
         provides: { totalFrames: t.durationInFrames },
         checks,
         status: checks.some((c) => c.required && !c.ok) ? 'needs-you' : 'ok',
-        costUsd: 0,
-        model: null,
+        costUsd,
+        model,
       };
     },
   };

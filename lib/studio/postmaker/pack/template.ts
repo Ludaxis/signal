@@ -229,7 +229,7 @@ export function scaleTemplate(t: PackTemplate, o: { totalSec: number; bpm?: numb
  */
 export const variantBpm = (t: Pick<PackTemplate, 'tempo'>, v?: Pick<TemplateVariant, 'bpm'> | null): number => v?.bpm ?? defaultBpm(t);
 
-/* * Scales a template for one of its variants: the variant's length, its BPM (`variantBpm`) and its overrides. */
+/** Scales a template for one of its variants: the variant's length, its BPM (`variantBpm`) and its overrides. */
 export function scaleVariant(t: PackTemplate, variantId: string): ScaledTemplate {
   const v = t.variants?.find((x) => x.id === variantId);
   if (!v) throw err('template.variant-unknown', `This template has no variant ${variantId}.`, 404);

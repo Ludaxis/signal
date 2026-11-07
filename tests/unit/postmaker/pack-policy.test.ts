@@ -13,6 +13,7 @@ import { readHead } from '@/lib/studio/postmaker/store/heads';
 import { getJson } from '@/lib/studio/postmaker/store/objects';
 import { readVersion } from '@/lib/studio/postmaker/store/versions';
 import { serviceExecutors } from '@/lib/studio/postmaker/wiring';
+import { mockScriptProposal } from '@/lib/studio/postmaker/executors/script';
 import { runAll, setup } from './engine-fixtures';
 import { writeFixturePack } from './fixtures';
 import { tmp } from './guard';
@@ -60,12 +61,19 @@ describe('serviceExecutors passes the pack policy (wiring.ts)', () => {
     await expect(withPack['post-copy'].run(input)).rejects.toThrow(/claim/);
   });
 
-  it('script uses the template tempo: the mock picks the middle of its range and its chant beats per card', async () => {
+  it('script uses the template tempo: the mock keeps the recipe BPM inside the range and the chant beats per card', async () => {
     const { engine, recipeId } = await setup({ langs: ['en'], deps: { executors: serviceExecutors({ root: tmp.root, render: null, claudeCli: null, pack: { ...pack, claims: { allowed: [], denied: [] } } }) } });
     await runAll(engine, recipeId);
     const h = await readHead(tmp.root, recipeId, 'script');
     const v = (await readVersion(tmp.root, recipeId, 'script', h.current!))!;
     const doc = await getJson<ScriptDoc>(tmp.root, v.outputs.find((o) => o.port === 'script')!.sha256);
-    expect(doc.tempo).toMatchObject({ bpm: 105, chantBeatsPerCard: 4 });
+    expect(doc.tempo).toMatchObject({ bpm: 100, chantBeatsPerCard: 4 });
+  });
+
+  it('a recipe BPM outside the template range: the mock picks the middle of the range', () => {
+    const recipe = { beats: [], languages: ['en'] as const, tempo: { bpm: 96, downbeatMs: 0 } };
+    expect(mockScriptProposal({ ...recipe, languages: ['en'] }, pack.tempo).tempo.bpm).toBe(105);
+    expect(mockScriptProposal({ ...recipe, languages: ['en'], tempo: { bpm: 108, downbeatMs: 0 } }, pack.tempo).tempo.bpm).toBe(108);
+    expect(mockScriptProposal({ ...recipe, languages: ['en'], tempo: null }, pack.tempo).tempo.bpm).toBe(105);
   });
 });

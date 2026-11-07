@@ -21,7 +21,9 @@ import { refDir, refFile } from '@/lib/studio/postmaker/store/paths';
 import { readRecipe } from '@/lib/studio/postmaker/store/recipes';
 import { readHead } from '@/lib/studio/postmaker/store/heads';
 import { readVersion } from '@/lib/studio/postmaker/store/versions';
-import type { Recipe } from '@/lib/studio/postmaker/types';
+import type { LedgerLine, Recipe } from '@/lib/studio/postmaker/types';
+import { readJsonLines } from '@/lib/studio/postmaker/store/fs';
+import { ledgerFile } from '@/lib/studio/postmaker/store/paths';
 import { postsProject, withPostsProject } from './accept-fixtures';
 import { BEATS, runAll, setup } from './engine-fixtures';
 import { tmp } from './guard';
@@ -145,5 +147,60 @@ describe('recipe.regenerate-beat', () => {
     expect(() => mergeBeat(BEATS, BEATS.slice(0, 2), 'b05', ['en'])).toThrow(/no beat at this place/);
     const out = mergeBeat(BEATS, BEATS, 'b02', ['en', 'fa']);
     out.forEach((b, i) => expect(b === BEATS[i] || b.id === 'b02').toBe(true)); // the others are the very objects
+  });
+
+  describe('a live read goes through the run ledger', () => {
+    const prep = async () => {
+      const fakes = { counters: newCounters() };
+      const s = await setup({ langs: ['en'], fakes });
+      mkdirSync(refDir(tmp.root, v1Ref), { recursive: true });
+      writeFileSync(refFile(tmp.root, v1Ref), JSON.stringify({ schema: 'signal.pm.reference/1', id: v1Ref, kind: 'page', file: null, sha256: '0'.repeat(64), url: 'https://example.com/', probe: null, rights: 'own', addedAt: '2026-11-06T10:00:00.000Z', addedBy: actor.email }));
+      return { s, fakes };
+    };
+    const lines = async () => (await readJsonLines<LedgerLine>(ledgerFile(tmp.root))).filter((l) => l.t !== 'reserve' || l.nodeId === 'analyse');
+    const reading = (report: { mode: 'live' | 'mock'; costUsd: number | null } | null, fail = false): Deconstruct => {
+      const base = freshReader([]);
+      return async (input) => {
+        if (fail) throw new Error('the read broke');
+        if (report) input.onRead?.(report);
+        return base(input);
+      };
+    };
+
+    it('reserves the deconstructor cap, then settles the real cost', async () => {
+      const { s, fakes } = await prep();
+      _setServiceDeps({ executors: defaultExecutors({ fakes }), deconstruct: reading({ mode: 'live', costUsd: 0.37 }), deconstructLive: true, connectorDayCapUsd: () => null, buildOptions: () => ({}) });
+      await handleAction(postsProject(), actor, { action: 'recipe.regenerate-beat', recipeId: s.recipeId, beatId: 'b02' });
+      const l = await lines();
+      expect(l.map((x) => x.t)).toEqual(['reserve', 'settle']);
+      expect(l[0]).toMatchObject({ t: 'reserve', nodeId: 'analyse', connector: 'claude-cli', usd: 2 });
+      expect(l[1]).toMatchObject({ t: 'settle', usd: 0.37, known: true });
+    });
+
+    it('a cost the read cannot report settles at the reserve; a failed read too; a mock fallback releases it', async () => {
+      const { s, fakes } = await prep();
+      _setServiceDeps({ executors: defaultExecutors({ fakes }), deconstruct: reading({ mode: 'live', costUsd: null }), deconstructLive: true, connectorDayCapUsd: () => null, buildOptions: () => ({}) });
+      await handleAction(postsProject(), actor, { action: 'recipe.regenerate-beat', recipeId: s.recipeId, beatId: 'b02' });
+      _setServiceDeps({ executors: defaultExecutors({ fakes }), deconstruct: reading(null, true), deconstructLive: true, connectorDayCapUsd: () => null, buildOptions: () => ({}) });
+      await expect(handleAction(postsProject(), actor, { action: 'recipe.regenerate-beat', recipeId: s.recipeId, beatId: 'b03' })).rejects.toThrow(/broke/);
+      _setServiceDeps({ executors: defaultExecutors({ fakes }), deconstruct: reading({ mode: 'mock', costUsd: 0 }), deconstructLive: true, connectorDayCapUsd: () => null, buildOptions: () => ({}) });
+      await handleAction(postsProject(), actor, { action: 'recipe.regenerate-beat', recipeId: s.recipeId, beatId: 'b04' });
+      const l = await lines();
+      expect(l.map((x) => x.t)).toEqual(['reserve', 'settle', 'reserve', 'settle', 'reserve', 'release']);
+      expect(l[1]).toMatchObject({ usd: 2, known: false });
+      expect(l[3]).toMatchObject({ usd: 2, known: false });
+    });
+
+    it('over the day ceiling the read is refused before it starts; the mock read is $0 and unledgered', async () => {
+      const { s, fakes } = await prep();
+      const seen: DeconstructInput[] = [];
+      _setServiceDeps({ executors: defaultExecutors({ fakes }), deconstruct: freshReader(seen), deconstructLive: true, dayCeilingUsd: 1, connectorDayCapUsd: () => null, buildOptions: () => ({}) });
+      await expect(handleAction(postsProject(), actor, { action: 'recipe.regenerate-beat', recipeId: s.recipeId, beatId: 'b02' })).rejects.toSatisfy((e: unknown) => isPostmakerError(e, 'day-ceiling'));
+      expect(seen).toHaveLength(0);
+      _setServiceDeps({ executors: defaultExecutors({ fakes }), deconstruct: freshReader(seen), deconstructLive: false, buildOptions: () => ({}) });
+      await handleAction(postsProject(), actor, { action: 'recipe.regenerate-beat', recipeId: s.recipeId, beatId: 'b02' });
+      expect(seen).toHaveLength(1);
+      expect(await lines()).toEqual([]);
+    });
   });
 });

@@ -238,7 +238,11 @@ export const scriptProvides = (s: ScriptDoc): Contract => ({ beatIds: s.beats.ma
 
 // ---- mock --------------------------------------------------------------------------------------------------------
 
-/** The mock proposal: the recipe's own beats and on-screen text as lines (one per text line), mid-range tempo. */
+/**
+ * The mock proposal: the recipe's own beats and on-screen text as lines (one per text line). The tempo is the
+ * recipe's (its template variant or the reference) when it lies in the template range, else mid-range (the
+ * composed grid, the music conform and the chant cards then share one BPM).
+ */
 /**
  * The CTA a mock script uses when the recipe's end card has no text (a reference read without its words). It must pass
  * that language's lint: a Latin word inside Persian copy is MX-1 and failed every mock Persian post-copy. Mock output
@@ -246,7 +250,12 @@ export const scriptProvides = (s: ScriptDoc): Contract => ({ beatIds: s.beats.ma
  */
 export const MOCK_CTA: Record<Lang, string> = { en: 'CTA', fa: 'نمونه' };
 
-export function mockScriptProposal(recipe: Pick<Recipe, 'beats' | 'languages'>, tempo: TemplateTempo): ScriptProposal {
+const recipeBpm = (t: Recipe['tempo'] | undefined, range: TemplateTempo): number | null => {
+  const bpm = t?.bpm;
+  return typeof bpm === 'number' && Number.isInteger(bpm) && bpm >= range.bpmRange[0] && bpm <= range.bpmRange[1] ? bpm : null;
+};
+
+export function mockScriptProposal(recipe: Pick<Recipe, 'beats' | 'languages'> & { tempo?: Recipe['tempo'] }, tempo: TemplateTempo): ScriptProposal {
   let n = 0;
   const lines: ScriptProposal['lines'] = [];
   for (const b of recipe.beats) {
@@ -275,7 +284,7 @@ export function mockScriptProposal(recipe: Pick<Recipe, 'beats' | 'languages'>, 
       speakerTag: null,
     })),
     lines,
-    tempo: { bpm: Math.round((tempo.bpmRange[0] + tempo.bpmRange[1]) / 2), chantBeatsPerCard: tempo.chantBeatsPerCard },
+    tempo: { bpm: recipeBpm(recipe.tempo, tempo) ?? Math.round((tempo.bpmRange[0] + tempo.bpmRange[1]) / 2), chantBeatsPerCard: tempo.chantBeatsPerCard },
     cta,
     contractNotes: [],
   };

@@ -37,7 +37,7 @@ export const enPostmaker = {
   'pm.home.draftName': 'Draft · {langs} · {length}',
   'pm.home.at': 'At {screen}',
 
-  // Move my pipelines (release 2). Row, dialog (≤ 30 words with
+  // Move my pipelines. Row, dialog (≤ 30 words with
   // its buttons), toasts (≤ 8 words). The dialog says: moved pipelines pause until Repeat is on; a backup
   // is kept and Undo restores it exactly; pipelines that make posts from a template stay as pipelines.
   'pm.move.line': 'Repeating posts now come from Proven.',
@@ -170,6 +170,13 @@ export const enPostmaker = {
   'pm.step.signed': 'Signed by {name}.',
   'pm.step.nameFirst': 'Type your full name first.',
   'pm.step.locked': 'Unlock to edit',
+  'pm.step.missing': 'Missing asset · Make with Codex',
+  'pm.step.missingKind.background': 'Background',
+  'pm.step.missingKind.prop': 'Prop',
+  'pm.step.missingKind.sticker': 'Sticker',
+  'pm.step.missingKind.ui': 'Phone frame',
+  'pm.step.makeCodex': 'Make with Codex',
+  'pm.step.assetMade': 'Made. Approve it before the final render.',
 
   // Regenerate dialog
   'pm.regen.title': 'Regenerate {step}?',

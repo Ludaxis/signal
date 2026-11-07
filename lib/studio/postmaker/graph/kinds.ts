@@ -38,7 +38,7 @@ export const KINDS: Record<StepKind, KindSpec> = {
   motion: k('motion', 'Animation', true, ['motion'], 'animator', ['claude-cli', 'local'], false),
   captions: k('captions', 'Captions', true, ['captionPages'], 'motion-designer', ['local'], true),
   compose: k('compose', 'Compose', true, ['timeline', 'preview'], null, ['remotion'], true),
-  mix: k('mix', 'Mix', true, ['mixPlan', 'master', 'loudness'], 'sound-designer', ['remotion', 'ffmpeg'], true),
+  mix: k('mix', 'Mix', true, ['mixPlan', 'master', 'loudness', 'sfx'], 'sound-designer', ['remotion', 'ffmpeg'], true),
   render: k('render', 'Render', true, ['video', 'cover', 'log', 'measurements'], null, ['remotion', 'ffmpeg'], true),
   'post-copy': k('post-copy', 'Caption and hashtags', true, ['caption', 'meta'], 'copywriter', ['claude-cli'], false),
   check: k('check', 'Check', false, ['score', 'routes'], 'reviewer', ['agent-sdk', 'claude-cli', 'deterministic-only'], false),

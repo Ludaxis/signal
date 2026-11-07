@@ -5,7 +5,7 @@
 // cover, the name (a link to the Proven screen), the pills, "‹n› steps · ~$ · ~min", the campaign and a secondary
 // "Make a post" that opens the Make a post dialog; a card has no other button. Retired templates move under a
 // "Retired (n)" filter, hidden by default, so the Proven list shows only templates that can still make posts.
-// (release 2): while pipelines are left to move, one row "Move my
+// While pipelines are left to move, one row "Move my
 // pipelines (n)" opens a dialog (they pause until Repeat is on; a backup is kept and Undo restores it exactly;
 // pipelines using a template stay) → `postmaker.migrate`, then a toast with Undo (non-destructive undo). The
 // Proven view keeps "Undo the move" while a move can be undone. Moved templates show "Moved" and no Make a post.

@@ -463,7 +463,7 @@ describe('Connections', () => {
     // The other signal.config.json switches stay reachable below; the Post maker ones are not listed twice.
     fireEvent.click(more);
     expect(panel.hidden).toBe(false);
-    expect(within(panel).getByRole('heading', { name: 'More switches' })).toBeTruthy();
+    expect(await within(panel).findByRole('heading', { name: 'More switches' })).toBeTruthy();
   });
 
   it('the Features group lists the eight Post maker switches from the fixture, all off, each state line at most 6 words', async () => {

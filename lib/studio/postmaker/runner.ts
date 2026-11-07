@@ -805,6 +805,8 @@ export class PostmakerEngine {
     const releaseSlot = await acquireConnector(connector);
     let reservation: string | null = null;
     const takes = regen?.mode === 'keep-contracts' ? maxTakes(node.kind) : 1;
+    // keep-contracts: what the current dependents rely on, so an executor can keep it itself (totalFrames).
+    const keep = regen?.mode === 'keep-contracts' ? await this.keepOf(ctx.recipe.id, p, s, nodeId, regen.unchecked) : null;
     let violations: string[] = [];
     let produced: Produced | null = null;
     let failures: { dependent: string; ruleId: string; text: string }[] = [];
@@ -841,6 +843,7 @@ export class PostmakerEngine {
           pinnedBeats: pinned,
           previous: prev && prevData ? { version: prev, data: prevData } : null,
           violations,
+          ...(keep ? { keep } : {}),
           take,
           context: context?.bundle ?? null,
           runId: ctx.runId,
@@ -908,6 +911,8 @@ export class PostmakerEngine {
     const usd = round6(produced.result.costUsd ?? (paid ? est.usdHigh : 0));
     await this.setStep(ctx, nodeId, { status: v.status === 'failed' ? 'failed' : v.status === 'needs-you' ? 'needs-you' : 'done', version: v.n, usd, seconds: v.seconds, mode, error: null });
     await this.event(ctx.runId, { kind: 'step.done', nodeId, data: { version: v.n, status: v.status } });
+    // A dropped SFX cue is a warning check on the mix; the run's event stream carries it too
+    for (const c of v.checks) if (!c.ok && !c.required && c.id.endsWith(':sfx-dropped')) await this.event(ctx.runId, { kind: 'check', nodeId, text: c.text, data: { id: c.id, warning: true, ...(c.evidence ? { evidence: c.evidence } : {}) } });
 
     if (candidate) {
       const diff = await this.candidateDiff(ctx.recipe.id, p, s, nodeId, prev, v);
@@ -1032,6 +1037,25 @@ export class PostmakerEngine {
       const withRule = deps.filter((n) => n.expects.some((r) => r.from === nodeId && r.key === top));
       return (withRule.length ? withRule : deps).map((n) => n.id);
     };
+  }
+
+  /**
+   * keep-contracts: the values of `nodeId`'s contract that its current dependents were made from, for every
+   * key a rule of theirs reads (unchecked rules excluded). Null when no current dependent relies on anything.
+   */
+  private async keepOf(recipeId: string, p: Pipeline, s: GraphState, nodeId: string, unchecked: string[]): Promise<Contract | null> {
+    const keep: Record<string, unknown> = {};
+    for (const d of p.nodes) {
+      const rules = d.expects.filter((r) => r.from === nodeId && !unchecked.includes(r.id));
+      if (!rules.length) continue;
+      const cv = s.current[d.id];
+      if (!cv || s.heads[d.id]?.skipped) continue;
+      const rec = cv.inputs.find((i) => i.nodeId === nodeId);
+      const before = rec ? (await readVersion(this.root, recipeId, nodeId, rec.version))?.provides : undefined;
+      if (!before) continue;
+      for (const r of rules) if (before[r.key] !== undefined) keep[r.key] = before[r.key];
+    }
+    return Object.keys(keep).length ? (keep as Contract) : null;
   }
 
   /** keep-contracts validation: the downstream rules a new contract of `nodeId` breaks. */

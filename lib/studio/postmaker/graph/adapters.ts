@@ -7,11 +7,14 @@
 // Ruling 8: when the engine gives the bundled faces (`AdapterArgs.fonts`, set when the real render
 // chain runs), `captions.recompute` calls `buildCaptions` and `compose.rebuild` calls `composeTimeline`, with
 // the recipe beats and techniques, the line lengths, the node params, the seed and the mock flag, so an adapted version
-// is what the executor itself would write (and carries its checks). Without fonts (the fakes), the simple
+// is what the executor itself would write (carries its checks). `motion.retimeHolds` on a document (a
+// compiled MotionSpec) refits the spec, checks it again and recompiles its tracks. Without fonts (the fakes), the simple
 // document functions below are used. compose.rebuild rewrites `timeline` only: the preview strip is left as it was.
 import { buildCaptions, captionMeasure } from '../executors/captions';
 import { composeTimeline, faceMeasure, timelineChecks, type ComposeParams } from '../executors/compose';
 import { timelineFonts } from '../executors/render-chain';
+import { isMotionStepDoc, retimeMotionDoc } from '../executors/motion';
+import { carryCreativeArt } from '../executors/compose-art';
 import type { FontFile } from '../render/fonts';
 import type { Contract, Lang, PipelineNode, Recipe, StepCheck, StepKind } from '../types';
 
@@ -236,7 +239,12 @@ export const ADAPTERS: Record<string, Adapter> = {
   'motion.retimeHolds': {
     kind: 'motion',
     follows: false,
-    run: ({ current, inputs }) => {
+    run: ({ node, current, inputs }) => {
+      // A compiled MotionSpec refits the same way, then is checked and compiled again with its own rigs
+      if (isMotionStepDoc(current.motion)) {
+        const r = retimeMotionDoc(current.motion, inputs.alignment as AlignmentDoc, node.id);
+        return { data: { motion: r.doc }, provides: motionContract(r.doc), checks: r.checks };
+      }
       const m = retimeHolds(current.motion as MotionDoc, inputs.alignment as AlignmentDoc);
       return { data: { motion: m }, provides: motionContract(m) };
     },
@@ -261,7 +269,9 @@ export const ADAPTERS: Record<string, Adapter> = {
         seed: a.seed ?? 1,
         fonts: timelineFonts(a.fonts),
       });
-      return { data: { timeline: t }, provides: { totalFrames: t.durationInFrames, coverFrame: t.coverFrame }, checks: timelineChecks(t, `compose:${lang}`, { measure: faceMeasure(a.fonts) }) };
+      // The compiled motion of the retimed version, the cast art and the backgrounds carry over.
+      const full = carryCreativeArt(a.current.timeline, t, a.inputs.motion);
+      return { data: { timeline: full }, provides: { totalFrames: full.durationInFrames, coverFrame: full.coverFrame }, checks: timelineChecks(full, `compose:${lang}`, { measure: faceMeasure(a.fonts) }) };
     },
   },
   'mix.replan': {

@@ -242,7 +242,7 @@ export function Studio({ postmaker = false }: { postmaker?: boolean }) {
   const makePost = openMake;
   const pm = usePostmakerNeeds(postmaker, pid);
   const pmBadge = pm ? runsNeedingYou(pm.home.runs).length : 0;
-  // Release 2: with Post maker on, Pipelines leaves the nav once no live pipeline is left (all
+  // With Post maker on, Pipelines leaves the nav once no live pipeline is left (all
   // moved, keeps it for pipelines that use a template); then 10 items in 4 groups. Until Post maker answers, and
   // with its switch off, the tab stays (release 1).
   const showPipelines = !postmaker || !pm || pipelinesInNav(pm.home.migration);

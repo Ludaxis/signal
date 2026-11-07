@@ -1,4 +1,4 @@
-// Calendar repeat slots ("Repeat templates' slots appear as they do today for pipelines", release 2).
+// Calendar repeat slots (Repeat templates' slots appear as pipeline slots did).
 // A pipeline's posts reach the Calendar as planned posts once the daily run makes them; with Pipelines gone, the
 // Calendar also shows the slots a Repeat template will fill, so the "next post" the Pipelines card used to name is not
 // lost. Only slots the daily run will really make are listed:

@@ -500,7 +500,7 @@ async function makeOne(run: AutopilotRun, p: Pipeline, sl: PipelineSlot, picked:
 /**
  * One slot made by a Post maker template: the backlog and the budget first (the template's estimate against
  * what is left today), then `makeFromTemplate`. A post at Proof is recorded as waiting for you (no package); an
- * accepted one goes through trusted approval only when its generator is covered by a signed approval.
+ * accepted one stays in Review for you: autopilot never approves a Post maker post.
  */
 async function makeWithTemplate(run: AutopilotRun, sl: PipelineSlot, idea: Idea, owner: SlotOwner, c: MakeCtx): Promise<'made' | 'waiting' | 'skipped' | 'stop'> {
   const tpl = owner.template!;

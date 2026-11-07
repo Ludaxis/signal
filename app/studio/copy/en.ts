@@ -372,6 +372,8 @@ export const en = {
   'check.pacing.endCard': 'End card lasts {frames} frames, needs {min} to {max}.',
   'check.flash.tooMany': '{count} flashes within 1 s from frame {frame}.',
   'check.tier.ceiling': 'Motion capped at {max}: {character} has a tier {tier} rig.',
+  'check.motion.idle': '{character} needs breathing and blinking from frame {frame}.',
+  'check.motion.hold': '{character} holds {gap} frames before frame {frame}; needs 8.',
   'check.lipsync.lag': 'Lip-sync on line {line} is {lag} frames off.',
   'check.lipsync.coverage': 'Mouth moves on {pct} % of voiced frames, line {line}.',
   'check.lang.lint': '{count, plural, one {# language error} other {# language errors}} in the narration.',

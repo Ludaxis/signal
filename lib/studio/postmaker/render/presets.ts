@@ -182,6 +182,17 @@ export function presetForSegment(segment: SegmentId): PresetId {
   return 'story';
 }
 
+/**
+ * The pose blend length the preset table gives: the preset's own `pose-change` row, else the table's story
+ * `pose-change` row (S7, the only pose change the table times). The solver, the hold lint and the mock spec read it
+ * here; the table stays the single source of the number.
+ */
+export function poseBlendFrames(preset: PresetId = 'story'): number {
+  const rowOf = (p: PresetId) => PRESETS[p].rows.find((r) => r.element === 'pose-change' && typeof r.frames === 'number');
+  const r = rowOf(preset) ?? rowOf('story');
+  return typeof r?.frames === 'number' ? r.frames : 0;
+}
+
 /** Min/max frames of a segment under its preset (demo-chant binds demo and chant separately). */
 export function segmentBounds(segment: SegmentId): { min: number; max: number | null } {
   const p = PRESETS[presetForSegment(segment)];

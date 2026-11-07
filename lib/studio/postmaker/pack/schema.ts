@@ -63,8 +63,21 @@ export const assetLicenceSchema = z.object({
   aiGenerated: z.boolean(),
   vendor: z.object({ name: z.string(), model: z.string(), requestId: z.string(), promptRef: z.string(), c2pa: z.boolean() }).optional(),
   consentRef: z.string().nullable().optional(),
+  /** Pack (proposed): the owner's plan tier for a track they made under their own vendor plan. */
+  plan: z.string().max(60).nullable().optional(),
 });
 
+/** Pack: every music asset declares its grid; there is no beat detection in v1. */
+export const musicMetaSchema = z.object({
+  bpm: z.number().min(60).max(200),
+  firstDownbeatMs: z.number().min(0),
+  beatsPerBar: z.union([z.literal(3), z.literal(4)]),
+  declaredBy: z.enum(['pack', 'user', 'prompt']),
+  sections: z.array(z.object({ label: z.string().max(40), startMs: z.number().min(0) })).optional(),
+  loopable: z.boolean(),
+});
+
+// A music asset without `music` still loads; the music step refuses it before conform.
 export const assetSchema = z.object({
   id: z.string().regex(ASSET_ID),
   kind: z.enum(['character', 'prop', 'background', 'sticker', 'ui', 'font', 'sfx', 'music', 'voice', 'broll']),
@@ -77,6 +90,7 @@ export const assetSchema = z.object({
   licence: assetLicenceSchema,
   status: z.enum(['draft', 'approved', 'retired']),
   approvedBy: z.string().nullable(),
+  music: musicMetaSchema.optional(),
 });
 export const librarySchema = z.array(assetSchema);
 

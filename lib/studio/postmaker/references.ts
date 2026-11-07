@@ -54,7 +54,7 @@ async function saveRecord(root: string, ref: Reference): Promise<Reference> {
   return ref;
 }
 
-/* * How `receiveFile` types and limits a stream (references and step uploads share it). */
+/** How `receiveFile` types and limits a stream (references and step uploads share it). */
 export interface ReceiveRules<T> {
   /** The type from the first 16 bytes (magic bytes), or null for a file that is none of the accepted types. */
   sniff: (head: Buffer) => T | null;

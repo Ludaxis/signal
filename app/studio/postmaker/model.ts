@@ -120,7 +120,7 @@ export function bytes(n: number): string {
 
 // ---- template limits -------------------------------------------------------------------------------------
 
-/** The core template's limits when no pack template says otherwise (project pack format §10: story-spine@1). */
+/** The core template's limits when no pack template says otherwise (story-spine@1, see docs/project-pack-format.md). */
 export const CORE_TEMPLATE = { id: CORE_TEMPLATE_LIMITS.builder, durationSec: CORE_TEMPLATE_LIMITS.durationSec, canvases: CORE_TEMPLATE_LIMITS.canvases };
 export const LENGTH_CHIPS = [15, 30, 60] as const;
 export const SHAPES: Shape[] = ['9:16', '4:5', '1:1'];
@@ -385,7 +385,7 @@ export const runNeedsYou = (r: Pick<Run, 'status' | 'packageIds'>): boolean => (
 
 /**
  * Runs that need the person now: the latest run of each recipe (runs newest first, as Home lists them) when it needs
- * them. An older run of a recipe that ran again is superseded: its Proof is no longer the recipe's (integration).
+ * them. An older run of a recipe that ran again is superseded: its Proof is no longer the recipe's.
  */
 export function runsNeedingYou<R extends Pick<Run, 'recipeId' | 'status' | 'packageIds'>>(runs: readonly R[]): R[] {
   const seen = new Set<string>();
@@ -417,7 +417,7 @@ export function templatePills(x: Pick<TemplateSummary, 'status' | 'repeat'> & Pa
   return out;
 }
 
-// ---- Move my pipelines and the nav (release 2) ---------------------------
+// ---- Move my pipelines and the nav ---------------------------
 
 /** What the Post maker home says about pipelines (`PostmakerHome.migration`). */
 export type MigrationState = { pending: number; kept?: number; undo: string | null } | null | undefined;

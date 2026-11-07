@@ -1,15 +1,18 @@
 // `StorySpine` (quality S5): draws a timeline.json frame by frame. Compose already decided every frame; this
 // component only evaluates the curves at the current frame. Layers, bottom to top: scenes (with idles and camera),
-// cards, phone, stickers, text (captions, bubbles), reveal, end card, AI label (every frame), MOCK (every frame of a
-// mock lineage). Persian blocks are lang="fa" dir="rtl"; tokens are laid out by the browser.
+// the cast (the compiled characters of `timeline.motion`, CastLayer), cards, phone, stickers, text (captions,
+// bubbles), reveal, end card, AI label (every frame), MOCK (every frame of a mock lineage). A scene with a background
+// image from the scene plan draws it as a cover plate under the cast. Persian blocks are lang="fa" dir="rtl"; tokens
+// are laid out by the browser.
 import React from 'react';
-import { AbsoluteFill, Html5Audio, staticFile, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Html5Audio, Img, staticFile, useCurrentFrame } from 'remotion';
 import { curveAt, settleProgress } from '../curves';
 import { REEL_BANDS } from '../safeZones';
 import { PHONE_SLOT, textSlot } from '../slots';
 import { REVEAL_FILL, type CardEl, type PhoneEl, type RevealEl, type SceneEl, type TextEl, type Timeline, type TimelineElement } from '../timeline';
 import { typeScale } from '../typeScale';
 import { AiLabel } from '../components/AiLabel';
+import { CastLayer } from '../components/CastLayer';
 import { FacesContext, Fill, SplitCharsContext, useFaces } from '../components/context';
 import { EndCard } from '../components/EndCard';
 import { KineticText } from '../components/KineticText';
@@ -35,7 +38,8 @@ const Scene: React.FC<{ el: SceneEl; frame: number }> = ({ el, frame }) => {
   const fade = el.transitionIn === 'crossfade' ? Math.min(1, Math.max(0, local / 8)) ** 2 : 1;
   return (
     <Fill layer={`scene-${el.beatId}`} style={{ background: el.background, opacity: fade, transform: `scale(${cam})` }}>
-      {el.segment === 'interrupt' ? null : (
+      {el.image ? <Img data-layer="background" src={el.image.startsWith('data:') ? el.image : staticFile(el.image)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} /> : null}
+      {el.segment === 'interrupt' || el.image ? null : (
         <div
           style={{
             position: 'absolute',
@@ -180,10 +184,12 @@ export const StorySpine: React.FC<StorySpineProps> = ({ timeline, master, splitC
     <FacesContext.Provider value={faces}>
       <SplitCharsContext.Provider value={Boolean(splitChars)}>
         <AbsoluteFill style={{ background: timeline.palette.background, overflow: 'hidden' }}>
+          {now.filter((e) => e.kind === 'scene').map((e) => (e.kind === 'scene' ? <Scene key={e.id} el={e} frame={frame} /> : null))}
+          <CastLayer timeline={timeline} frame={frame} />
           {now.map((e) => {
             switch (e.kind) {
               case 'scene':
-                return <Scene key={e.id} el={e} frame={frame} />;
+                return null;
               case 'card':
                 return <Card key={e.id} el={e} frame={frame} />;
               case 'phone':

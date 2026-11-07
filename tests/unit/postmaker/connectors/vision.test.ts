@@ -70,7 +70,7 @@ describe('claude-cli connector, vision mode', () => {
   });
 });
 
-describe('the.3 stdin fallback (images as stream-json blocks on stdin)', () => {
+describe('the stdin fallback (images as stream-json blocks on stdin)', () => {
   function stdinSpawn() {
     const seen: { args: string[]; files: string[]; stdin: string }[] = [];
     const spawn = ((_bin: string, args: string[], opts: { cwd: string }) => {
@@ -133,7 +133,7 @@ describe('the.3 stdin fallback (images as stream-json blocks on stdin)', () => {
     expect(seen).toEqual([]);
     const runner = makeClaudeCliRunner({ visionTransport: 'stdin' });
     await expect(runner('x', { web: false, agent: 'deconstructor', kind: 'analyse', vision: { files: [{ name: 'timeline.txt', data: 't' }] } })).rejects.toMatchObject({ status: 403 });
-    // the registry's own connector is built without allowVision: the service still reads on this Mac only
+    // the registry's own connector is built without allowVision: the service still reads on this computer only
     expect(connectorCanSee(connectorById('claude-cli') as never)).toBe(false);
   });
 });

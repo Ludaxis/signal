@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { codexEnv, codexExecArgs, codexImage, codexImagesAllowed, codexTask } from '@/lib/studio/codex';
+import { aspectWords, codexEnv, codexExecArgs, codexImage, codexImagesAllowed, codexTask } from '@/lib/studio/codex';
+import { requestAlpha } from '@/lib/studio/postmaker/executors/art-assets';
 import { clearTestEnv, setTestProjectEnv, writeTestConfig } from './studio-helpers';
 
 let root = '';
@@ -88,5 +89,24 @@ describe('Codex CLI images', () => {
     config(['codex-cli-image']);
     fakeCodex('none');
     await expect(codexImage('x', 1080, 1350)).rejects.toThrow(/did not produce an image/);
+  });
+});
+
+describe('aspect and alpha per request kind (follow-up)', () => {
+  it('names the aspect of the requested size and asks for transparency only for cut-outs', () => {
+    expect(aspectWords(1080, 1350)).toBe('portrait 4:5');
+    expect(aspectWords(1080, 1920)).toBe('portrait 9:16');
+    expect(aspectWords(600, 600)).toBe('square 1:1');
+    expect(aspectWords(1920, 1080)).toBe('landscape 16:9');
+    expect(aspectWords(700, 300)).toMatch(/700×300 px \(landscape\)/);
+    expect(codexTask('a room')).toContain('(PNG, portrait 4:5).'); // the legacy default is unchanged
+    expect(codexTask('a room', { width: 1080, height: 1920 })).toContain('(PNG, portrait 9:16).');
+    const sticker = codexTask('a star', { width: 600, height: 600, alpha: true });
+    expect(sticker).toContain('square 1:1, the subject alone on a fully transparent background with an alpha channel');
+  });
+
+  it('the art requests: backgrounds opaque, stickers, props and phone frames with alpha', () => {
+    expect(requestAlpha('background')).toBe(false);
+    for (const k of ['sticker', 'prop', 'ui'] as const) expect(requestAlpha(k)).toBe(true);
   });
 });

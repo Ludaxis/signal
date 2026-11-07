@@ -80,6 +80,8 @@ What is real and what is mock:
   locked steps keep their versions; only what depends on the brief runs again) and stops at Proof; **variants** change
   only the declared settings (language, length, shape, hook, voice, music, dual captions) and need their own proof;
   attach it to a campaign, and a campaign slot can name it (**Choose** on the slot, then **Make**).
+- With a project pack, the art, animation and sound steps plan from the pack's library (cut-out characters, music
+  conformed to the script's tempo, sound effects); without one they stay mocks. Your own music track can be uploaded.
 - **Repeat** (off by default) lets a proven template make its own posts inside the daily autopilot run, on the days,
   times and budget you set in its Repeat drawer. It needs the `autopilot` and `postmakerRepeat` switches; each post
   stops at Proof (Today › Needs you) unless **Skip proof for repeat runs** is on for that variant, which unlocks only

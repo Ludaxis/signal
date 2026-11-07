@@ -18,6 +18,6 @@
   "templates": ["templates/pov-story-spine.json"],
   "claims": { "allowed": [], "denied": ["free", "number one", "best game"] },
   "musicPolicy": { "sources": ["library", "owner-upload"], "attribution": false },
-  "rigTier": { "char-lead": "B", "char-elder": "B" },
+  "rigTier": { "char-lead": "B", "char-elder": "B", "char-cutout": "A" },
   "requires": { "signal": ">=2.0.0 <3" }
 }

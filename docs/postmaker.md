@@ -56,6 +56,18 @@ from a pause: Continue run after an edit or a sign-off, Raise cap or Stop at the
 **Regenerate** asks first. The dialog lists what the step keeps (fixed inputs), what later steps expect (checked by
 default; unchecking one lets that expectation break, with a warning), and the cost and the steps that will go out of
 date, before you click. **Versions** compares two versions as two synced players, or as a word diff for text.
+**Pause** on the run bar stops new steps (the ones in progress finish and keep their versions); **Continue run** goes
+on without running a step twice. One recipe beat can be regenerated on its own, and a step's media output can take a
+file you upload (`step.edit` with `replaceFile`, after `POST /api/studio/postmaker/uploads`).
+
+**The creative steps.** When the project has a pack, the default chain uses its library: the **art director** plans
+each beat's background, cast, props and stickers from approved pack assets (and records what is missing; **Make with
+Codex** makes one requested image only when you press it, only while Codex images are allowed for the account, and the
+image stays a draft until a named person approves it); the **animator** writes the acting, camera and timing as a
+MotionSpec that code checks and compiles for the cut-out characters; the **sound designer** picks the music bed (a pack
+track, your own upload through `POST /api/studio/postmaker/music`, or a mock) conformed to the script's tempo, and the
+sound effects the mix places. Each of them falls back to a deterministic plan when its agent cannot run, and their live
+agent calls need the `agents` switch. Without a pack these steps stay mocks.
 
 **Today** lists runs that need you (Proof ready, a pause, a failure) above the posts, and the nav shows their count.
 Keys: ⌘1…⌘0 move between tabs, ⌘N makes a post, ⌘[ and ⌘] move along the stepper, and `?` lists the rest.

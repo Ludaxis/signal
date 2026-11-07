@@ -142,6 +142,18 @@ export interface AssetLicence {
   aiGenerated: boolean;
   vendor?: { name: string; model: string; requestId: string; promptRef: string; c2pa: boolean };
   consentRef?: string | null;
+  /** Pack (proposed): the owner's plan tier for a track made under their own vendor plan. */
+  plan?: string | null;
+}
+
+/** Pack: the declared grid of a music asset. */
+export interface MusicMeta {
+  bpm: number;
+  firstDownbeatMs: number;
+  beatsPerBar: 3 | 4;
+  declaredBy: 'pack' | 'user' | 'prompt';
+  sections?: { label: string; startMs: number }[];
+  loopable: boolean;
 }
 
 export interface Asset {
@@ -156,6 +168,7 @@ export interface Asset {
   licence: AssetLicence;
   status: 'draft' | 'approved' | 'retired';
   approvedBy: string | null;
+  music?: MusicMeta;
 }
 
 // ---- artifacts, provenance --------------------------------------------------------------------------------
@@ -1015,6 +1028,11 @@ export type PostmakerAction =
   | { action: 'template.campaign.attach' | 'template.campaign.detach'; templateId: string; campaignId: string }
   | { action: 'template.duplicate'; templateId: string; name?: string }
   | { action: 'template.retire'; templateId: string }
+  /** "Make with Codex" for one pending asset request (attended only: a person's press in the open app). */
+  | { action: 'asset.make'; requestId: string }
+  /** A named person approves or rejects a draft asset (agent ids and `mock` are refused, 403). */
+  | { action: 'asset.approve'; assetId: string; name: string; allowedUses?: AssetUse[] }
+  | { action: 'asset.reject'; assetId: string; name: string }
   /** Moves every pipeline into a template with Repeat (started by the person; once; backup first). */
   | { action: 'postmaker.migrate' }
   /** Undoes the last move (or `migrationId`): templates go to a dated folder, pipelines come back from the backup. */

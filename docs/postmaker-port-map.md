@@ -94,6 +94,18 @@ Test zones: tests that need daylight saving use `Europe/Berlin`. Synthetic ids: 
 | `lib/studio/postmaker/regenerate-beat.ts`, `runner.ts` (`run.pause`, Replace file), `references.ts`, `graph/{scheduler,status}.ts` | same | port | Pause and Continue, regenerate one beat, a reference read to the asked length. |
 | `lib/studio/claude-agent.ts`, `connectors/cli.ts` (vision on stdin) | same | adapt | The stdin fallback for vision runs; refused unless the runner allows vision. |
 
+### Creative steps (third step)
+
+| Upstream | Here | Status | Notes |
+|---|---|---|---|
+| `lib/studio/postmaker/anim/**`, `render/components/{CutoutCharacter,CastLayer}.tsx`, `render/compositions/CharacterTest.tsx`, `render/{cast,conform,pcm,lipsyncComposite,lipsyncPlate}.ts` | same | port | The cut-out character rig, its solver and loops, the cast layer, the music conform and the lip-sync composite. |
+| `executors/{art,art-assets,compose-art,creative-world}.ts` | same | port | The art director and "Make with Codex" (attended only; the account's Codex images setting and the Post maker switch decide). |
+| `executors/{motion,motion-world}.ts`, `anim/compile.ts` | same | port | The animator and the MotionSpec compiler. |
+| `executors/{music,sfx,sound-world,mix}.ts`, `music-upload.ts`, `app/api/studio/postmaker/music/route.ts` | same | adapt | The sound designer and your own music upload; the upload source is `owner-upload`. |
+| `executors/index.ts`, `wiring.ts`, `service.ts` | same | adapt | The art, motion, music and SFX executors are in the default chain whenever the project has a pack; without one the steps keep their mocks. |
+| Role prompts `art-director`, `animator`, `sound-designer` | `lib/studio/team/roles.ts` | adapt | Built in, like the copywriter and deconstructor; `<SIGNAL_PROMPTS_DIR>/<agent>/prompt.md` overrides one. |
+| `tests/fixtures/postmaker/make-rig.mjs`, `tests/postmaker/golden/{cutout,cast}-*.png` | same | port | The synthetic Tier A fixture character and the provisional goldens of the `@render` suites (skipped unless `SIGNAL_RENDER=1`). |
+
 ## 2. Mechanisms that differ from upstream
 
 ### 2.1 Feature switches
@@ -139,7 +151,7 @@ sign.
 
 ## 3. Not ported yet (later work)
 
-- Your own music upload and the creative steps added upstream later (art direction, animation, sound design).
+- A Replace file control in the step drawer (the server takes `replaceFile`; upstream has no screen for it either).
 - The end-to-end browser specs (this repository runs unit, route and SSR tests only).
 - Bundling the render workspace into the Mac app (bundled mode renders mock; see `docs/mac-app.md`).
 

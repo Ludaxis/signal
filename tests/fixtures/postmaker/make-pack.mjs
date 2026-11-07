@@ -4,7 +4,10 @@
 // binary files a pack needs into an output folder outside the repository, so no image, audio or font copy is ever
 // committed as a plain binary:
 //   - each SVG character, background, phone frame and icon → PNG (sharp, no network);
+//   - the Tier A rig `char-cutout` → rig.json with its SVG parts and states (make-rig.mjs, original geometric art);
 //   - the 100 BPM click-plus-chord loop → a 48 kHz mono WAV synthesised here in plain JavaScript (deterministic);
+//   - the SFX library: one short 48 kHz mono WAV per cue id (pop, whoosh, tap, swipe, success, clap, hit,
+//     riser, confetti, tick), synthesised here from sines, noise from a seeded generator and envelopes (deterministic);
 //   - the fonts → copies of files already bundled with the web app (core Vazirmatn from public/fonts, Instrument
 //     Sans from the pinned @fontsource/instrument-sans package), each with its OFL licence beside it; their sha256
 //     must equal the pins in pack.json;
@@ -16,6 +19,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { buildRig } from './make-rig.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const PACK_SOURCE = path.join(HERE, 'pack-example');
@@ -89,6 +93,55 @@ export function loopWav({ bpm = 100, bars = 2, beatsPerBar = 4, sampleRate = 480
   return { bytes: wav(s, sampleRate), durationMs: Math.round((n / sampleRate) * 1000) };
 }
 
+// ---- the SFX library --------------------------------------------------------------------------------------
+
+/** A small seeded generator (mulberry32), so the noise in the effects is the same on every build. */
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Each cue: length (ms) and a sample function of (t seconds, length seconds, noise 0…1). Original synthesis only. */
+const SFX = {
+  pop: { ms: 120, f: (t) => Math.sin(2 * Math.PI * (900 - 2500 * t) * t) * Math.exp(-t * 40) },
+  whoosh: { ms: 450, f: (t, L, n) => (n * 2 - 1) * Math.sin((Math.PI * t) / L) ** 2 * 0.8 },
+  tap: { ms: 60, f: (t) => Math.sin(2 * Math.PI * 1800 * t) * Math.exp(-t * 90) },
+  swipe: { ms: 260, f: (t, L, n) => ((n * 2 - 1) * 0.5 + Math.sin(2 * Math.PI * (500 + 2400 * (t / L)) * t) * 0.5) * Math.sin((Math.PI * t) / L) },
+  success: { ms: 420, f: (t) => (t < 0.14 ? Math.sin(2 * Math.PI * 784 * t) : Math.sin(2 * Math.PI * 1047 * t)) * Math.exp(-((t % 0.14) * 9)) },
+  clap: { ms: 140, f: (t, L, n) => (n * 2 - 1) * (Math.exp(-t * 60) + 0.6 * Math.exp(-Math.abs(t - 0.012) * 200)) },
+  hit: { ms: 380, f: (t, L, n) => (Math.sin(2 * Math.PI * (110 - 60 * t) * t) * 0.8 + (n * 2 - 1) * 0.3 * Math.exp(-t * 30)) * Math.exp(-t * 9) },
+  riser: { ms: 900, f: (t, L, n) => ((n * 2 - 1) * 0.4 + Math.sin(2 * Math.PI * (300 + 1200 * (t / L)) * t) * 0.6) * (t / L) },
+  confetti: { ms: 500, f: (t, L, n) => (n > 0.985 ? (n - 0.985) * 60 : 0) * Math.sin(2 * Math.PI * 3000 * t) * (1 - t / L) },
+  tick: { ms: 30, f: (t) => Math.sin(2 * Math.PI * 2600 * t) * Math.exp(-t * 200) },
+};
+export const SFX_CUE_IDS = Object.keys(SFX);
+
+/** One cue as a mono WAV, normalised to a −3 dBFS peak (the mix sets its own level). */
+export function sfxWav(cue, { sampleRate = 48000 } = {}) {
+  const def = SFX[cue];
+  if (!def) throw new Error(`Unknown SFX cue ${cue}`);
+  const n = Math.round((def.ms / 1000) * sampleRate);
+  const L = def.ms / 1000;
+  const r = rng(SFX_CUE_IDS.indexOf(cue) + 101);
+  const s = new Float64Array(n);
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate;
+    const fade = Math.min(1, (n - i) / (0.004 * sampleRate)); // 4 ms fade-out, no click at the end
+    s[i] = def.f(t, L, r()) * fade;
+    peak = Math.max(peak, Math.abs(s[i]));
+  }
+  const g = peak > 0 ? 0.708 / peak : 0;
+  for (let i = 0; i < n; i++) s[i] *= g;
+  return { bytes: wav(s, sampleRate), durationMs: Math.round((n / sampleRate) * 1000) };
+}
+
 // ---- the build ---------------------------------------------------------------------------------------------------
 
 function copyText(src, dst) {
@@ -133,7 +186,9 @@ export async function buildPack(out, { webDir = WEB } = {}) {
     mkdirSync(path.dirname(file), { recursive: true });
     let dims;
     let durationMs;
-    if (a.build.svg) {
+    if (a.build.rig) {
+      buildRig(path.dirname(file)); // the Tier A rig: rig.json plus its SVG parts, states and turnaround
+    } else if (a.build.svg) {
       const svg = readFileSync(path.join(PACK_SOURCE, 'library', a.build.svg));
       await sharp(svg).png({ compressionLevel: 9 }).toFile(file);
       const m = await sharp(file).metadata();
@@ -142,13 +197,17 @@ export async function buildPack(out, { webDir = WEB } = {}) {
       const l = loopWav(a.build.loop);
       writeFileSync(file, l.bytes);
       durationMs = l.durationMs;
+    } else if (a.build.sfx) {
+      const l = sfxWav(a.build.sfx);
+      writeFileSync(file, l.bytes);
+      durationMs = l.durationMs;
     } else if (a.build.font) {
       if (!existsSync(file)) throw new Error(`Font asset ${a.id} was not copied.`);
     }
     const bytes = readFileSync(file);
     const licence = {
       ...src.licence,
-      source: a.build.svg ? `library/${a.build.svg} (original SVG in the Signal test fixtures)` : a.build.loop ? 'synthesised by make-pack.mjs' : `bundled font copied from ${FONT_SOURCES[a.build.font][0].from}`,
+      source: a.build.rig ? 'generated by make-rig.mjs (original geometric SVG parts in the Signal test fixtures)' : a.build.svg ? `library/${a.build.svg} (original SVG in the Signal test fixtures)` : a.build.loop || a.build.sfx ? 'synthesised by make-pack.mjs' : `bundled font copied from ${FONT_SOURCES[a.build.font][0].from}`,
       ...(a.licenceRecord ? { proof: `library/${a.licenceRecord}` } : {}),
       ...(a.licence ?? {}),
     };
