@@ -359,10 +359,13 @@ export interface PostmakerHome {
   timeZone: string;
   /**
    * Pipelines a move would take (`postmaker.migrate`), and the move Undo would revert (null: none).
-   * `kept` counts the live pipelines a move leaves (they make posts from a template).
+   * `kept` counts the live pipelines a move leaves (they make posts from a template). `error` is set when the
+   * pipelines folder could not be read: the counts are then unknown and the nav keeps Pipelines.
    */
-  migration?: { pending: number; kept?: number; undo: string | null };
+  migration?: { pending: number; kept?: number; undo: string | null; error?: string };
 }
+
+export const PIPELINES_UNREADABLE_TEXT = 'The pipelines folder could not be read. Pipelines stays in the menu.';
 
 export async function home(project: ServiceProject): Promise<PostmakerHome> {
   const root = rootOf(project);
@@ -384,8 +387,15 @@ export async function home(project: ServiceProject): Promise<PostmakerHome> {
   const templates = stored.map(templateSummary);
   const templateCards: Record<string, TemplateCard> = {};
   for (const t of stored) templateCards[t.id] = await templateCard(root, t, full);
-  const moves = await (await import('./migrate/pipelines')).pendingPipelines(project).catch(() => ({ pending: [] as string[], kept: [] as string[], undo: null }));
-  return { recipes, templates, templateCards, runs, connectors: await connectorRows({ attended: true }), paused: postmakerPaused(), timeZone: projectTimeZone(project.timeZone), migration: { pending: moves.pending.length, kept: moves.kept.length, undo: moves.undo } };
+  // A pipelines folder that cannot be read never hides the Pipelines nav item: the error is recorded instead.
+  const migration: NonNullable<PostmakerHome['migration']> = await (await import('./migrate/pipelines'))
+    .pendingPipelines(project)
+    .then((m) => ({ pending: m.pending.length, kept: m.kept.length, undo: m.undo }))
+    .catch((e: unknown) => {
+      console.error('[postmaker] pipelines', e instanceof Error ? e.name : 'error');
+      return { pending: 0, kept: 0, undo: null, error: PIPELINES_UNREADABLE_TEXT };
+    });
+  return { recipes, templates, templateCards, runs, connectors: await connectorRows({ attended: true }), paused: postmakerPaused(), timeZone: projectTimeZone(project.timeZone), migration };
 }
 
 /** The first rendered cover of a run that waits for the person (Today › Needs you shows it); null otherwise. */

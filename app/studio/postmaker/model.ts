@@ -420,14 +420,14 @@ export function templatePills(x: Pick<TemplateSummary, 'status' | 'repeat'> & Pa
 // ---- Move my pipelines and the nav ---------------------------
 
 /** What the Post maker home says about pipelines (`PostmakerHome.migration`). */
-export type MigrationState = { pending: number; kept?: number; undo: string | null } | null | undefined;
+export type MigrationState = { pending: number; kept?: number; undo: string | null; error?: string } | null | undefined;
 
 /**
  * Whether the nav still shows Pipelines: while any live pipeline is left (one a move would take, or one that makes
  * posts from a template and stays), and whenever Post maker cannot say (switch off, not loaded, an older
- * server): release 1 keeps the tab.
+ * server, or the pipelines folder could not be read): release 1 keeps the tab.
  */
-export const pipelinesInNav = (m: MigrationState): boolean => !m || m.pending + (m.kept ?? 0) > 0;
+export const pipelinesInNav = (m: MigrationState): boolean => !m || !!m.error || m.pending + (m.kept ?? 0) > 0;
 
 /** The nav: 4 groups; Pipelines sits after Post maker in Work while it is shown. */
 export type NavGroup = 'work' | 'plan' | 'learn' | 'setup';

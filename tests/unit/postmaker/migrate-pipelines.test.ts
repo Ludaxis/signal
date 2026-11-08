@@ -8,9 +8,9 @@
 // (runProject), never through a scheduler; the post generator and the ideas agent are fakes; no network.
 import './guard';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listPackages } from '@/lib/studio/content';
 import { FORMATS } from '@/lib/studio/formats';
 import { runProject, withRunLock } from '@/lib/studio/autopilot/runner';
@@ -23,10 +23,10 @@ import { currentProject } from '@/lib/studio/projects';
 import { parseAction } from '@/lib/studio/postmaker/api/schemas';
 import { pmFail } from '@/lib/studio/postmaker/api/http';
 import { BUILT_IN_FORMAT_TEMPLATES, LEGACY_ATTENDED_FORMATS, LEGACY_ONLY_REPEAT, LEGACY_REPEAT_LIMITS } from '@/lib/studio/postmaker/migrate/legacy';
-import { archivedText, BACKUP_CHANGED_TEXT, migratePipelines, NOTHING_TO_UNDO_TEXT, pendingPipelines, RUN_GOING_TEXT, SKIP_TEXT, templateOfPipeline, undoMigration } from '@/lib/studio/postmaker/migrate/pipelines';
+import { archivedText, BACKUP_CHANGED_TEXT, migratePipelines, NOTHING_TO_UNDO_TEXT, pendingPipelines, RECORD_DAMAGED_TEXT, RUN_GOING_TEXT, SKIP_TEXT, templateOfPipeline, undoMigration } from '@/lib/studio/postmaker/migrate/pipelines';
 import { REPEAT_ENV } from '@/lib/studio/postmaker/repeat-state';
 import { setRepeatAction, makePostFork } from '@/lib/studio/postmaker/template-actions';
-import { handleAction, home } from '@/lib/studio/postmaker/service';
+import { handleAction, home, PIPELINES_UNREADABLE_TEXT } from '@/lib/studio/postmaker/service';
 import { listTemplates, updateTemplate } from '@/lib/studio/postmaker/store/templates';
 import type { Template } from '@/lib/studio/postmaker/types';
 import { navGroups, pipelinesInNav } from '@/app/studio/postmaker/model';
@@ -259,6 +259,23 @@ describe('undo moves, never deletes', () => {
     expect(hashes(pipelinesDir())).toEqual(before);
     expect(await listTemplates(pmRoot())).toHaveLength(3);
   });
+
+  it('refuses the whole undo when one entry of the record has a malformed template id, and nothing has moved', async () => {
+    threePipelines();
+    const r = await migratePipelines(project(), { by: ACTOR, now: NOW });
+    const file = path.join(pmRoot(), 'migrations', `${r.migrationId}.json`);
+    const record = JSON.parse(readFileSync(file, 'utf8')) as { moved: { template: string }[] };
+    record.moved[record.moved.length - 1]!.template = '../outside';
+    writeFileSync(file, JSON.stringify(record));
+    const before = hashes(pipelinesDir());
+    const templatesBefore = readdirSync(path.join(pmRoot(), 'templates')).sort();
+    await expect(undoMigration(project(), { by: ACTOR, now: NOW + 60_000 })).rejects.toMatchObject({ status: 409, message: RECORD_DAMAGED_TEXT });
+    expect(hashes(pipelinesDir())).toEqual(before);
+    expect(readdirSync(path.join(pmRoot(), 'templates')).sort()).toEqual(templatesBefore);
+    expect(readdirSync(pipelinesDir()).some((n) => n.startsWith('.undone-'))).toBe(false);
+    expect(existsSync(path.join(pmRoot(), 'migrations', `${r.migrationId}.undo.json`))).toBe(false);
+    expect(await listTemplates(pmRoot())).toHaveLength(3);
+  });
 });
 
 describe('madeBy: the daily run after the move', () => {
@@ -346,5 +363,18 @@ describe('the nav after a fixture move', () => {
     writePipeline(P4, { name: 'Codex pictures', steps: { source: { kind: 'list', list: ['x'] }, make: { format: 'codex-post' } } });
     await migratePipelines(project(), { by: ACTOR, now: NOW + 120_000 });
     expect(await navOf()).toContain('pipelines');
+  });
+
+  it('keeps the Pipelines item and records the error when the pipelines folder cannot be read', async () => {
+    rmSync(pipelinesDir(), { recursive: true, force: true });
+    writeFileSync(pipelinesDir(), 'not a folder');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect((await home(project())).migration).toEqual({ pending: 0, kept: 0, undo: null, error: PIPELINES_UNREADABLE_TEXT });
+      expect(await navOf()).toContain('pipelines');
+      expect(log).toHaveBeenCalledWith('[postmaker] pipelines', expect.any(String));
+    } finally {
+      log.mockRestore();
+    }
   });
 });

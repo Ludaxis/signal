@@ -27,7 +27,7 @@ import type { Pipeline, SourceKind } from '../../pipelines/types';
 import { PostmakerError } from '../errors';
 import { templateStateFile } from '../repeat-state';
 import { DIR_MODE, ensureDir, exists, listDir, pretty, readJsonFile, readText, writeOnce, writeReplace } from '../store/fs';
-import { contentParent, newTemplateId, postmakerRoot, templateFile } from '../store/paths';
+import { contentParent, newTemplateId, postmakerRoot, TEMPLATE_ID_RE, templateFile } from '../store/paths';
 import { createTemplate, listTemplates } from '../store/templates';
 import type { ProjectLike, Template } from '../types';
 import { LEGACY_ATTENDED_FORMATS, LEGACY_RECIPE_ID, legacyPipelineOf } from './legacy';
@@ -79,6 +79,7 @@ export interface UndoResult {
 export const RUN_GOING_TEXT = 'A run is going. Try again when it ends.';
 export const NOTHING_TO_UNDO_TEXT = 'There is no move to undo.';
 export const BACKUP_CHANGED_TEXT = 'The backup changed since the move. Nothing was undone.';
+export const RECORD_DAMAGED_TEXT = 'The record of this move is damaged. Nothing was undone.';
 export const SKIP_TEXT = {
   removed: 'It was removed.',
   fromTemplate: 'It already makes posts from a template. Turn on Repeat on that template instead.',
@@ -363,6 +364,14 @@ export async function undoMigration(project: MigrateProject, o: { by: string; mi
     const record = o.migrationId ? ((await listRecords(root)).find((r) => r.id === o.migrationId) ?? null) : await undoable(root);
     if (!record || (await exists(undoFile(root, record.id)))) throw new PostmakerError(409, 'conflict', NOTHING_TO_UNDO_TEXT);
     if (!/^\.backup-[0-9TZ-]+$/.test(record.backup)) throw new PostmakerError(409, 'conflict', BACKUP_CHANGED_TEXT);
+    // Every moved entry must name a well-formed pipeline and template id before anything moves: a damaged record
+    // refuses the whole undo rather than stopping half-way.
+    const entries: unknown = record.moved;
+    const wellFormed = (m: unknown): boolean => {
+      const x = m as Partial<MigrationRecord['moved'][number]> | null;
+      return !!x && typeof x === 'object' && typeof x.pipeline === 'string' && ID_RE.test(x.pipeline) && typeof x.template === 'string' && TEMPLATE_ID_RE.test(x.template);
+    };
+    if (!Array.isArray(entries) || !entries.every(wellFormed)) throw new PostmakerError(409, 'conflict', RECORD_DAMAGED_TEXT);
 
     // The backup must still be what the move copied (the hash list), or nothing is touched.
     const backupDir = path.join(dir, record.backup);
@@ -382,7 +391,6 @@ export async function undoMigration(project: MigrateProject, o: { by: string; mi
     const templates: string[] = [];
     const restored: string[] = [];
     for (const m of record.moved) {
-      if (!ID_RE.test(m.pipeline)) continue; // a hand-edited record never names a path outside the two folders
       // The template (only while it is still the one this move wrote) and its run state go to the dated folder.
       const tf = templateFile(root, m.template);
       const t = await readJsonFile<Template>(tf).catch(() => null);
