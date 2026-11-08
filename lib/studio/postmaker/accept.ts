@@ -6,14 +6,19 @@
 // draft" waives the sign-offs, the mock rule and the verdict, keeps the template Draft and writes no package.
 // Premium sets the template `proven`; Standard writes the package note "below premium", leaves the template Draft
 // and resets the streak. Every object in an accepted lineage is pinned (pins.json). Generic core: no project names.
+// The streak and skip-proof are per template + variant (template-rules.ts); a hard-gate override (a manual
+// score) resets the streak. A fork made by "Make a post" accepts into its template without moving the template's
+// snapshot or name; its variant (if any) is proven by a Premium accept. A post made for a campaign slot writes that
+// slot's id into campaign.json and its time into the lineage lock's `slotAt`.
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { featureEnabled } from '@/lib/server/signalConfig';
 import { GENERATOR_NOT_ALLOWED, generatorAllowed, PM_GENERATOR, PM_SWITCH_OFF, type PackageFile, type PackageSpec } from '../content';
 import { PostmakerError } from './errors';
+import { nextPackageIdAfter, PACKAGE_IDS_USED_UP } from '../package-id';
 import { acceptBlockers, type GraphState } from './graph/status';
 import { recipeMutexKey, type PostmakerEngine } from './runner';
-import { isAgentIdentity } from './signoffs';
+import { inheritedSignOff, isAgentIdentity } from './signoffs';
 import { DIR_MODE, FILE_MODE } from './store/fs';
 import { withLock } from './store/mutex';
 import { getJson, hashJson, sha256OfFile } from './store/objects';
@@ -24,14 +29,14 @@ import { appendEvent, listRunIds, readRun, updateRun } from './store/runs';
 import { createTemplate, listTemplates, readTemplate, updateTemplate } from './store/templates';
 import { readVersion } from './store/versions';
 import type { Lang, PostmakerMark, Recipe, Run, SignOff, StepVersion, Template } from './types';
-import { acceptableVerdict, type Verdict } from './verdict';
+import { acceptableVerdict, readVerdict, type Verdict } from './verdict';
+import { applyAcceptToTemplate, gateHashesOf, gatesInherited, nextPremiumStreak, SKIP_PROOF_STREAK, streakOf } from './template-rules';
 import { runVerdictOf } from './manual-score';
 import { TEMPLATE_NAME_MAX } from './template-name';
 import type { PostCopyDoc } from './graph/adapters';
 
 export const BELOW_PREMIUM_NOTE = 'below premium';
 export const GENERATOR = PM_GENERATOR;
-const PACKAGE_ID_RE = /^\d{2}$/;
 
 // ---- lineage -----------------------------------------------------------------------------------------
 
@@ -89,10 +94,8 @@ export function countRegenerations(runs: Pick<Run, 'id' | 'recipeId' | 'trigger'
   return n;
 }
 
-/** Premium, live, ≤ 2 regenerations adds one; anything else accepted clean resets to 0. */
-export function nextPremiumStreak(prev: number, o: { verdict: 'premium' | 'standard'; live: boolean; regenerations: number }): number {
-  return o.verdict === 'premium' && o.live && o.regenerations <= 2 ? prev + 1 : 0;
-}
+/** The streak rule (with the hard-gate override) lives in template-rules.ts. */
+export { nextPremiumStreak };
 
 // ---- sign-offs -------------------------------------------------------------------------------------
 
@@ -124,10 +127,16 @@ async function captionText(root: string, v: StepVersion): Promise<string> {
 }
 
 async function nextFreeId(contentDir: string, after: number): Promise<string> {
-  const names = (await fs.readdir(/* turbopackIgnore: true */ contentDir).catch(() => [] as string[])).filter((n) => PACKAGE_ID_RE.test(n));
-  const next = Math.max(after, names.reduce((m, n) => Math.max(m, Number(n)), 0)) + 1;
-  if (next > 99) throw new PostmakerError(409, 'conflict', 'Package numbers are used up (99).');
-  return String(next).padStart(2, '0');
+  const names = await fs.readdir(/* turbopackIgnore: true */ contentDir).catch(() => [] as string[]);
+  const next = nextPackageIdAfter(names, after);
+  if (!next) throw new PostmakerError(409, 'conflict', PACKAGE_IDS_USED_UP);
+  return next;
+}
+
+/** The package's campaign.json; `slot` is the campaign slot's id when the post was made for one, else ''. */
+export function campaignRecord(recipe: Pick<Recipe, 'campaignId' | 'slot'>, by: string, at: string): { campaign: string; campaign_name?: string; slot: string; made_by: string; made_at: string } {
+  const slot = recipe.slot && recipe.slot.campaignId === recipe.campaignId ? recipe.slot : null;
+  return { campaign: recipe.campaignId!, ...(slot?.name ? { campaign_name: slot.name } : {}), slot: slot?.slotId ?? '', made_by: by, made_at: at };
 }
 
 export interface WrittenPackage {
@@ -137,7 +146,7 @@ export interface WrittenPackage {
 
 /**
  * `writePostmakerPackage`: builds the package in a hidden staging folder, then renames it to the next
- * free `NN` (a rename onto a folder another writer just made fails and the next number is tried), so Posts never
+ * free package id (package-id.ts; a rename onto a folder another writer just made fails and the next number is tried), so Posts never
  * sees a half-written package. Files: `video.mp4` and `cover.png` copied from the render objects (re-hashed after the
  * copy), `caption.txt` from post-copy; `package.json` (format reel, project handle, current experiment, sha256 per
  * file, source.generator 'postmaker'); `postmaker.json`; `campaign.json` when the recipe has a campaign.
@@ -152,12 +161,16 @@ export async function writePostmakerPackage(o: {
   postCopy: StepVersion;
   signoffs: SignOff[];
   template: Pick<Template, 'id'> | null;
+  /** The variant the proof was made for (a fork's `forkOf.variantId`); null = the default variant. */
+  variantId?: string | null;
   templateName: string;
   /** The template revision this accept writes, shown as "v‹revision›" in the Posts origin line. */
   templateRevision: number;
   verdict: 'premium' | 'standard';
   by: string;
   now: number;
+  /** The gates this accept took from the template's named sign-offs (skip proof in the daily run). */
+  inherited?: PostmakerMark['inherited'];
 }): Promise<WrittenPackage> {
   const contentDir = path.resolve(o.project.contentDir);
   await fs.mkdir(/* turbopackIgnore: true */ contentDir, { recursive: true });
@@ -196,7 +209,7 @@ export async function writePostmakerPackage(o: {
       schema: 'signal.pm.mark/1',
       recipeId: o.recipe.id,
       templateId: o.template?.id ?? null,
-      variantId: o.run.variantId,
+      variantId: o.variantId !== undefined ? o.variantId : o.run.variantId,
       runId: o.run.id,
       lang: o.lang,
       lineageRoot: lineageRootOf(entries),
@@ -208,11 +221,12 @@ export async function writePostmakerPackage(o: {
       signoffs: o.signoffs,
       acceptedBy: o.by,
       acceptedAt: at,
-      slotAt: null,
+      slotAt: o.recipe.slot && o.recipe.slot.campaignId === o.recipe.campaignId ? o.recipe.slot.at : null,
       pipeline: null,
       // The template revision this accept writes (its snapshot is this proof), not the recipe version.
       template: { name: o.templateName, version: o.templateRevision },
       verdict: o.verdict,
+      ...(o.inherited?.length ? { inherited: o.inherited } : {}),
     };
 
     let after = 0;
@@ -229,7 +243,7 @@ export async function writePostmakerPackage(o: {
       };
       await fs.writeFile(/* turbopackIgnore: true */ path.join(staging, 'package.json'), JSON.stringify(spec, null, 2) + '\n', { mode: FILE_MODE });
       await fs.writeFile(/* turbopackIgnore: true */ path.join(staging, 'postmaker.json'), JSON.stringify(mark, null, 2) + '\n', { mode: FILE_MODE });
-      if (o.recipe.campaignId) await fs.writeFile(/* turbopackIgnore: true */ path.join(staging, 'campaign.json'), JSON.stringify({ campaign: o.recipe.campaignId, slot: '', made_by: o.by, made_at: at }, null, 2) + '\n', { mode: FILE_MODE });
+      if (o.recipe.campaignId) await fs.writeFile(/* turbopackIgnore: true */ path.join(staging, 'campaign.json'), JSON.stringify(campaignRecord(o.recipe, o.by, at), null, 2) + '\n', { mode: FILE_MODE });
       const target = path.join(contentDir, id);
       try {
         // rename(2) fails when another writer has already put a package there (a non-empty folder).
@@ -307,11 +321,60 @@ function assertAtProof(run: Run): void {
   if (!atProof) throw new PostmakerError(409, 'conflict', 'This run has not reached Proof.');
 }
 
+export const NOT_INHERITED_TEXT = 'Narration text or voice changed since the template was signed. Check it on Proof.';
+
+/**
+ * The gates a skip-proof accept takes from the template, verified here inside the
+ * recipe lock whatever the caller decided. All must hold: the run is a fork of a template that is not retired; that
+ * template + variant has skip proof on and a streak of at least 3; every current step is live; the check (or a person's
+ * score on an Unscored proof) rates it Premium; the narration-text and voice versions are the template's
+ * (`gatesInherited`); and every gate the fork's own records leave unsigned has a
+ * named person's pass on the exact template version it was forked from. Otherwise 409 and nothing is written.
+ * Returns the inherited records by node id (empty when every gate carries its own sign-off).
+ */
+async function inheritedGates(root: string, recipe: Recipe, s: GraphState, extra: SignOff[], verdict: Verdict): Promise<Map<string, SignOff>> {
+  const refuse = (m: string) => new PostmakerError(409, 'accept-blocked', m);
+  const fork = (await readRecipeIndex(root, recipe.id))?.forkOf ?? null;
+  const t = fork ? await readTemplate(root, fork.templateId) : null;
+  if (!fork || !t) throw refuse('Only a post made from a template can skip proof.');
+  if (t.status === 'retired') throw refuse('This template is retired.');
+  const st = streakOf(t, fork.variantId);
+  if (!st || !st.skipProof || st.streak < SKIP_PROOF_STREAK) throw refuse('Skip proof is off for this template.');
+  if (Object.values(s.current).some((v) => v && v.mode !== 'live')) throw refuse('Made with mock steps. Accept as draft instead.');
+  if (verdict !== 'premium') throw refuse('The check did not rate it Premium.');
+  if (!gatesInherited(t, fork.variantId, { current: s.current, languages: recipe.languages })) throw refuse(NOT_INHERITED_TEXT);
+  const out = new Map<string, SignOff>();
+  for (const n of s.pipeline.nodes) {
+    if (!n.gate || n.gate.id === 'proof') continue;
+    const v = s.current[n.id];
+    if (!v) throw refuse(`${n.id} needs a named sign-off.`);
+    if (personSignOff(v, n.gate.id, extra)) continue;
+    const so = await inheritedSignOff(root, v, n.gate.id);
+    if (!so) throw refuse(NOT_INHERITED_TEXT);
+    out.set(n.id, so);
+  }
+  return out;
+}
+
 /**
  * `proof.accept`. Runs under the recipe mutex, so no edit or step commit lands between the checks and the
  * package. 409 for every refusal (lineage out of date, unsigned, mock, verdict, run state).
  */
-export async function acceptProof(o: { engine: PostmakerEngine; root: string; project: AcceptProject; runId: string; asDraft: boolean; templateName: string; by: string; now?: () => number }): Promise<AcceptResult> {
+export async function acceptProof(o: {
+  engine: PostmakerEngine;
+  root: string;
+  project: AcceptProject;
+  runId: string;
+  asDraft: boolean;
+  templateName: string;
+  by: string;
+  now?: () => number;
+  /**
+   * The daily run's skip-proof accept. Gates the fork's own records leave unsigned may be taken from the
+   * template's named sign-offs, only under the full rule (`inheritedGates`). The API never sets it.
+   */
+  inheritGates?: boolean;
+}): Promise<AcceptResult> {
   const now = o.now ?? Date.now;
   const name = o.templateName.trim().replace(/\s+/g, ' ');
   if (!name || name.length > TEMPLATE_NAME_MAX) throw new PostmakerError(400, 'validation', `Give the template a name (up to ${TEMPLATE_NAME_MAX} characters).`);
@@ -326,14 +389,15 @@ export async function acceptProof(o: { engine: PostmakerEngine; root: string; pr
     const check = s.current.check ?? null;
     if (!check || !s.pipeline.nodes.some((n) => n.id === 'check')) throw new PostmakerError(409, 'conflict', 'This run has not reached Proof.');
     assertRunIsCurrent(run, s);
-    const blockers = acceptBlockers(s, { asDraft: o.asDraft });
+    // An Unscored proof the owner scored by hand on this exact check version takes that verdict.
+    const verdict = await runVerdictOf(o.root, run.id, check);
+    const inherited = o.inheritGates === true && !o.asDraft ? await inheritedGates(o.root, recipe, s, s.signoffs ?? [], verdict) : new Map<string, SignOff>();
+    const blockers = acceptBlockers(s, { asDraft: o.asDraft }).filter((b) => !(b.why === 'unsigned' && inherited.has(b.nodeId)));
     if (blockers.length) {
       const e = new PostmakerError(409, 'accept-blocked', blockers.some((b) => b.why === 'out-of-date') ? 'Some steps are out of date.' : blockers[0]!.text);
       (e as PostmakerError & { blockers?: unknown }).blockers = blockers;
       throw e;
     }
-    // an Unscored proof the owner scored by hand on this exact check version takes that verdict.
-    const verdict = await runVerdictOf(o.root, run.id, check);
     const extra = s.signoffs ?? [];
     const signoffs: SignOff[] = [];
     if (!o.asDraft) {
@@ -341,7 +405,7 @@ export async function acceptProof(o: { engine: PostmakerEngine; root: string; pr
       for (const n of s.pipeline.nodes) {
         if (!n.gate || n.gate.id === 'proof') continue;
         const v = s.current[n.id];
-        const so = v ? personSignOff(v, n.gate.id, extra) : null;
+        const so = v ? (personSignOff(v, n.gate.id, extra) ?? inherited.get(n.id) ?? null) : null;
         if (!so) throw new PostmakerError(409, 'accept-blocked', `${n.id} needs a named sign-off.`);
         signoffs.push(so);
       }
@@ -362,6 +426,12 @@ export async function acceptProof(o: { engine: PostmakerEngine; root: string; pr
     // the packages, with this accept's outcome already in it.
     const existing = await templateFor(o.root, run);
     if (existing?.status === 'retired') throw new PostmakerError(409, 'conflict', 'This template is retired.');
+    // A fork accepts into the template it was made from (never a new one) and never moves its snapshot.
+    const fork = (await readRecipeIndex(o.root, run.recipeId))?.forkOf ?? null;
+    if (fork && (!existing || existing.id !== fork.templateId)) throw new PostmakerError(409, 'conflict', 'The template this post was made from is gone.');
+    const variantId = fork ? fork.variantId : run.variantId;
+    const postName = fork && existing ? existing.name : name;
+    if (variantId && !existing?.variants.some((v) => v.id === variantId)) throw new PostmakerError(409, 'conflict', 'This variant is no longer on the template.');
     const base: Template = existing ?? {
       schema: 'signal.pm.template/1',
       id: newTemplateId(o.project, at),
@@ -388,7 +458,8 @@ export async function acceptProof(o: { engine: PostmakerEngine; root: string; pr
 
     if (o.asDraft) {
       // A draft accept snapshots the proof but never proves or demotes the template and writes no package.
-      template = await write((t) => ({ ...t, name, snapshot }));
+      // A fork's draft accept leaves its template as it is.
+      template = fork && existing ? existing : await write((t) => ({ ...t, name, snapshot }));
       await updateRun(o.root, run.id, (r) => ({ ...r, status: 'done', pausedFor: null, finishedAt: iso }));
       await appendEvent(o.root, run.id, { at: iso, kind: 'run.done', text: 'accepted as draft', data: { templateId: template.id } });
       return { runId: run.id, asDraft: true, verdict, packageIds: [], template, note: null };
@@ -402,7 +473,8 @@ export async function acceptProof(o: { engine: PostmakerEngine; root: string; pr
       const postCopy = s.current[`post-copy:${lang}`];
       if (!render || !postCopy) throw new PostmakerError(409, 'accept-blocked', `The ${lang} version is not made yet.`);
       const langSignoffs = signoffs.filter((x) => x.nodeId.endsWith(`:${lang}`));
-      const w = await writePostmakerPackage({ root: o.root, project: o.project, recipe, run, lang, render, postCopy, signoffs: langSignoffs, template: base, templateName: name, templateRevision: revision, verdict: clean, by: o.by, now: at });
+      const inheritedHere = [...inherited.entries()].filter(([id]) => id.endsWith(`:${lang}`)).map(([nodeId, so]) => ({ nodeId, fromRecipeId: s.current[nodeId]!.forkedFrom!.recipeId, fromVersion: so.version, fromHash: so.hash }));
+      const w = await writePostmakerPackage({ root: o.root, project: o.project, recipe, run, lang, render, postCopy, signoffs: langSignoffs, template: base, variantId, templateName: postName, templateRevision: revision, verdict: clean, by: o.by, now: at, inherited: inheritedHere });
       packageIds.push(w.id);
       await updateRun(o.root, run.id, (r) => ({ ...r, packageIds: [...r.packageIds, w.id] }));
     }
@@ -413,18 +485,15 @@ export async function acceptProof(o: { engine: PostmakerEngine; root: string; pr
     }
     const regenerations = countRegenerations(runs.map((r) => (r.id === run.id ? { ...r, packageIds: [] } : r)), run.recipeId, run.id);
     const live = Object.values(s.current).every((v) => !v || v.mode === 'live');
+    // A verdict the person gave by hand on an Unscored proof (or a sheet marked manual) is a hard-gate override.
+    const read = await readVerdict(o.root, check);
+    const override = read.manual || read.verdict === 'unscored';
+    // A skip-proof accept is not a proof the person checked: the template (streak, skip proof, proven state)
+    // is left as it was; the write only moves the revision the package records.
     template = await write((t) => {
-      const streak = nextPremiumStreak(t.premiumStreak, { verdict: clean, live, regenerations });
-      const proven = clean === 'premium';
-      const variants = run.variantId ? t.variants.map((v) => (v.id === run.variantId && proven ? { ...v, status: 'proven' as const, provenRunId: run.id } : v)) : t.variants;
-      return {
-        ...t,
-        name,
-        snapshot,
-        variants,
-        premiumStreak: streak,
-        ...(proven && !run.variantId ? { status: 'proven' as const, provenRunId: run.id, provenAt: iso, provenBy: o.by } : {}),
-      };
+      if (inherited.size || o.inheritGates) return t;
+      const next = applyAcceptToTemplate(t, { verdict: clean, live, regenerations, override, variantId, runId: run.id, at: iso, by: o.by, gateHashes: gateHashesOf(s.current), proveTemplate: !fork || t.status !== 'proven' });
+      return fork ? next : { ...next, name, snapshot };
     });
     await updateRun(o.root, run.id, (r) => ({ ...r, status: 'done', pausedFor: null, finishedAt: iso }));
     await appendEvent(o.root, run.id, { at: iso, kind: 'run.done', text: 'accepted', data: { packageIds, templateId: template.id, verdict: clean } });

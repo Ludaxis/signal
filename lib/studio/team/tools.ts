@@ -17,6 +17,7 @@ import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@
 import { campaignsDir, getPlan } from '../campaigns';
 import { ContentError, isPackageId, listPackages, loadPackage, pkgPath, writeJsonReplace, type PackageStatus, type PackageView } from '../content';
 import { buildPack } from '../memory/packs';
+import { PACKAGE_ID_RE } from '../package-id';
 import { memoryDir, newId, recordEvent } from '../memory/store';
 import type { Role } from '../memory/types';
 import { todayInZone } from '@/lib/time';
@@ -218,7 +219,7 @@ export function signalTools(ctx: ToolContext): AnyTool[] {
   const getPost = tool(
     'get_post',
     'One post: caption, files (names and roles), source items, campaign brief, metrics and any existing review. The reviewer also receives the slides (or the reel cover) as images.',
-    { id: z.string().regex(/^\d{2}$/) },
+    { id: z.string().regex(PACKAGE_ID_RE) },
     guarded('get_post', async (a) => {
       const p = await loadPackage(a.id);
       const body = {
@@ -246,7 +247,7 @@ export function signalTools(ctx: ToolContext): AnyTool[] {
   const writeReview = tool(
     'write_review',
     'Store your review of a post (review.json next to the package). It informs the owner; it never approves or changes the post.',
-    { id: z.string().regex(/^\d{2}$/), review: reviewSchema },
+    { id: z.string().regex(PACKAGE_ID_RE), review: reviewSchema },
     guarded('write_review', async (a) => {
       const p = await loadPackage(a.id);
       const review: Review = reviewSchema.parse(a.review);
@@ -272,7 +273,7 @@ export function signalTools(ctx: ToolContext): AnyTool[] {
   const writeSpec = tool(
     'write_spec',
     'Store a brief / production / motion spec next to a package (spec.json) or next to a campaign plan (specs/<slot>.json). A spec is a proposal; nothing is rendered or posted by this call.',
-    { package: z.string().regex(/^\d{2}$/).optional(), campaign: z.string().regex(CAMPAIGN_RE).optional(), slot: z.string().regex(SLOT_RE).optional(), spec: specSchema },
+    { package: z.string().regex(PACKAGE_ID_RE).optional(), campaign: z.string().regex(CAMPAIGN_RE).optional(), slot: z.string().regex(SLOT_RE).optional(), spec: specSchema },
     guarded('write_spec', async (a) => {
       const file = await storeSpec({ package: a.package, campaign: a.campaign ?? ctx.campaign ?? undefined, slot: a.slot }, specSchema.parse(a.spec), by);
       return text({ ok: true, stored: path.basename(file), kind: a.spec.kind });

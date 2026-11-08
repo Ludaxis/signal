@@ -123,6 +123,8 @@
 .studio .pm-preview-text { margin: 0; max-block-size: 220px; overflow: auto; }
 .studio .pm-step-body { display: flex; flex-direction: column; gap: var(--space-3); padding-block-start: var(--space-3); }
 .studio .pm-sign-state { margin: 0; font-weight: 600; }
+.studio .pm-missing { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.studio .pm-missing-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 
 /* Regenerate dialog and versions */
 .studio .pm-regen { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -195,3 +197,42 @@
 .studio .pm-row-link:hover { text-decoration: underline; }
 .studio .pm-row-link:focus-visible { outline: 3px solid var(--brand-ink); outline-offset: 2px; }
 .studio .pm-plus::before { content: '+ '; }
+
+/* Proven: template cards on Home › Proven, the Proven screen, Make a post, Add variant, Repeat. */
+.studio .pm-error { color: var(--danger); margin: 0; }
+.studio .pm-pills { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.studio .pm-cover { flex: 0 0 auto; inline-size: 48px; block-size: 64px; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-sunken); border: 1px solid var(--rule); }
+.studio .pm-tcards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); }
+.studio .pm-tcard { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-md); }
+.studio .pm-tcard-text { flex: 1 1 auto; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.studio .pm-proven { display: flex; flex-direction: column; gap: var(--space-4); }
+.studio .pm-proven-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.studio .pm-proven-title { flex: 1 1 auto; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.studio .pm-proven-dl { padding: var(--space-4); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-md); gap: var(--space-3); }
+.studio .pm-proven-dl .pm-dl-row { grid-template-columns: 120px 1fr; align-items: start; }
+.studio .pm-proven-campaign, .studio .pm-proven-repeat { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio .pm-proven-campaign .pm-select { inline-size: auto; min-inline-size: 200px; }
+.studio .pm-variants { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.studio .pm-variant { display: flex; align-items: center; gap: var(--space-3); }
+.studio .pm-variant-text { flex: 1 1 auto; min-inline-size: 0; display: flex; flex-direction: column; }
+.studio .pm-proven-foot { justify-content: space-between; }
+.studio .pm-proven-secondary { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
+.studio .pm-make, .studio .pm-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.studio .pm-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: var(--space-3); }
+.studio .pm-num { inline-size: 100%; }
+.studio .pm-times { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio .pm-time { display: inline-flex; align-items: center; gap: var(--space-1); }
+.studio .pm-time .pm-input { inline-size: 88px; }
+.studio .pm-radios { border: 0; margin: 0; padding: 0; }
+.studio .pm-radios > legend { padding: 0; margin: 0 0 var(--space-1); }
+.studio .pm-tfilter { margin-block-end: var(--space-3); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* Move my pipelines (row on Home, facts in its dialog) */
+.studio .pm-move-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0; padding-block: var(--space-2); padding-inline: var(--space-4); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--ink); }
+/* The dialog's three facts read as one list: the two lines below the body share its indent, size and colour. */
+.studio .pm-move-facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--t-md); line-height: var(--t-md-lh); color: var(--graphite); }
+.studio .pm-switch-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: var(--space-1) var(--space-3); }
+.studio .pm-switch-label { font-weight: 500; }
+.studio .pm-switch-why { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .studio .pm-proven-dl .pm-dl-row { grid-template-columns: 1fr; }
+}

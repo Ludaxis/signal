@@ -1,6 +1,6 @@
 'use client';
 // Run bar: under the stepper while a run is going or paused. "Step k of n · ‹step› · $spent of
-// $cap [Stop]"; a pause shows its dictionary line with its one way on: "Continue run" after an edit or a sign-off,
+// $cap [Stop]"; a pause shows its dictionary line with its one way on: "Continue run" after an edit, a sign-off or Pause,
 // "Raise cap" and "Stop" at the cap. Gone when the run is done, stopped, failed or waiting at Proof.
 import { useState, type CSSProperties } from 'react';
 import type { Run } from '@/lib/studio/postmaker/types';
@@ -49,7 +49,7 @@ export function RunBar({ run, titleOf, onStop, onContinue, onRaise, busy = false
         <span data-content> · {t('pm.runbar.spent', { spent: money(run.spentUsd), cap: money(run.capUsd) })}</span>
       </span>
       <span className="pm-runbar-actions">
-        {paused === 'edit' || paused === 'gate' || paused === 'attended' ? (
+        {paused === 'edit' || paused === 'gate' || paused === 'attended' || paused === 'paused' ? (
           <Button dense level="secondary" busy={busy} onClick={onContinue}>
             {t('pm.runbar.continue')}
           </Button>

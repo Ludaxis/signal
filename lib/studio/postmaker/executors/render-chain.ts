@@ -9,6 +9,7 @@ import { resolveFonts, type FontFile } from '../render/fonts';
 import { fakeRenderChain, type RenderChain } from '../render/renderer';
 import type { TimelineFont } from '../render/timeline';
 import type { ExecInput, ExecUpstream } from './types';
+import type { PackWorlds } from './creative-world';
 
 export interface RenderChainDeps {
   chain: RenderChain;
@@ -20,6 +21,8 @@ export interface RenderChainDeps {
   workDir: (runId: string, nodeId: string) => string;
   /** Faces for the render (pack faces when the caller has a pack). */
   fonts: () => FontFile[];
+  /** The characters and backgrounds compose draws (the pack); absent = scenes stay colour fields. */
+  art?: PackWorlds['art'];
 }
 
 export function renderChainDeps(o: Partial<RenderChainDeps> = {}): RenderChainDeps {
@@ -29,6 +32,7 @@ export function renderChainDeps(o: Partial<RenderChainDeps> = {}): RenderChainDe
     readObject: o.readObject,
     workDir: o.workDir ?? ((runId, nodeId) => path.join(os.tmpdir(), 'signal-pm-render', runId, nodeId.replace(/[^a-z0-9-]/gi, '-'))),
     fonts: o.fonts ?? (() => resolveFonts().fonts),
+    ...(o.art ? { art: o.art } : {}),
   };
 }
 

@@ -142,6 +142,18 @@ export interface AssetLicence {
   aiGenerated: boolean;
   vendor?: { name: string; model: string; requestId: string; promptRef: string; c2pa: boolean };
   consentRef?: string | null;
+  /** Pack (proposed): the owner's plan tier for a track made under their own vendor plan. */
+  plan?: string | null;
+}
+
+/** Pack: the declared grid of a music asset. */
+export interface MusicMeta {
+  bpm: number;
+  firstDownbeatMs: number;
+  beatsPerBar: 3 | 4;
+  declaredBy: 'pack' | 'user' | 'prompt';
+  sections?: { label: string; startMs: number }[];
+  loopable: boolean;
 }
 
 export interface Asset {
@@ -156,6 +168,7 @@ export interface Asset {
   licence: AssetLicence;
   status: 'draft' | 'approved' | 'retired';
   approvedBy: string | null;
+  music?: MusicMeta;
 }
 
 // ---- artifacts, provenance --------------------------------------------------------------------------------
@@ -236,6 +249,19 @@ export interface Recipe {
   tempo: { bpm: number; downbeatMs: number } | null;
   evidence: { sheets: string[]; cuts: number[]; silences: [number, number][]; loudnessLufs: number | null };
   stopAfterRecipe: boolean;
+  /**
+   * The campaign slot a "Make a post" fork was made for. Accept writes `slotId` into the
+   * package's campaign.json and `at` into the lineage lock's `slotAt`. Missing on older recipes = none.
+   */
+  slot?: RecipeSlot | null;
+}
+
+/** The campaign slot a fork was made for (ids as campaigns.ts writes them; `name` for the Posts origin line). */
+export interface RecipeSlot {
+  campaignId: string;
+  slotId: string;
+  at: string | null;
+  name: string | null;
 }
 
 /** `recipes/<id>/recipe.json`: the mutable index of one recipe workspace. */
@@ -367,6 +393,17 @@ export interface StepVersion {
   editedByUser: boolean;
   status: 'ok' | 'needs-you' | 'failed' | 'candidate';
   signoffs: SignOff[];
+  /**
+   * Set on a `source: 'fork'` version, the template version it points at (same outputs, same
+   * objects; only the recipe id, number and recorded input hashes differ). `gatesInherited` compares `hash`.
+   */
+  forkedFrom?: { recipeId: string; nodeId: string; n: number; hash: string };
+  /**
+   * On a step that reads the recipe's beats (`script`), the recipe version and the hash of its beats the step
+   * was made from. A later recipe whose beats differ makes the step out of date ("The recipe changed"); a version
+   * without it (made before) is never out of date for this reason.
+   */
+  recipe?: { version: number; beats: string };
   hash: string; // sha256(JCS(this without `hash`))
 }
 
@@ -420,7 +457,8 @@ export interface Run {
   reservedUsd: number;
   estimate: Estimate;
   status: 'queued' | 'running' | 'needs-you' | 'done' | 'stopped' | 'failed';
-  pausedFor: 'cap' | 'day-ceiling' | 'edit' | 'check' | 'gate' | 'attended' | null;
+  /** `paused` = a person pressed Pause (`run.pause`); Continue run resumes it. */
+  pausedFor: 'cap' | 'day-ceiling' | 'edit' | 'check' | 'gate' | 'attended' | 'paused' | null;
   steps: RunStep[];
   packageIds: string[];
   attended: boolean;
@@ -456,13 +494,40 @@ export interface EventLine {
 
 // ---- templates --------------------------------------------------------------------------------------------
 
+/** The parameters a variant may change; nothing else. */
+export type VariantParams = Partial<{ lang: Lang; lengthSec: number; shape: Shape; hook: string; voice: string; music: string; dualCaptions: boolean }>;
+export const VARIANT_PARAMS = ['lang', 'lengthSec', 'shape', 'hook', 'voice', 'music', 'dualCaptions'] as const;
+
 export interface TemplateVariant {
   id: string;
   label: string;
-  params: Partial<{ lang: Lang; lengthSec: number; shape: Shape; hook: string; voice: string; music: string; dualCaptions: boolean }>;
+  params: VariantParams;
   status: 'draft' | 'proven';
   provenRunId: string | null;
+  /**
+   * (per template + variant): consecutive Premium live proofs of this variant with ≤ 2
+   * regenerations and no hard-gate override. A variant written before per-variant streaks reads as 0.
+   */
+  premiumStreak: number;
+  /** "Skip proof for repeat runs" for this variant; settable only at streak ≥ 3; missing reads as false. */
+  skipProofForRepeats: boolean;
+  /**
+   * The narration-text and voice version hashes of the variant's accepted Premium proof (by node id); what
+   * `gatesInherited` compares a fork with. Null until the variant is proven.
+   */
+  gateHashes?: Record<string, string> | null;
 }
+
+/** What a client sends to `template.variant.save`; status, streak and proof are the server's. */
+export interface VariantDraft {
+  id?: string;
+  label: string;
+  params: VariantParams;
+}
+
+/** The Repeat settings (the Pipelines editors moved here); off unless the person turns it on. */
+export type RepeatSettings = NonNullable<Template['repeat']>;
+export type RepeatInput = Omit<RepeatSettings, 'enabled'> & { enabled?: boolean };
 
 export interface Template {
   schema: 'signal.pm.template/1';
@@ -483,18 +548,48 @@ export interface Template {
   builtIn: boolean;
   pack: string | null;
   campaignIds: string[];
-  inputs: { kind: 'brief' | 'campaign-slot' | 'topic-list' | 'website-page' | 'ideas'; lockedNodes: string[] };
+  /** `list`: the topics a `topic-list` template repeats through, in order (a migrated pipeline's list). */
+  inputs: { kind: 'brief' | 'campaign-slot' | 'topic-list' | 'website-page' | 'ideas'; lockedNodes: string[]; list?: string[] };
   variants: TemplateVariant[];
   repeat: null | { enabled: boolean; perWeek: number; days: number[]; times: string[]; makeAheadDays: number; dailyUsd: number; approve: 'ask' | 'trusted' };
+  /** The default variant's "Skip proof for repeat runs" (variants carry their own). */
   skipProofForRepeats: boolean;
-  /** consecutive Premium live proofs with ≤ 2 regenerations. */
+  /** Consecutive Premium live proofs with ≤ 2 regenerations, for the default variant. */
   premiumStreak: number;
   migratedFrom: string | null;
+  /**
+   * Set on a template moved from a v1 pipeline: its one-node `legacy-format` pipeline (the v1 post
+   * generator for one format). Missing or null = a Post maker template.
+   */
+  legacy?: LegacyPipeline | null;
   /**
    * 1 when created, +1 on every write of the template (store/templates.ts sets it; callers cannot). A file
    * written before the counter reads as 1. A Post maker package records the revision its accept wrote.
    */
   revision: number;
+}
+
+/**
+ * The one step of a moved v1 pipeline: the v1 post generator for one format, its connector chain, and
+ * the pipeline's prompt template and caption style. Not an engine step kind: the daily run makes it (migrate/legacy.ts).
+ */
+export interface LegacyFormatNode {
+  id: 'legacy-format';
+  kind: 'legacy-format';
+  title: string;
+  connectorChain: string[];
+  params: { format: string; template: string; captionStyle: string };
+  attendance: 'any' | 'attended-only';
+}
+
+/** A moved pipeline's own copy of its format's built-in one-node pipeline, plus the v1 review flag. */
+export interface LegacyPipeline {
+  schema: 'signal.pm.legacy-pipeline/1';
+  /** The built-in format template it copies (`format:<format>`). */
+  builtIn: string;
+  nodes: [LegacyFormatNode];
+  /** v1 `review.enabled`: the reviewer runs on each made post, as before the move. */
+  review: boolean;
 }
 
 // ---- lineage lock, pins ----------------------------------------------------------------------------------
@@ -524,6 +619,12 @@ export interface PostmakerMark {
   template?: { name: string; version: number } | null;
   /** the check verdict at accept ('standard' packages carry the "below premium" note). */
   verdict?: 'premium' | 'standard';
+  /**
+   * Gates this skip-proof accept took from the template's named sign-offs. Each entry
+   * names the template version the person signed; the matching record in `signoffs` is that person's own record
+   * (bound to the template version's hash), never a record of the fork's version.
+   */
+  inherited?: { nodeId: string; fromRecipeId: string; fromVersion: number; fromHash: string }[];
 }
 
 /** `postmaker/pins.json`: objects an approved package depends on; a future clean-up never removes them. */
@@ -606,6 +707,55 @@ export interface CacheEntry {
   version: number;
   hash: string;
   at: string;
+}
+
+// ---- narration-text (moved here from executors/narration-text.ts) ----------------------
+
+/** The registers of a narration line (as amended): fa, and the English set. */
+export type FaRegister = 'colloquial' | 'neutral' | 'formal';
+export type EnRegister = 'casual' | 'neutral' | 'formal';
+
+/** A script line as `narration-text:<lang>` reads it (the script's `lines` output). */
+export interface NarrationScriptLine {
+  id: string;
+  beatId: string;
+  speaker: string;
+  langs: Lang[];
+  fa?: { display: string; register?: FaRegister; allowDiacritics?: number[] } | null;
+  en?: { display: string; register?: EnRegister } | null;
+}
+
+/** An English narration line; the fa line is the Persian guide's `FaLineText`. */
+export interface EnNarrationLine {
+  id: string;
+  beatId: string;
+  speaker: string;
+  display: string;
+  tts: string;
+  register: EnRegister;
+}
+
+/** A linter finding of `narration-text` (errors become required step checks). */
+export interface NarrationCheck {
+  lineId: string;
+  ruleId: string;
+  severity: 'error' | 'warning';
+  message: string;
+  span?: [number, number];
+  suggestion?: string;
+}
+
+/** `NarrationLine`: the per-voice projection of a stored line (spoken = tts[profile], offsets = spans). */
+export interface NarrationLine {
+  id: string;
+  beatId: string;
+  speaker: string;
+  display: string;
+  spoken: string;
+  /** [spokenStart, spokenEnd, displayStart, displayEnd] */
+  offsets: [number, number, number, number][];
+  register: FaRegister | EnRegister;
+  ttsHash: string;
 }
 
 // ---- ledger -----------------------------------------------------------------------------------------------
@@ -869,10 +1019,43 @@ export type PostmakerAction =
   | { action: 'proof.accept'; runId: string; asDraft: boolean; templateName: string }
   /** the owner scores an Unscored live proof by hand, each score with an evidence note. */
   | { action: 'proof.score'; runId: string; lang: Lang; scores: { criterion: CriterionId; score: RubricScoreValue; note: string }[] }
-  | { action: 'template.make-post'; templateId: string; variantId?: string; brief: { topic: string; hook?: string; notes?: string }; campaignSlot?: { campaignId: string; slotId: string } }
-  | { action: 'template.variant.save'; templateId: string; variant: TemplateVariant }
-  | { action: 'template.repeat.set'; templateId: string; repeat: NonNullable<Template['repeat']> }
-  | { action: 'template.retire'; templateId: string };
+  /** `brief` may be left out when `campaignSlot` prefills it. */
+  | { action: 'template.make-post'; templateId: string; variantId?: string; brief?: { topic: string; hook?: string; notes?: string }; campaignSlot?: { campaignId: string; slotId: string }; capUsd?: number }
+  | { action: 'template.variant.save'; templateId: string; variant: VariantDraft }
+  | { action: 'template.repeat.set'; templateId: string; repeat: RepeatInput }
+  /** VariantId null = the default variant. */
+  | { action: 'template.skip-proof.set'; templateId: string; variantId: string | null; on: boolean }
+  | { action: 'template.campaign.attach' | 'template.campaign.detach'; templateId: string; campaignId: string }
+  | { action: 'template.duplicate'; templateId: string; name?: string }
+  | { action: 'template.retire'; templateId: string }
+  /** "Make with Codex" for one pending asset request (attended only: a person's press in the open app). */
+  | { action: 'asset.make'; requestId: string }
+  /** A named person approves or rejects a draft asset (agent ids and `mock` are refused, 403). */
+  | { action: 'asset.approve'; assetId: string; name: string; allowedUses?: AssetUse[] }
+  | { action: 'asset.reject'; assetId: string; name: string }
+  /** Moves every pipeline into a template with Repeat (started by the person; once; backup first). */
+  | { action: 'postmaker.migrate' }
+  /** Undoes the last move (or `migrationId`): templates go to a dated folder, pipelines come back from the backup. */
+  | { action: 'postmaker.migrate.undo'; migrationId?: string };
+
+/** The template as Home and the Recipe screen show it (variants, streaks, Repeat summary). */
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  status: Template['status'];
+  recipeId: string;
+  provenRunId: string | null;
+  premiumStreak: number;
+  skipProofForRepeats: boolean;
+  /** Skip proof may be turned on for the default variant (streak ≥ 3, not retired). */
+  skipProofAllowed: boolean;
+  campaignIds: string[];
+  revision: number;
+  variants: (Pick<TemplateVariant, 'id' | 'label' | 'params' | 'status' | 'provenRunId' | 'premiumStreak' | 'skipProofForRepeats'> & { skipProofAllowed: boolean })[];
+  repeat: RepeatSettings | null;
+  /** The `pl-…` id of the pipeline this template was moved from (null for a Post maker template). */
+  migratedFrom?: string | null;
+}
 
 export interface RecipeViewNode extends PipelineNode {
   status: StepStatus;
@@ -904,6 +1087,10 @@ export interface RecipeView {
   verdict: Verdict;
   /** The project's IANA time zone: every date on the screens is shown in it. */
   timeZone: string;
+  /** The template this recipe was made from (a fork) or proved (its source); null when there is none. */
+  template?: TemplateSummary | null;
+  /** Set on a fork made by "Make a post": the template and variant it came from. */
+  forkOf?: RecipeIndex['forkOf'];
 }
 
 /** `GET recipes/[id]?only=recipe`, for a recipe stopped before its pipeline was built. */

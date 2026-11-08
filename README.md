@@ -11,8 +11,8 @@
 - **Memory and mind map**: a decision map of goals → strategies → pillars → hypotheses → posts, with learnings computed from your results, and a routing "judge" that answers small questions cheaply.
 - **Agent team**: nine roles (lead, researcher, strategist, planner, creative producer, motion designer, reviewer, analyst, community manager) on the Claude Agent SDK with hard tool allow-lists and budgets. Nothing in the team can publish.
 - **Autopilot with trust**: once a day, make the planned posts; a format earns trust after five of your approvals in a row and only then may autopilot approve and schedule it, with a daily budget, a backlog limit and a one-click "pull".
-- **Pipelines**: one chain per pipeline (Source → Make → Review → Approve → Schedule, with a budget) that runs inside the daily autopilot run without a campaign: new website pages, your own topic list, AI-written ideas or a campaign's plan, on the days and times you pick.
-- **Post maker** (off by default): drop a reference video, get a recipe and a step pipeline, review the result on Proof, and accept it as one post per language. Persian and English, with a pronunciation layer for Persian voices. Every paid service has its own switch and key; with none on, every step is a watermarked mock that can only be accepted as a draft.
+- **Pipelines** (until you move them into Post maker): one chain per pipeline (Source → Make → Review → Approve → Schedule, with a budget) that runs inside the daily autopilot run without a campaign: new website pages, your own topic list, AI-written ideas or a campaign's plan, on the days and times you pick. With Post maker on, **Move my pipelines** turns each one into a proven template with Repeat (Post maker › Proven › Repeat), and the Pipelines tab goes away once nothing is left in it.
+- **Post maker** (off by default): drop a reference video, get a recipe and a step pipeline, review the result on Proof, and accept it as one post per language. An accepted proof becomes a proven template: make more posts from it, add variants, attach it to a campaign, and let it repeat on a schedule (Repeat is off by default). Persian and English, with a pronunciation layer for Persian voices. Every paid service has its own switch and key; with none on, every step is a watermarked mock that can only be accepted as a draft.
 - **Connections**: every service a project uses on one screen; link or change its Upload-Post profile and flip one-click posting there, without re-entering the posting limits.
 
 ## Screenshots
@@ -45,6 +45,15 @@ A pipeline makes posts by itself, on a schedule, without a campaign plan. On the
 
 Pipelines run inside the daily autopilot run under exactly the same rules: the `autopilot` switch, the pause switches, the budget checked before each step, the backlog limit, trust, and never Codex without a button press (**Run now** on the card runs that one pipeline, Codex included). Every post lands in Review with "Made by autopilot" and the pipeline's name on its card. Pipelines live in `<project folder>/pipelines/<id>.json`; the runner's state (next topic, queued ideas, last result) in `<id>.state.json`. Removing a pipeline archives the file; its posts stay.
 
+**Moving pipelines into Post maker.** With Post maker on, Post maker's home shows one row, **Move my pipelines (n)**.
+The move is one-time and started only by you: it copies `pipelines/` byte for byte into `pipelines/.backup-<time>/`,
+turns each pipeline into a template with Repeat equal to its schedule, budget and approval (Post maker › Proven, pill
+**Moved**), copies its runner state, and marks the pipeline file `archived: true` without changing anything else in it.
+Moved templates pause until Repeat is on. Pipelines that already make posts from a template, and pipelines whose post
+type needs Codex at your desk, are not moved and keep the Pipelines tab (with the reason). **Undo** never deletes: the
+moved templates go to `templates/.undone-<time>/` and the pipeline files come back from the backup byte for byte. Once
+no pipeline is left, the nav has no Pipelines item and `?tab=pipelines` opens Post maker › Proven.
+
 ### Post maker
 
 Turn on `postmaker` (Connections → Features, or `"postmaker": true` in `signal.config.json`) and the **Post maker** tab
@@ -67,6 +76,17 @@ What is real and what is mock:
   (`SIGNAL_RENDER_BROWSER`, or `npm --prefix render run browser:ensure`). Without it, renders stay mock and Connections
   shows the renderer as Not installed. Remotion has its own licence, which is not MIT: **check Remotion's current
   licence before commercial renders** ([render/README.md](render/README.md)).
+- An accepted proof is a **proven template** (Post maker › Proven): **Make a post** forks it with a new brief (the
+  locked steps keep their versions; only what depends on the brief runs again) and stops at Proof; **variants** change
+  only the declared settings (language, length, shape, hook, voice, music, dual captions) and need their own proof;
+  attach it to a campaign, and a campaign slot can name it (**Choose** on the slot, then **Make**).
+- With a project pack, the art, animation and sound steps plan from the pack's library (cut-out characters, music
+  conformed to the script's tempo, sound effects); without one they stay mocks. Your own music track can be uploaded.
+- **Repeat** (off by default) lets a proven template make its own posts inside the daily autopilot run, on the days,
+  times and budget you set in its Repeat drawer. It needs the `autopilot` and `postmakerRepeat` switches; each post
+  stops at Proof (Today › Needs you) unless **Skip proof for repeat runs** is on for that variant, which unlocks only
+  after three Premium, live proofs in a row and holds only while every step is live and the signed Persian text and
+  voice are unchanged. Autopilot never approves a Post maker post: you approve it in Review.
 - `npm run postmaker:slice -- --browser <chrome-headless-shell>` runs the end-to-end check on your computer with every
   connector off and writes two real 30 s renders and a report to `test-results/`.
 
@@ -107,6 +127,7 @@ All **off** by default. Each one is checked at the moment it would matter and th
 | `uploadPostScheduling` | Schedule posts on Upload-Post (posts while your machine is off) | No |
 | `uploadPostProfiles` | Create / inspect Upload-Post profiles from the project wizard | No |
 | `postmaker` | The Post maker tab and every Post maker action (mock steps only, until a service below is on) | No |
+| `postmakerRepeat` | Proven templates with Repeat on make their posts in the daily autopilot run (needs `autopilot`) | What their steps cost |
 | `postmakerElevenlabs` | ElevenLabs voices for Post maker (`ELEVENLABS_API_KEY`) | Yes |
 | `postmakerAzureSpeech` | Azure Speech voices for Post maker (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`) | Yes |
 | `postmakerSync` | Sync lip-sync for Post maker (`SYNC_API_KEY`) | Yes |

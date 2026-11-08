@@ -9,7 +9,12 @@
 // is installed for the render child; fakes otherwise), the real narration-text step. Make it / Analyse read the
 // reference with analyse (mock mode: beats at the detected cuts, $0); its detected text is stored under
 // refs/<id>/, never in the recipe.
+// The template actions (Make a post, variants, Repeat settings, skip-proof, campaign attach, duplicate,
+// retire) answer through template-actions.ts; Make a post forks the template and starts its run like Make it.
 import { agentBilling } from '../claude-agent';
+import { getCampaign, markSlotMade } from '../campaigns';
+import { campaignAction, duplicateAction, makePostFork, retireAction, saveVariantAction, setRepeatAction, setSkipProofAction, templateCard, templateOfRecipe, type TemplateCard } from './template-actions';
+import { templateSummary, type TemplateLimits } from './template-rules';
 import { connectorAllowed, connectorById, connectorRows, CONNECTORS, vendorDayCapUsd } from './connectors';
 import { postmakerPaused } from './connectors/features';
 import { PostmakerError } from './errors';
@@ -23,25 +28,30 @@ import type { LlmRequest, LlmResult } from './connectors/cli';
 import { resolveFonts } from './render/fonts';
 import { defaultRenderChain, type RenderChain } from './render/renderer';
 import { serviceExecutors } from './wiring';
+import { approveAsset, makeRequestedAsset, packNames, rejectAsset } from './executors/art-assets';
+import { campaignSlotHolder, recipeStillMaking, recordCampaignSlot, SLOT_TAKEN_TEXT } from './repeat-state';
 import { buildPipeline, facesOf, type BuildOptions } from './graph/build';
-import { LOCAL_CONNECTORS } from './graph/kinds';
+import { LOCAL_CONNECTORS, ROLE_CAP_USD } from './graph/kinds';
+import { release, reserve, settle } from './store/ledger';
 import { deriveStatus } from './graph/status';
 import { edgesOf, validatePipeline } from './graph/validate';
 import { loadProjectPack } from './pack/load';
 import { packPolicy } from './pack/policy';
 import { readReference, referenceSource, saveDetectedText } from './references';
+import { readUpload } from './uploads';
+import { mergeBeat } from './regenerate-beat';
 import { PostmakerEngine, type RunHandle } from './runner';
-import { readSignOffs, recordSignOff, signoffsDep } from './signoffs';
+import { inheritedSignOff, readSignOffs, recordSignOff, signoffsDep } from './signoffs';
 import { proofProjections } from './checks/proof';
 import { listDir, pretty, readJsonFile, writeReplace } from './store/fs';
 import { withLock } from './store/mutex';
 import { NODE_ID_RE, notesFile, objectPath, postmakerRoot, recipeDir } from './store/paths';
 import { createRecipe, listRecipeIds, openStore, readPipeline, readRecipe, readRecipeIndex, writePipelineVersion, writeRecipeVersion, type RecipeDraft } from './store/recipes';
 import { appendEvent, listRunIds, readEvents, readRun, updateRun } from './store/runs';
-import { listTemplates, readTemplate, updateTemplate } from './store/templates';
+import { listTemplates } from './store/templates';
 import { listVersions, readVersion } from './store/versions';
 import { getJson } from './store/objects';
-import type { ArtifactRef, CheckResult, ConnectorRow, GraphOp, Pipeline, PipelineNode, PmNote, PostmakerAction, ProjectLike, ProofProjection, Recipe, RecipeOnlyView, RecipeView, RecipeViewNode, Reference, RoutesDoc, Run, RunView, Scope, StepVersion, Template } from './types';
+import type { ArtifactRef, CheckResult, ConnectorRow, GateId, GraphOp, Pipeline, PipelineNode, PmNote, PostmakerAction, ProjectLike, ProofProjection, Recipe, RecipeOnlyView, RecipeView, RecipeViewNode, Reference, RoutesDoc, Run, RunView, Scope, StepVersion, TemplateSummary } from './types';
 import { projectTimeZone } from '../time';
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -54,6 +64,10 @@ export interface DeconstructInput {
   reference: Reference;
   options: { languages: Recipe['languages']; lengthSec: number; shape: Recipe['shape']; campaignId?: string | null; capUsd?: number; stopAfterRecipe?: boolean };
   project: ServiceProject;
+  /** `recipe.regenerate-beat`: the beat read again and the person's note (untrusted data for the agent). */
+  beat?: { id: string; note: string | null };
+  /** Told how the reference was read (a live deconstructor call and its cost, or the free mock read). */
+  onRead?: (r: { mode: 'live' | 'mock'; costUsd: number | null }) => void;
 }
 /** Turns a reference into a recipe draft (the `analyse` step; deconstructor replaces the mock default). */
 export type Deconstruct = (i: DeconstructInput) => Promise<Omit<RecipeDraft, 'projectId' | 'referenceId'>>;
@@ -72,6 +86,10 @@ export interface ServiceDeps {
   render?: RenderChain | null;
   /** ffmpeg tools for the analyse pre-processing (tests inject an allow-listed spawn). */
   analyseTools?: AnalyseTools;
+  /** What every template can make; default the core builder's limits. */
+  templateLimits?: TemplateLimits;
+  /** Tests: whether the deconstructor runs live for Regenerate beat (default: the claude-cli connector's decision). */
+  deconstructLive?: boolean;
 }
 
 type G = typeof globalThis & { __signalPostmakerServiceDeps?: ServiceDeps };
@@ -99,22 +117,33 @@ const connectorDayCap = async (id: string): Promise<number | null> => {
   return c ? vendorDayCapUsd(c) : null;
 };
 
-export async function engineFor(project: ServiceProject): Promise<{ engine: PostmakerEngine; root: string; decisions: Map<string, Awaited<ReturnType<typeof connectorAllowed>>> }> {
+/** An attended-only connector (Codex, a browser agent): never live in a run nobody pressed. */
+export const attendedOnlyConnector = (id: string): boolean => id === 'codex' || id.startsWith('browser-agent') || CONNECTORS.find((c) => c.id === id)?.attendance === 'attended-only';
+
+/**
+ * The engine for one request.: `attended: false` is the daily run's engine: connectors are decided for an
+ * unattended run and an attended-only connector is never live, whatever a test hook says; `inheritGates` lets a
+ * repeat run's paid steps go on below a gate a named person passed on the template (signoffs.ts).
+ */
+export async function engineFor(project: ServiceProject, o: { attended?: boolean; inheritGates?: boolean } = {}): Promise<{ engine: PostmakerEngine; root: string; decisions: Map<string, Awaited<ReturnType<typeof connectorAllowed>>> }> {
   const root = rootOf(project);
   await openStore(root);
   const d = deps();
-  const decisions = await allowedNow(true);
+  const attended = o.attended ?? true;
+  const decisions = await allowedNow(attended);
+  const base = d.allowed ?? ((c: string) => decisions.get(c)?.live ?? false);
   const policy = d.executors ? null : await packPolicy(project, root);
   const render = d.executors ? null : d.render === undefined ? defaultRenderChain() : d.render;
   const engine = new PostmakerEngine({
     root,
     project: { id: project.id, timeZone: project.timeZone },
-    executors: d.executors ?? serviceExecutors({ root, render, billing: await agentBilling(), pack: policy }),
+    executors: d.executors ?? serviceExecutors({ root, render, billing: await agentBilling(), pack: policy, loadPack: () => loadProjectPack(project, root) }),
     // Ruling 8: with the real render chain, the free adapters rebuild captions and the timeline with builders.
     ...(render ? { adapterFonts: () => resolveFonts().fonts } : {}),
     ...(policy?.claims ? { pack: { claims: policy.claims } } : {}),
-    allowed: d.allowed ?? ((c) => decisions.get(c)?.live ?? false),
+    allowed: attended ? base : (c, n) => !attendedOnlyConnector(c) && base(c, n),
     signoffs: signoffsDep(root),
+    ...(o.inheritGates ? { inheritedGate: async (_recipeId: string, _nodeId: string, gate: GateId, v: StepVersion) => (await inheritedSignOff(root, v, gate)) !== null } : {}),
     ...(d.dayCeilingUsd !== undefined ? { dayCeilingUsd: d.dayCeilingUsd } : {}),
     connectorDayCapUsd: d.connectorDayCapUsd ?? connectorDayCap,
     ...(d.now ? { now: d.now } : {}),
@@ -169,10 +198,14 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
   return async (input) => {
     const { reference, options } = input;
     const src = reference.kind === 'video' ? referenceSource(o.root, reference) : null;
-    if (!src) return mockDeconstruct(input);
+    if (!src) {
+      input.onRead?.({ mode: 'mock', costUsd: 0 });
+      return mockDeconstruct(input);
+    }
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'signal-pm-analyse-'));
     try {
-      const read = (mode: 'live' | 'mock') => analyseReference({ src, workDir, languages: options.languages, lengthSec: options.lengthSec, shape: options.shape, mode, call: o.call, root: o.root, tools: o.tools });
+      const userNotes = input.beat?.note ? [input.beat.note] : undefined;
+      const read = (mode: 'live' | 'mock') => analyseReference({ src, workDir, languages: options.languages, lengthSec: options.lengthSec, shape: options.shape, mode, call: o.call, root: o.root, tools: o.tools, ...(userNotes ? { userNotes } : {}) });
       let note: string | null = o.live && o.vision === false ? VISION_FALLBACK_NOTE : null;
       let r;
       if (o.live && !note) {
@@ -183,7 +216,11 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
           note = VISION_FALLBACK_NOTE;
         }
       }
-      r ??= await read('mock');
+      if (r) input.onRead?.({ mode: 'live', costUsd: r.costUsd });
+      else {
+        r = await read('mock');
+        input.onRead?.({ mode: 'mock', costUsd: 0 });
+      }
       await saveDetectedText(o.root, reference.id, r.detectedText, Date.now(), note);
       return { campaignId: options.campaignId ?? null, packId: null, languages: options.languages, lengthSec: options.lengthSec, shape: options.shape, fps: 30, capUsd: options.capUsd ?? 0, ...recipeFields(r), stopAfterRecipe: options.stopAfterRecipe ?? false };
     } finally {
@@ -192,9 +229,41 @@ export function analyseDeconstruct(o: { root: string; live: boolean; vision?: bo
   };
 }
 
+/** Whether the deconstructor would run live now (the claude-cli connector's attended decision). */
+async function deconstructorLive(): Promise<boolean> {
+  const cli = connectorById('claude-cli') as RegisteredConnector<LlmRequest, LlmResult> | null;
+  return cli ? (await connectorAllowed(cli, { attended: true })).live : false;
+}
+
+/**
+ * A live deconstructor read behind Regenerate beat goes through the run ledger like every paid call: the
+ * deconstructor's role cap is reserved against the project's day ceiling and the connector's own day cap before the
+ * read; afterwards the real cost is settled (unknown: the reserve), a read that fell back to the free mock releases it,
+ * and a failed read counts at the reserve. The mock read stays $0 and unledgered.
+ */
+async function ledgeredBeatRead<T>(root: string, project: ServiceProject, recipe: Recipe, beatId: string, live: boolean, read: (onRead: NonNullable<DeconstructInput['onRead']>) => Promise<T>): Promise<T> {
+  if (!live) return read(() => {});
+  const d = deps();
+  const usd = ROLE_CAP_USD.analyse ?? 2;
+  const runId = `beat-${recipe.id}-${beatId}-${randomBytes(3).toString('hex')}`;
+  const r = await reserve(root, { project: { id: project.id, timeZone: project.timeZone }, runId, nodeId: 'analyse', connector: 'claude-cli', usd, runCapUsd: usd, ...(d.dayCeilingUsd !== undefined ? { dayCeilingUsd: d.dayCeilingUsd } : {}), connectorDayCapUsd: (await (d.connectorDayCapUsd ?? connectorDayCap)('claude-cli')) ?? null, now: d.now?.() });
+  if (!r.ok) throw new PostmakerError(409, 'day-ceiling', r.limit === 'connector-day' ? 'Claude has reached its daily limit. Try again tomorrow.' : 'The daily limit is reached. Try again tomorrow.');
+  let seen: { mode: 'live' | 'mock'; costUsd: number | null } | null = null;
+  try {
+    const out = await read((x) => (seen = x));
+    const s = seen as { mode: 'live' | 'mock'; costUsd: number | null } | null;
+    if (s?.mode === 'mock') await release(root, r.id);
+    else await settle(root, r.id, { usd: typeof s?.costUsd === 'number' ? s.costUsd : 0, known: typeof s?.costUsd === 'number', note: 'regenerate beat' });
+    return out;
+  } catch (e) {
+    await settle(root, r.id, { usd: 0, known: false, note: 'regenerate beat failed' }).catch(() => undefined);
+    throw e;
+  }
+}
+
 async function defaultDeconstruct(root: string): Promise<Deconstruct> {
   const cli = connectorById('claude-cli') as RegisteredConnector<LlmRequest, LlmResult> | null;
-  const live = cli ? (await connectorAllowed(cli, { attended: true })).live : false;
+  const live = await deconstructorLive();
   const call = cli ? connectorCall(cli, { runId: 'postmaker', nodeId: 'analyse', workDir: os.tmpdir(), onEvent: () => {}, idempotencyKey: `pm-${randomBytes(6).toString('hex')}`, deps: {} }) : null;
   return analyseDeconstruct({ root, live, vision: connectorCanSee(cli), call, tools: deps().analyseTools });
 }
@@ -274,7 +343,10 @@ export function applyGraphOps(p: Pick<Pipeline, 'nodes'>, ops: GraphOp[]): Pick<
 
 export interface PostmakerHome {
   recipes: { id: string; referenceId: string | null; languages: Recipe['languages']; lengthSec: number; shape: Recipe['shape']; pipeline: number | null; forkOf: { templateId: string; variantId: string | null } | null; updatedAt: string }[];
-  templates: Pick<Template, 'id' | 'name' | 'status' | 'recipeId' | 'provenRunId' | 'premiumStreak'>[];
+  /** With variants, per-variant streaks, skip-proof and the Repeat settings. */
+  templates: TemplateSummary[];
+  /** Per template id, what its card and the Proven screen show (steps, cost and time of its proof, cover). */
+  templateCards?: Record<string, TemplateCard>;
   runs: (Pick<Run, 'id' | 'recipeId' | 'templateId' | 'trigger' | 'status' | 'pausedFor' | 'startedAt' | 'finishedAt' | 'spentUsd' | 'packageIds'> & {
     stepsDone: number;
     stepsTotal: number;
@@ -285,6 +357,11 @@ export interface PostmakerHome {
   paused: boolean;
   /** The project's IANA time zone: Runs, drafts and Today show dates in it. */
   timeZone: string;
+  /**
+   * Pipelines a move would take (`postmaker.migrate`), and the move Undo would revert (null: none).
+   * `kept` counts the live pipelines a move leaves (they make posts from a template).
+   */
+  migration?: { pending: number; kept?: number; undo: string | null };
 }
 
 export async function home(project: ServiceProject): Promise<PostmakerHome> {
@@ -297,12 +374,18 @@ export async function home(project: ServiceProject): Promise<PostmakerHome> {
     recipes.push({ id, referenceId: r.referenceId, languages: r.languages, lengthSec: r.lengthSec, shape: r.shape, pipeline: index.pipeline, forkOf: index.forkOf, updatedAt: index.updatedAt });
   }
   const runs: PostmakerHome['runs'] = [];
+  const full: Run[] = [];
   for (const id of (await listRunIds(root)).reverse().slice(0, 20)) {
     const r = await readRun(root, id).catch(() => null);
+    if (r) full.push(r);
     if (r) runs.push({ id: r.id, recipeId: r.recipeId, templateId: r.templateId, trigger: r.trigger, status: r.status, pausedFor: r.pausedFor, startedAt: r.startedAt, finishedAt: r.finishedAt, spentUsd: r.spentUsd, packageIds: r.packageIds, stepsDone: r.steps.filter((x) => x.status === 'done' || x.status === 'skipped').length, stepsTotal: r.steps.length, cover: await coverOf(root, r) });
   }
-  const templates = (await listTemplates(root)).map((t) => ({ id: t.id, name: t.name, status: t.status, recipeId: t.recipeId, provenRunId: t.provenRunId, premiumStreak: t.premiumStreak }));
-  return { recipes, templates, runs, connectors: await connectorRows({ attended: true }), paused: postmakerPaused(), timeZone: projectTimeZone(project.timeZone) };
+  const stored = await listTemplates(root);
+  const templates = stored.map(templateSummary);
+  const templateCards: Record<string, TemplateCard> = {};
+  for (const t of stored) templateCards[t.id] = await templateCard(root, t, full);
+  const moves = await (await import('./migrate/pipelines')).pendingPipelines(project).catch(() => ({ pending: [] as string[], kept: [] as string[], undo: null }));
+  return { recipes, templates, templateCards, runs, connectors: await connectorRows({ attended: true }), paused: postmakerPaused(), timeZone: projectTimeZone(project.timeZone), migration: { pending: moves.pending.length, kept: moves.kept.length, undo: moves.undo } };
 }
 
 /** The first rendered cover of a run that waits for the person (Today › Needs you shows it); null otherwise. */
@@ -363,6 +446,7 @@ export async function recipeView(project: ServiceProject, recipeId: string): Pro
   const used = new Set(pipeline.nodes.flatMap((n) => n.connectorChain));
   const connectors = (await connectorRows({ attended: true, list: CONNECTORS.filter((c) => used.has(c.id)) })) as ConnectorRow[];
   const last = await latestRunOf(root, recipeId);
+  const forkOf = (await readRecipeIndex(root, recipeId))?.forkOf ?? null;
   return {
     recipe,
     pipeline,
@@ -376,6 +460,8 @@ export async function recipeView(project: ServiceProject, recipeId: string): Pro
     proof: await proofOf(root, s.current.check ?? null, last?.id ?? null),
     verdict: await runVerdictOf(root, last?.id ?? null, s.current.check ?? null),
     timeZone: projectTimeZone(project.timeZone),
+    template: await templateOfRecipe(root, recipeId, forkOf),
+    forkOf,
   };
 }
 
@@ -451,8 +537,6 @@ export async function recipeObject(project: ServiceProject, recipeId: string, sh
 
 export type ActionAnswer = { status: 200 | 202; body: Record<string, unknown> };
 
-const PHASE_4 = 'This comes with proven templates in the next release.';
-
 /** Starts a long action and answers with its run id as soon as it exists; errors before the start are thrown. */
 async function startRegenerate(engine: PostmakerEngine, root: string, o: Parameters<PostmakerEngine['regenerate']>[0]): Promise<string> {
   let started!: (id: string) => void;
@@ -471,6 +555,8 @@ async function startRegenerate(engine: PostmakerEngine, root: string, o: Paramet
 }
 
 async function makeRecipe(project: ServiceProject, root: string, referenceId: string, options: DeconstructInput['options']): Promise<Recipe> {
+  // A campaign named in the options must exist (404 before anything is read or made).
+  if (options.campaignId) await getCampaign(options.campaignId);
   const reference = await readReference(root, referenceId);
   const draft = await (deps().deconstruct ?? (await defaultDeconstruct(root)))({ reference, options, project });
   const now = deps().now?.() ?? Date.now();
@@ -540,8 +626,26 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
       const recipe = await writeRecipeVersion(root, a.recipeId, { ...rest, ...a.patch }, { baseVersion: a.baseVersion });
       return ok({ recipe });
     }
-    case 'recipe.regenerate-beat':
-      throw new PostmakerError(409, 'unavailable', 'Redoing one beat needs the reference reader, which is not connected yet.');
+    case 'recipe.regenerate-beat': {
+      // The deconstructor reads the reference again; only this beat takes the new content (regenerate-beat.ts).
+      const cur = await readRecipe(root, a.recipeId);
+      if (!cur) throw new PostmakerError(404, 'not_found', 'Unknown recipe.');
+      if (!cur.beats.some((b) => b.id === a.beatId)) throw new PostmakerError(404, 'not_found', 'Unknown beat.');
+      const reference = await readReference(root, cur.referenceId);
+      const options = { languages: cur.languages, lengthSec: cur.lengthSec, shape: cur.shape, stopAfterRecipe: true };
+      const live = deps().deconstructLive ?? (await deconstructorLive());
+      const deconstruct = deps().deconstruct ?? (await defaultDeconstruct(root));
+      const fresh = await ledgeredBeatRead(root, project, cur, a.beatId, live, (onRead) => deconstruct({ reference, options, project, beat: { id: a.beatId, note: a.note ?? null }, onRead }));
+      const beats = mergeBeat(cur.beats, fresh.beats, a.beatId, cur.languages);
+      const changed = JSON.stringify(beats) !== JSON.stringify(cur.beats);
+      const { schema: _s, id: _i, version: _v, ...rest } = cur;
+      void _s;
+      void _i;
+      void _v;
+      const recipe = changed ? await writeRecipeVersion(root, a.recipeId, { ...rest, beats }, { baseVersion: cur.version }) : cur;
+      const outOfDate = (await readPipeline(root, a.recipeId)) ? Object.values(await engine.status(a.recipeId)).filter((x) => x.outOfDate).map((x) => x.nodeId) : [];
+      return ok({ recipe, beatId: a.beatId, changed, outOfDate });
+    }
     case 'pipeline.build': {
       const recipe = await readRecipe(root, a.recipeId);
       if (!recipe) throw new PostmakerError(404, 'not_found', 'Unknown recipe.');
@@ -569,7 +673,9 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
     case 'step.regenerate-from-here':
       return launched(await engine.regenerateFromHere({ recipeId: a.recipeId, nodeId: a.nodeId, note: a.note, overwriteEdit: a.overwriteEdit, capUsd: a.capUsd, estimateToken: a.estimateToken, by }));
     case 'step.edit': {
-      if (a.output.replaceFile) throw new PostmakerError(409, 'unavailable', 'Replacing a file comes with step uploads.');
+      // Replace file: an upload (uploads.ts) replaces one media output; the port type is checked by the engine.
+      if (a.output.replaceFile && a.output.json) throw new PostmakerError(400, 'validation', 'Replace the file or edit the text, one at a time.');
+      const up = a.output.replaceFile ? await readUpload(root, a.output.replaceFile.uploadId) : null;
       if (a.params !== undefined || a.instructions !== undefined) {
         const p = await readPipeline(root, a.recipeId);
         if (!p) throw new PostmakerError(404, 'not_found', 'This recipe has no pipeline yet.');
@@ -580,8 +686,9 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
         validatePipeline(next);
         await writePipelineVersion(root, a.recipeId, { builtFrom: p.builtFrom, ...next }, { baseVersion: p.version });
       }
-      if (!a.output.json) return ok({ version: null, adapted: [], paused: [] });
-      const r = await engine.edit({ recipeId: a.recipeId, nodeId: a.nodeId, baseVersion: a.baseVersion, output: { json: a.output.json as Record<string, unknown> }, by });
+      if (!a.output.json && !up) return ok({ version: null, adapted: [], paused: [] });
+      const file = up && a.output.replaceFile ? { port: a.output.replaceFile.port, source: up.path, sha256: up.upload.sha256, kind: up.upload.kind, mime: up.upload.mime, ext: up.upload.ext, meta: up.upload.meta } : undefined;
+      const r = await engine.edit({ recipeId: a.recipeId, nodeId: a.nodeId, baseVersion: a.baseVersion, output: file ? { file } : { json: a.output.json as Record<string, unknown> }, by });
       return ok({ version: r.version, adapted: r.adapted, paused: r.paused });
     }
     case 'step.lock':
@@ -597,7 +704,8 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
     case 'step.choose-candidate':
       return ok(await engine.chooseCandidate(a.recipeId, a.nodeId, a.version, a.accept));
     case 'run.pause':
-      throw new PostmakerError(409, 'unavailable', 'A run cannot pause by itself yet. Stop keeps every finished step.');
+      // No new step starts; the steps in progress finish; Continue run resumes without running a step twice.
+      return ok({ run: await engine.pauseRun(a.runId) });
     case 'run.continue': {
       // A run waiting at Proof has nothing left to run; Continue would only relaunch an empty plan.
       const r = await readRun(root, a.runId);
@@ -615,6 +723,15 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
       const st = (await engine.status(a.recipeId))[a.nodeId];
       return ok({ signoff, gate: st?.gate ?? null });
     }
+    case 'asset.make': {
+      // A request from the app is a person's press (attended); the daily run never reaches this action.
+      const pack = await loadProjectPack(project, root).catch(() => null);
+      return ok(await makeRequestedAsset(root, a.requestId, { attended: true, by, holder: project.id, names: await packNames(pack), now: deps().now }));
+    }
+    case 'asset.approve':
+      return ok({ asset: await approveAsset(root, { assetId: a.assetId, name: a.name, by, allowedUses: a.allowedUses }) });
+    case 'asset.reject':
+      return ok({ asset: await rejectAsset(root, { assetId: a.assetId, name: a.name, by }) });
     case 'note.add': {
       const run = await readRun(root, a.runId);
       if (!run) throw new PostmakerError(404, 'not_found', 'Unknown run.');
@@ -631,16 +748,50 @@ export async function handleAction(project: ServiceProject, actor: Actor, a: Pos
       return ok(await scoreProof({ engine, root, runId: a.runId, lang: a.lang, scores: a.scores, by, now: deps().now?.() }));
     case 'proof.accept': {
       const r: AcceptResult = await acceptProof({ engine, root, project, runId: a.runId, asDraft: a.asDraft, templateName: a.templateName, by, now: deps().now });
+      // A post made for a planned campaign slot marks the slot made, so it is never made twice. The slot is also
+      // reserved at fork time (template.make-post), so a second make-post on it is refused while this one runs.
+      const slot = !r.asDraft && r.packageIds.length ? (await readRecipe(root, (await readRun(root, a.runId))!.recipeId))?.slot : null;
+      if (slot) await markSlotMade(slot.campaignId, slot.slotId, r.packageIds[0]!).catch((e: unknown) => console.error('[postmaker] slot', e instanceof Error ? e.name : 'error'));
       return ok({ ...r });
     }
-    case 'template.retire': {
-      if (!(await readTemplate(root, a.templateId))) throw new PostmakerError(404, 'not_found', 'Unknown template.');
-      return ok({ template: await updateTemplate(root, a.templateId, (t) => ({ ...t, status: 'retired', skipProofForRepeats: false })) });
+    case 'template.make-post': {
+      const make = async () => {
+        const now = deps().now?.() ?? Date.now();
+        const fork = await makePostFork({ root, project, templateId: a.templateId, variantId: a.variantId, brief: a.brief, campaignSlot: a.campaignSlot, capUsd: a.capUsd, by, now });
+        const { estimate, capUsd } = await engine.estimate(fork.recipe.id, { all: true });
+        const h = await engine.run({ recipeId: fork.recipe.id, scope: { all: true }, estimateToken: estimate.token, capUsd: a.capUsd ?? capUsd, trigger: fork.slot ? 'campaign-slot' : 'make-a-post', by, attended: true });
+        if (a.campaignSlot) await recordCampaignSlot(root, a.campaignSlot.campaignId, a.campaignSlot.slotId, { slotAt: fork.slot?.at ?? '', slotId: a.campaignSlot.slotId, recipeId: fork.recipe.id, runId: h.run.id, packageIds: [], autopilotRun: '', at: new Date(now).toISOString() });
+        return launched(h, { recipeId: fork.recipe.id, templateId: fork.template.id, variantId: fork.variant?.id ?? null, forked: fork.forked, locked: fork.locked });
+      };
+      if (!a.campaignSlot) return make();
+      // A planned campaign slot is reserved by the post on its way, so two "Make a post" on one slot cannot both
+      // run; a post that stopped, failed or was kept as a draft frees the slot again.
+      const cs = a.campaignSlot;
+      return withLock(`pm-campaign-slot:${root}:${cs.campaignId}:${cs.slotId}`, async () => {
+        const held = await campaignSlotHolder(root, cs.campaignId, cs.slotId);
+        if (held && (await recipeStillMaking(root, held.recipeId))) throw new PostmakerError(409, 'conflict', SLOT_TAKEN_TEXT);
+        return make();
+      });
     }
-    case 'template.make-post':
-    case 'template.variant.save':
+    case 'template.variant.save': {
+      const r = await saveVariantAction(root, a.templateId, a.variant, deps().templateLimits);
+      return ok({ template: templateSummary(r.template), variant: r.variant });
+    }
     case 'template.repeat.set':
-      if (!(await readTemplate(root, a.templateId))) throw new PostmakerError(404, 'not_found', 'Unknown template.');
-      throw new PostmakerError(409, 'unavailable', PHASE_4);
+      return ok({ template: templateSummary(await setRepeatAction(root, a.templateId, a.repeat)) });
+    case 'template.skip-proof.set':
+      return ok({ template: templateSummary(await setSkipProofAction(root, a.templateId, a.variantId, a.on)) });
+    case 'template.campaign.attach':
+    case 'template.campaign.detach':
+      return ok({ template: templateSummary(await campaignAction(root, a.templateId, a.campaignId, a.action === 'template.campaign.attach')) });
+    case 'template.duplicate':
+      return ok({ template: templateSummary(await duplicateAction(root, project, a.templateId, a.name, deps().now?.() ?? Date.now())) });
+    case 'template.retire':
+      return ok({ template: templateSummary(await retireAction(root, a.templateId)) });
+    // The person's one-time move of the pipelines into templates, and its undo (never a run, never a timer).
+    case 'postmaker.migrate':
+      return ok({ ...(await (await import('./migrate/pipelines')).migratePipelines(project, { by, now: deps().now?.() })) });
+    case 'postmaker.migrate.undo':
+      return ok({ ...(await (await import('./migrate/pipelines')).undoMigration(project, { by, migrationId: a.migrationId, now: deps().now?.() })) });
   }
 }

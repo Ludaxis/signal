@@ -3,6 +3,8 @@
 // gated node (`narration-text:fa` text gate, `voice:fa` listening gate), Sign-off. Saving an output makes version
 // n+1 "Edited by you" (dependents become out of date); a sign-off is bound to the version hash the person sees, so an
 // edit or a regenerate after it leaves the new version unsigned. Persian content renders through FaText.
+// (follow-up): on the Scenes step, each pending missing-asset request of the plan is a row
+// "Missing asset · Make with Codex" whose secondary button is the person's attended press (`asset.make`).
 import { useEffect, useMemo, useState } from 'react';
 import type { RecipeView, RecipeViewNode } from '@/lib/studio/postmaker/types';
 import { t } from '../copy/en';
@@ -22,6 +24,19 @@ export interface StepDrawerProps {
   /** After a save or a sign-off: reload the recipe view and say `message`. */
   onChanged: (message: string) => void;
   onError: (message: string) => void;
+}
+
+/** The pending missing-asset requests of a Scenes output (its `scenes` JSON as text); [] for any other step. */
+export function missingAssets(kind: string, scenesText: string | undefined): { id: string; kind: 'background' | 'prop' | 'sticker' | 'ui'; prompt: string }[] {
+  if (kind !== 'art' || !scenesText) return [];
+  try {
+    const doc = JSON.parse(scenesText) as { requests?: { id?: unknown; kind?: unknown; prompt?: unknown; status?: unknown }[] };
+    return (doc.requests ?? [])
+      .filter((r) => r.status === 'pending' && typeof r.id === 'string' && /^ar-[0-9a-f]{12}$/.test(r.id) && ['background', 'prop', 'sticker', 'ui'].includes(String(r.kind)))
+      .map((r) => ({ id: r.id as string, kind: r.kind as 'background' | 'prop' | 'sticker' | 'ui', prompt: String(r.prompt ?? '').slice(0, 120) }));
+  } catch {
+    return [];
+  }
 }
 
 export function StepDrawer({ pid, view, node, tab, onTab, onClose, onChanged, onError }: StepDrawerProps) {
@@ -90,6 +105,13 @@ export function StepDrawer({ pid, view, node, tab, onTab, onClose, onChanged, on
       return t('pm.step.signed', { name: name.trim() });
     });
 
+  const missing = useMemo(() => missingAssets(node.kind, json?.scenes), [node.kind, json]);
+  const make = (requestId: string) =>
+    run(async () => {
+      await pmApi.action(pid, { action: 'asset.make', requestId });
+      return t('pm.step.assetMade');
+    });
+
   const fa = node.lang === 'fa';
   const preview = json ? textOf(Object.values(json).map((v) => (v ? (JSON.parse(v) as unknown) : null))).slice(0, 2000) : '';
   const locked = node.head.locked;
@@ -134,6 +156,24 @@ export function StepDrawer({ pid, view, node, tab, onTab, onClose, onChanged, on
       </div>
       {active === 'output' ? (
         <div className="pm-step-body" role="tabpanel">
+          {missing.length ? (
+            <ul className="pm-missing" aria-label={t('pm.step.missing')} data-testid="missing-assets">
+              {missing.map((m) => (
+                <li key={m.id} className="pm-missing-row">
+                  <span>
+                    <strong>{t('pm.step.missing')}</strong> · {t(`pm.step.missingKind.${m.kind}`)}
+                    <span className="xs pm-muted" data-content>
+                      {' '}
+                      {m.prompt}
+                    </span>
+                  </span>
+                  <Button level="secondary" dense busy={busy} onClick={() => void make(m.id)}>
+                    {t('pm.step.makeCodex')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {preview ? fa ? <FaText variant="md" className="pm-preview-text">{preview}</FaText> : <p className="pm-preview-text" data-content>{preview}</p> : null}
           {ports.length === 0 ? <p className="xs pm-muted">{t('pm.step.noJson')}</p> : null}
           {json

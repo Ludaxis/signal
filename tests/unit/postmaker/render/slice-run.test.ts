@@ -29,6 +29,9 @@ import { installNetworkGuard, networkGuardLog, removeNetworkGuard } from '../../
 import { colourShare, rawOf, type Raw } from './image-compare';
 import { fixtureBuilders, SLICE_NODES, sliceExecutors, sliceFixture, sliceProject, sliceVoice, templateDeconstruct, uploadReference, waitForRun } from '../slice-harness';
 import { reportMarkdown, type SliceReport } from './slice-report';
+import { pacingLint } from '@/lib/studio/postmaker/checks/timelineLints';
+import { prepareCharacter } from '@/lib/studio/postmaker/anim/solve';
+import type { CheckResult } from '@/lib/studio/postmaker/types';
 
 const ON = process.env.SIGNAL_SLICE === '1';
 const OUT = process.env.SIGNAL_SLICE_OUT || path.join(os.tmpdir(), 'signal-slice-evidence');
@@ -60,7 +63,9 @@ const report: SliceReport = {
   networkGuard: [],
   results: {},
   notes: [],
+  creative: { executors: {}, pacing: {}, characters: [], rubric: {}, music: null, sfx: {} },
 };
+const creative = report.creative!;
 
 function ffmpeg(args: string[]): string {
   return child_process.spawnSync(FFMPEG, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).stderr;
@@ -128,7 +133,7 @@ describe.runIf(ON)('@render the slice on this computer', () => {
     const fonts = resolveFonts([packLatin(packDir)]).fonts;
     const chain = makeChildRenderChain({ browserExecutable: process.env.SIGNAL_RENDER_BROWSER || null, cacheDir: path.join(WORK, 'cache') });
     _setServiceDeps({
-      executors: sliceExecutors({ root, render: chain, fakes: { counters: newCounters(), voiceMs: voice.fn }, renderDeps: { ffmpeg: { bin: FFMPEG }, fonts: () => fonts, workDir: (r, n) => path.join(WORK, 'render', r, n.replace(/:/g, '-')) } }),
+      executors: sliceExecutors({ root, project, render: chain, fakes: { counters: newCounters(), voiceMs: voice.fn }, renderDeps: { ffmpeg: { bin: FFMPEG }, fonts: () => fonts, workDir: (r, n) => path.join(WORK, 'render', r, n.replace(/:/g, '-')) } }),
       deconstruct: templateDeconstruct({ root, tools: { ffmpeg: FFMPEG, ffprobe: null, spawn: ffmpegOnly }, workDir: path.join(WORK, 'analyse'), fixture }),
     });
     const ref = await uploadReference(root, project, refFile);
@@ -194,16 +199,67 @@ describe.runIf(ON)('@render the slice on this computer', () => {
         report.frames.push({ lang, name, frame, file: path.relative(OUT, file), sha256: sha(readFileSync(file)), width: raw.width, height: raw.height });
       }
       report.renders[lang] = { probe: p, loudness: video128, mockShareMin, aiLabel, renderTimings: log.timings, bytes: bytes.length, sha256: sha(bytes), fonts: log.fonts };
+
+      // The pacing lint on the composed timeline (hook complete by frame 60, end card 180-270 frames)
+      const lint = pacingLint(timeline);
+      const endSeg = timeline.segments.find((x) => x.segment === 'endcard');
+      creative.pacing[lang] = { hookComplete: timeline.marks.hookComplete, endCardFrames: endSeg ? endSeg.to - endSeg.from : null, violations: lint.map((v) => v.message) };
+      report.results[`pacing ${lang}`] = lint.length === 0;
+      creative.sfx[lang] = current(`mix:${lang}`).checks.find((c) => c.id === `mix:${lang}:sfx`)?.text ?? 'no SFX check';
+
+      // The Tier A lead breathing and blinking, and its gesture at a word onset (frame grabs)
+      const rigged = timeline.characters?.cast.find((a) => a.rig);
+      const lead = timeline.motion?.characters.find((c) => c.charId === rigged?.charId && c.gestures.length > 0);
+      let charOk = false;
+      if (rigged?.rig && lead && timeline.characters) {
+        const solved = prepareCharacter(rigged.rig, lead, { seed: timeline.characters.seed, tempo: timeline.characters.tempo, library: rigged.library });
+        let blink = -1;
+        for (let f = lead.from; f < lead.to && blink < 0; f++) if (solved.at(f).eye === 'closed') blink = f;
+        const g = lead.gestures[0]!;
+        const key = timeline.motion!.keyTokens.find((k) => k.beatId === lead.beatId);
+        const offset = key ? g.at - key.frame : null;
+        const grabs: [string, number, string][] = [
+          ['char-breath', lead.from + 30, `${lead.charId} loops ${lead.loops.join(', ')}`],
+          ...(blink >= 0 ? [['char-blink', blink, `${lead.charId} eyes closed`] as [string, number, string]] : []),
+          ['char-gesture', g.at + 6, `${g.gesture} from ${g.at}, key word onset ${key?.frame ?? '?'} (offset ${offset ?? '?'})`],
+        ];
+        for (const [name, frame, detail] of grabs) {
+          const file = grab(video, frame, path.join(OUT, 'frames', `${lang}-${name}-${frame}.png`));
+          const raw = await rawOf(file);
+          report.frames.push({ lang, name, frame, file: path.relative(OUT, file), sha256: sha(readFileSync(file)), width: raw.width, height: raw.height });
+          creative.characters.push({ lang, what: name, frame, detail });
+        }
+        charOk = lead.loops.includes('breath') && lead.loops.includes('blink') && blink >= 0 && offset !== null && offset >= -6 && offset <= 0;
+      }
+      report.results.characters = (report.results.characters ?? true) && charOk;
     }
     writeEvidence('loudness.json', { measuredWith: 'ffmpeg ebur128=peak=true on the final video; master = the mix step loudness record', ...loudness });
+
+    // The creative executors that ran, the music record and the check's rows
+    for (const id of Object.keys(state.current).sort()) creative.executors[id.split(':')[0]!] = state.current[id]!.implVersion;
+    const grid = await getJson<{ source: string; track: { assetId: string | null }; conform: { stretchPct: number; lufs: number | null } | null }>(root, current('music').outputs.find((o) => o.port === 'beatGrid')!.sha256);
+    creative.music = `${grid.source} ${grid.track.assetId ?? ''}${grid.conform ? `, stretch ${grid.conform.stretchPct.toFixed(1)} %, bed ${grid.conform.lufs?.toFixed(1) ?? '?'} LUFS` : ''}`;
+    const score = await getJson<CheckResult>(root, current('check').outputs.find((o) => o.port === 'score')!.sha256);
+    writeEvidence('score.json', score);
+    let rubricOk = score.sheets.length === LANGS.length;
+    for (const sheet of score.sheets) {
+      creative.rubric[sheet.lang] = sheet.scores
+        .filter((x) => x.criterion === 'C5' || x.criterion === 'C9')
+        .map((x) => {
+          const ev = x.evidence.map((e) => `${e.ref}${e.value ? ` = ${e.value}` : ''}`);
+          if (!ev.length || ev.some((e) => /not measured/i.test(e)) || /not measured/i.test(x.note)) rubricOk = false;
+          return { criterion: x.criterion, evidence: ev, note: x.note };
+        });
+    }
+    report.results['rubric C5 C9'] = rubricOk;
 
     // The checks, recorded before they are asserted so a failure still leaves the output.
     for (const lang of LANGS) {
       const r = report.renders[lang]!;
-      report.results[`${lang}`] = r.probe.codec === 'h264' && r.probe.pixelFormat === 'yuv420p' && r.probe.width === 1080 && r.probe.height === 1920 && r.probe.fps === 30 && Math.abs(r.probe.frames - 900) <= 1 && r.probe.audioCodec === 'aac' && r.probe.sampleRate === 48000 && Math.abs(r.loudness.integratedLufs + 14) <= 1 && r.loudness.truePeakDbtp <= -1.0;
-      report.results[`${lang}`] = r.mockShareMin > 0.9 && r.aiLabel.every((x) => x > 0.3);
+      report.results[`format ${lang}`] = r.probe.codec === 'h264' && r.probe.pixelFormat === 'yuv420p' && r.probe.width === 1080 && r.probe.height === 1920 && r.probe.fps === 30 && Math.abs(r.probe.frames - 900) <= 1 && r.probe.audioCodec === 'aac' && r.probe.sampleRate === 48000 && Math.abs(r.loudness.integratedLufs + 14) <= 1 && r.loudness.truePeakDbtp <= -1.0;
+      report.results[`mock ${lang}`] = r.mockShareMin > 0.9 && r.aiLabel.every((x) => x > 0.3);
     }
-    report.results[''] = (report.timings.makeItToProofMs as number) <= 8 * 60_000;
+    report.results['wall time'] = (report.timings.makeItToProofMs as number) <= 8 * 60_000;
     for (const lang of LANGS) {
       const r = report.renders[lang]!;
       expect(r.probe).toMatchObject({ codec: 'h264', pixelFormat: 'yuv420p', width: 1080, height: 1920, audioCodec: 'aac', sampleRate: 48000 });
@@ -214,6 +270,9 @@ describe.runIf(ON)('@render the slice on this computer', () => {
       expect(r.mockShareMin).toBeGreaterThan(0.9);
       for (const x of r.aiLabel) expect(x).toBeGreaterThan(0.3);
     }
+    for (const lang of LANGS) expect(report.results[`pacing ${lang}`], `pacing ${lang}: ${creative.pacing[lang]?.violations.join('; ')}`).toBe(true);
+    expect(report.results.characters).toBe(true);
+    expect(report.results['rubric C5 C9'], JSON.stringify(creative.rubric)).toBe(true);
     expect(networkGuardLog()).toEqual([]);
   }, 40 * 60_000);
 });

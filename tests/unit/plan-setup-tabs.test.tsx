@@ -98,15 +98,32 @@ describe('Campaigns', () => {
     expect(container.textContent).not.toMatch(/Finished|Finish\b/);
   });
 
-  it('a slot shows its time and hook, with Make and Skip; no template line until Post maker templates exist here', () => {
+  it('a slot shows its time, hook, Make and Skip, and its template name, or "No template" plus a Choose button', () => {
     const { container } = renderCard();
     const slots = Array.from(container.querySelectorAll<HTMLElement>('[data-slot]'));
     expect(within(slots[0]!).getByText('Fixture hook 1')).toBeTruthy();
     for (const s of slots) {
       expect(within(s).getByRole('button', { name: 'Make' })).toBeTruthy();
       expect(within(s).getByRole('button', { name: 'Skip' })).toBeTruthy();
-      expect(within(s).queryByText('No template')).toBeNull();
     }
+    expect(within(slots[0]!).getByText('Question card')).toBeTruthy();
+    expect(within(slots[0]!).queryByRole('button', { name: 'Choose' })).toBeNull();
+    for (const s of slots.slice(1)) {
+      expect(within(s).getByText('No template')).toBeTruthy();
+      expect(within(s).getByRole('button', { name: 'Choose' })).toBeTruthy();
+    }
+  });
+
+  it('Choose lists the templates and records the pick on the slot', async () => {
+    const { container } = renderCard();
+    const second = container.querySelectorAll<HTMLElement>('[data-slot]')[1]!;
+    fireEvent.click(within(second).getByRole('button', { name: 'Choose' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Choose a template' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Question card' }));
+    expect(primaries(drawer)).toBe(1);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Use template' }));
+    await waitFor(() => expect(calls.some((c) => (c.body as { action?: string } | null)?.action === 'slot-template')).toBe(true));
+    expect(calls.find((c) => (c.body as { action?: string } | null)?.action === 'slot-template')!.body).toMatchObject({ slotId: 's2', templateId: 'tpl-20261101-abcd' });
   });
 
   it('empty: New campaign sits inside the empty notice and is the one primary', async () => {
@@ -446,7 +463,7 @@ describe('Connections', () => {
     // The other signal.config.json switches stay reachable below; the Post maker ones are not listed twice.
     fireEvent.click(more);
     expect(panel.hidden).toBe(false);
-    expect(within(panel).getByRole('heading', { name: 'More switches' })).toBeTruthy();
+    expect(await within(panel).findByRole('heading', { name: 'More switches' })).toBeTruthy();
   });
 
   it('the Features group lists the eight Post maker switches from the fixture, all off, each state line at most 6 words', async () => {

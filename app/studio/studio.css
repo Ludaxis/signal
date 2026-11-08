@@ -211,6 +211,41 @@
 .studio .st-nav-list {
   gap: var(--space-1);
 }
+/* Nav groups: 12 px, weight 600, graphite, sentence case, not focusable. Tight spacing so 10 items,
+   4 labels and Sign out fit a 1440 x 900 window; nav items keep their 44 px hit target. */
+.studio .st-nav-list:has(> .st-nav-group) {
+  gap: 0;
+}
+.studio .st-nav-group {
+  gap: var(--space-1);
+}
+.studio .st-nav-group + .st-nav-group {
+  margin-block-start: var(--space-2);
+}
+.studio .st-nav-label {
+  padding-inline: 14px;
+  margin-block-end: -2px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--graphite);
+}
+/* A short window (under 860 px, e.g. 1280 x 800) hides the labels, as 's compact layouts do; the groups stay
+   (role=group with their names) behind a hairline, so Connections and Sign out stay in view. */
+@media (min-width: 641px) and (max-height: 859px) {
+  .studio .st-nav-label {
+    display: none;
+  }
+  .studio .st-aside {
+    gap: var(--space-3);
+    padding-block: var(--space-4);
+  }
+  .studio .st-nav-group + .st-nav-group {
+    margin-block-start: var(--space-1);
+    padding-block-start: var(--space-1);
+    border-block-start: 1px solid var(--rule);
+  }
+}
 .studio .st-signout {
   margin-block-start: auto;
 }
@@ -662,6 +697,7 @@
 .studio .cal2-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 .studio .cal2-status { font-size: 11px; color: var(--graphite); }
 .studio .cal2-item.k-posted { background: var(--paper); }
+.studio .cal2-item.cal2-repeat { border-style: dashed; background: transparent; } /* A Repeat slot, not a post yet */
 .studio .cal2-item.k-posted .cal2-status { color: var(--brand-ink); }
 .studio .cal2-item.s-approved .cal2-status { color: var(--brand-ink); }
 .studio .cal2-item.s-ready .cal2-status { color: var(--amber-ink); }

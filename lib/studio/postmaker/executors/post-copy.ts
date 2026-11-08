@@ -88,9 +88,13 @@ export function subtitlesSrt(t: Pick<TimelineDoc, 'captions'>): string {
     .join('\n');
 }
 
-/** The AI flag from provenance: any upstream made by an agent, a vendor or a mock (never from the agent's answer). */
-export function aiGeneratedFrom(i: Pick<ExecInput, 'inputs' | 'mode'>): boolean {
+/**
+ * The AI flag from provenance: any upstream made by an agent, a vendor or a mock (never from the agent's answer), or
+ * an AI-generated asset the scene plan puts on screen (the composed timeline's `aiAssets`, follow-up).
+ */
+export function aiGeneratedFrom(i: Pick<ExecInput, 'inputs' | 'mode'> & { byPort?: ExecInput['byPort'] }): boolean {
   if (i.mode === 'mock') return true;
+  if ((i.byPort?.timeline as { aiAssets?: boolean } | null | undefined)?.aiAssets === true) return true;
   return i.inputs.some((u) => u.version.mode === 'mock' || (u.version.provenance.connector !== null && !LOCAL_CONNECTORS.has(u.version.provenance.connector)) || u.version.provenance.executor !== 'local');
 }
 

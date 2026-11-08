@@ -20,6 +20,8 @@
 // form, coverage), timings (stats.json), the render log with font hashes. The
 // typography goldens are stills of the slice's own timeline at the same frames with `mock: false`, so the MOCK layer
 // never covers the words a native reader must judge; the MOCK check itself runs on every frame of the mock videos.
+// The slice fixture took the pack template's slice-30 cut (hook complete by frame 60, end card 198 frames), so
+// sl03-hook was re-baselined on 2026-11-07 (provisional); sl03-chant and sl03-reveal compared unchanged.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

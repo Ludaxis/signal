@@ -8,9 +8,17 @@
 // Every rule of the daily run applies: feature switches, pause switches, the daily budget checked before each
 // step, the backlog limit, the unclear-post stop (checked by the caller), one run at a time. Codex formats are
 // made only in a run you started for this one pipeline.
+// A pipeline whose make step names a Post maker template (`fromTemplate`), and every
+// template whose Repeat is on (`runRepeatTemplates`, only while the Repeat switch is on), make their slots through
+// `makeFromTemplate` in the same loop, under the same budget, backlog, per-day and de-dup rules. A template that would
+// run an attended-only connector (Codex) is skipped with the attended wording, except under Run now on its pipeline
+// (attended, made with the attended engine). The made post waits at Proof (a Today ›
+// Needs you item) unless skip proof applies; autopilot never approves a Post maker post (you approve it).
+// A template moved from a pipeline (`legacy`) makes its slots with the v1 generator under the
+// pipeline's own id, rules and budget; its archived pipeline file never runs again.
 import { addDays, todayInZone } from '@/lib/time';
 import { claimProblems, getCampaign, getPlan, makeSlotPost, type Slot } from '../campaigns';
-import { currentLimits, listPackages, loadPackage, pkgPath, setPlan, writeJsonReplace, type PackageView } from '../content';
+import { currentLimits, listPackages, loadPackage, pkgPath, PM_GENERATOR, PM_OWNER_APPROVES, setPlan, writeJsonReplace, type PackageView } from '../content';
 import { BRIEF_FORMATS, FORMAT_LABEL, generatePackage, HEADLINE_FORMATS, type Format } from '../generate';
 import { discoverArticles, loadBrand, readArticle } from '../brand';
 import { insights } from '../analytics';
@@ -23,7 +31,14 @@ import { ATTENDED_ONLY, AUTOPILOT_BY, BACKLOG_LIMIT, HIGGSFIELD_FORMATS, PLAN_CA
 import { MARK_FILE } from '../autopilot/trust';
 import type { AutopilotMark, AutopilotRun } from '../autopilot/types';
 import { listPipelines, readState, stepProblems, upcomingSlots, writeState } from './store';
-import type { Idea, Pipeline, PipelineMark, PipelineSlot, PipelineState } from './types';
+import type { Idea, Pipeline, PipelineMark, PipelineSlot, PipelineState, SourceKind } from './types';
+import { readTemplateState, repeatAllowed, slotsMadeBy, writeTemplateState } from '../postmaker/repeat-state';
+import { postmakerRoot as rootOf } from '../postmaker/store/paths';
+/** The Post maker engine side loads only when a template makes a post, so the daily run and its routes stay light. */
+const repeatEngine = () => import('../postmaker/repeat');
+import { listTemplates, readTemplate } from '../postmaker/store/templates';
+import type { Template } from '../postmaker/types';
+import { legacyFormatOf } from '../postmaker/migrate/legacy';
 
 export const PIPELINE_MARK_FILE = 'pipeline.json';
 /** The most ideas the agent writes in one call (one call per run at most, when the queue is empty). */
@@ -82,7 +97,7 @@ const IDEAS_SPEC = `A JSON object:
 }`;
 
 /** The ideas agent: a handful of post ideas from the brand, past posts and results, written once and queued. */
-async function writeIdeas(p: Pipeline, want: number, all: PackageView[], deps: RunnerDeps): Promise<{ ideas: Idea[]; costUsd: number | null }> {
+async function writeIdeas(p: Pipeline, want: number, all: PackageView[], deps: RunnerDeps, postType: { id: string; name: string } = { id: p.steps.make.format, name: FORMAT_LABEL[p.steps.make.format] }): Promise<{ ideas: Idea[]; costUsd: number | null }> {
   const project = currentProject();
   const brand = await loadBrand(project);
   const ins = insights(all);
@@ -92,7 +107,7 @@ async function writeIdeas(p: Pipeline, want: number, all: PackageView[], deps: R
     .map((x) => ({ title: x.title, caption: x.caption.slice(0, 160), posted: Boolean(x.posted), metrics: x.metrics?.metrics ?? null }));
   const input = {
     project: { name: project.name, instagram: project.handle },
-    postType: { id: p.steps.make.format, name: FORMAT_LABEL[p.steps.make.format] },
+    postType,
     captionStyle: p.steps.make.captionStyle || undefined,
     brand: brand ? { name: brand.name, tagline: brand.tagline, website: brand.website, voice: brand.voice } : null,
     results: { measured: ins.measured, byFormat: ins.byFormat, bestWeekday: ins.bestWeekday, bestHour: ins.bestHour },
@@ -103,7 +118,7 @@ async function writeIdeas(p: Pipeline, want: number, all: PackageView[], deps: R
   const { value, meta } = await runAgent(
     'content-planner',
     {
-      task: `Write ${want} post ideas for ${project.handle}: different topics, no repeats of our recent posts. It is for the "${FORMAT_LABEL[p.steps.make.format]}" post type.`,
+      task: `Write ${want} post ideas for ${project.handle}: different topics, no repeats of our recent posts. It is for the "${postType.name}" post type.`,
       input,
       untrusted,
       outputSpec: IDEAS_SPEC,
@@ -174,25 +189,109 @@ export function briefFor(p: Pipeline, idea: Idea, vars: { brand: string; tone: s
   return { format, captionLead: idea.hook || idea.topic };
 }
 
-/** One pipeline inside the run. */
-async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], deps: RunnerDeps, now: number, manual: boolean): Promise<void> {
-  const id = p.id;
+/**
+ * Who a slot loop belongs to: a pipeline file, or a repeat template. Steps, spend, the slot ledger and the
+ * made posts' marks carry `id`; a template that came from a pipeline keeps that pipeline's `pl-…` id, so
+ * `madeBy()` still finds its earlier posts and no slot is made twice.
+ */
+interface SlotOwner {
+  id: string;
+  name: string;
+  readState(): Promise<PipelineState>;
+  writeState(s: PipelineState): Promise<void>;
+  /** slotAt → package (or, for a post still on its way, recipe) id of every slot this owner already started. */
+  made(all: PackageView[]): Promise<Map<string, string>>;
+  /** The Post maker template the posts are made from; null = the pipeline's format. */
+  template: { id: string; variant: string | null } | null;
+  postType: { id: string; name: string };
+  /** A template moved from a pipeline: made with the v1 generator; its refusals name the template. */
+  legacy?: boolean;
+  /** A pipeline file, whose Run now a person can press (a repeat template has no Run now of its own). */
+  runNow?: boolean;
+}
+
+/** Pipeline marks and, for template posts, the slot ledger (a post at Proof has no package yet). */
+async function madeByOwner(all: PackageView[], ids: string[], ledger: boolean): Promise<Map<string, string>> {
+  const m = new Map<string, string>();
+  for (const id of ids) for (const [at, pkg] of madeBy(all, id)) m.set(at, pkg);
+  if (ledger) for (const [at, e] of await slotsMadeBy(rootOf(currentProject()), ids)) if (!m.has(at)) m.set(at, e.packageIds[0] ?? e.recipeId);
+  return m;
+}
+
+function pipelineOwner(p: Pipeline): SlotOwner {
+  const t = p.steps.make.fromTemplate ?? null;
+  return {
+    id: p.id,
+    name: p.name,
+    readState: () => readState(p.id),
+    writeState: (s) => writeState(p.id, s),
+    made: (all) => madeByOwner(all, [p.id], !!t),
+    template: t,
+    postType: t ? { id: PM_GENERATOR, name: p.name } : { id: p.steps.make.format, name: FORMAT_LABEL[p.steps.make.format] },
+    runNow: true,
+  };
+}
+
+function templateOwner(t: Template): SlotOwner {
+  const root = rootOf(currentProject());
+  const id = t.migratedFrom ?? t.id;
+  const format = legacyFormatOf(t);
+  if (format) {
+    // A moved pipeline makes its posts as the pipeline did (v1 generator, its review and trust rules), with the
+    // old `pl-…` id on every mark, and its run state in templates/<tid>.state.json.
+    return {
+      id,
+      name: t.name,
+      readState: () => readTemplateState(root, t.id),
+      writeState: (s) => writeTemplateState(root, t.id, s),
+      made: (all) => madeByOwner(all, [...new Set([id, t.id])], true),
+      template: null,
+      postType: { id: format, name: FORMAT_LABEL[format] },
+      legacy: true,
+    };
+  }
+  return {
+    id,
+    name: t.name,
+    readState: () => readTemplateState(root, t.id),
+    writeState: (s) => writeTemplateState(root, t.id, s),
+    made: (all) => madeByOwner(all, [...new Set([id, t.id])], true),
+    template: { id: t.id, variant: null },
+    postType: { id: PM_GENERATOR, name: t.name },
+  };
+}
+
+/** One pipeline (or repeat template) inside the run. */
+async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], deps: RunnerDeps, now: number, manual: boolean, owner: SlotOwner = pipelineOwner(p)): Promise<void> {
+  const id = owner.id;
   const skip = (reason: string) => run.steps.push({ kind: 'skip', campaign: null, pipeline: id, reason });
-  const state = await readState(id);
+  const state = await owner.readState();
   const flush = async (result: string | null) => {
     state.lastRunAt = iso(now);
     if (result) state.lastResult = result;
-    await writeState(id, state).catch(() => undefined);
+    await owner.writeState(state).catch(() => undefined);
   };
   const problems = stepProblems(p);
   if (problems.length) {
     skip(problems[0]!);
     return flush(problems[0]!);
   }
+  // Posts from a Post maker template (a repeat template, or a pipeline naming one) are made only while
+  // Post maker is on and not paused and the Repeat switch is on. It is off by default. (A campaign source makes its
+  // plan's own posts and never uses the template.)
+  if (owner.template && p.steps.source.kind !== 'campaign') {
+    const sw = await repeatAllowed();
+    if (!sw.enabled) {
+      const why = `${p.name} makes posts from a template, but nothing is made: ${sw.reason}`;
+      skip(why);
+      return flush(why);
+    }
+  }
   const spent = () => spendOfPipeline([...todays, run], id);
   const cap = p.steps.budget.dailyUsd;
   const overBudget = (next = 0) => spent() + next > cap || spent() >= cap;
   const budgetStop = () => skip(`Daily budget of $${cap.toFixed(2)} reached: $${spent().toFixed(2)} spent today, and the next step could go over it.`);
+  const budgetLeft = () => Math.max(0, Math.round((cap - spent()) * 10_000) / 10_000);
   const review = p.steps.review.enabled;
   const autoPublish: Job['autoPublish'] = p.steps.approve.mode === 'trusted' ? 'trusted' : 'never';
 
@@ -218,7 +317,7 @@ async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], de
     const due = (await getPlan(cid)).slots.filter((sl) => sl.status === 'planned' && sl.date >= today && sl.date <= horizon && Date.parse(sl.at) > now).sort((a, b) => a.at.localeCompare(b.at));
     let made = 0;
     for (const sl of due) {
-      const outcome = await makeOne(run, p, { id: sl.id, date: sl.date, time: sl.time, at: sl.at, packageId: null }, { idea: { topic: sl.hook, hook: sl.hook, prompt: sl.prompt, headline: sl.headline }, commit: () => undefined }, sl.format, { overBudget, budgetStop, review, autoPublish, manual, deps, now, campaign: cid, slot: sl });
+      const outcome = await makeOne(run, p, { id: sl.id, date: sl.date, time: sl.time, at: sl.at, packageId: null }, { idea: { topic: sl.hook, hook: sl.hook, prompt: sl.prompt, headline: sl.headline }, commit: () => undefined }, sl.format, { overBudget, budgetStop, budgetLeft, review, autoPublish, manual, deps, now, campaign: cid, slot: sl, owner: { ...owner, template: null } });
       if (outcome === 'stop') break;
       if (outcome === 'made') made += 1;
     }
@@ -227,7 +326,7 @@ async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], de
 
   // ---- own schedule: days × times inside make-ahead ---------------------------------------------------------
   let all = await listPackages();
-  const open = upcomingSlots(p, madeBy(all, id), now).filter((sl) => !sl.packageId);
+  const open = upcomingSlots(p, await owner.made(all), now).filter((sl) => !sl.packageId);
   if (!open.length) return flush('Up to date: every upcoming slot has a post.');
   const taken = takenDays(all, id);
   // The account's per-day limit: a post that could never be scheduled on its day is not made at all.
@@ -240,11 +339,33 @@ async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], de
   const room = new Map<string, number>();
   for (const sl of open) if (!room.has(sl.date)) room.set(sl.date, Math.max(0, lim.maxPerDay - (perDay.get(sl.date) ?? 0)));
   const format = p.steps.make.format;
-  if (ATTENDED_ONLY.includes(format) && !manual) {
+  if (owner.template) {
+    // A template that would run an attended-only connector is never made by a run nobody pressed.
+    const t = await readTemplate(rootOf(currentProject()), owner.template.id).catch(() => null);
+    if (!t) {
+      skip('The template no longer exists.');
+      return flush('The template no longer exists.');
+    }
+    const att = await (await repeatEngine()).templateAttendance(rootOf(currentProject()), t, owner.template.variant);
+    // Run now on this pipeline is attended (a person pressed it) and makes the post with the attended engine,
+    // so only a run nobody pressed refuses an attended-only connector.
+    if (att.attendedOnly && !manual) {
+      // A pipeline has Run now; a repeat template has none, so its refusal names Proven (note).
+      const text = (owner.runNow ? att.runNowText : att.text) ?? att.text!;
+      skip(text);
+      return flush(`Waiting for you: ${text}`);
+    }
+  } else if (ATTENDED_ONLY.includes(format) && !manual && owner.legacy) {
+    // A moved Codex pipeline keeps the attended refusal, in the template wording; a template has
+    // no Run now, so the wording never says "press Run now" (wording part).
+    const text = (await repeatEngine()).codexTemplateText(owner.name);
+    skip(text);
+    return flush(`Waiting for you: ${text}`);
+  } else if (ATTENDED_ONLY.includes(format) && !manual) {
     skip(`${FORMAT_LABEL[format]} uses Codex, which runs only when you press Run now on this pipeline.`);
     return flush('Waiting for you: Codex posts are made only when you press Run now.');
   }
-  if (HIGGSFIELD_FORMATS.includes(format)) {
+  if (!owner.template && HIGGSFIELD_FORMATS.includes(format)) {
     const hf = await higgsfieldAllowed();
     if (!hf.enabled) {
       skip(hf.reason);
@@ -254,6 +375,7 @@ async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], de
   const brand = await loadBrand(currentProject()).catch(() => null);
   const vars = { brand: brand?.name || currentProject().name, tone: (brand?.voice ?? []).join(', ') };
   let made = 0;
+  let waiting = 0;
   for (const sl of open) {
     if (taken.has(sl.date)) {
       skip(`${sl.date} already has a post from elsewhere; this slot is left out.`);
@@ -272,9 +394,9 @@ async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], de
       }
       const want = Math.min(IDEAS_PER_CALL.max, Math.max(IDEAS_PER_CALL.min, open.length));
       try {
-        const r = await writeIdeas(p, want, all, deps);
+        const r = await writeIdeas(p, want, all, deps, owner.postType);
         state.ideas.push(...r.ideas);
-        await writeState(id, state).catch(() => undefined);
+        await owner.writeState(state).catch(() => undefined);
         run.steps.push({ kind: 'ideas', pipeline: id, ideas: r.ideas.length, costUsd: r.costUsd });
         await recordEvent({ type: 'plan.made', by: 'agent:planner', refs: { run: run.id }, data: { pipeline: id, ideas: r.ideas.length, requestedBy: AUTOPILOT_BY } });
       } catch (e) {
@@ -289,22 +411,27 @@ async function runOne(run: AutopilotRun, p: Pipeline, todays: AutopilotRun[], de
       return flush(picked.skip.charAt(0).toUpperCase() + picked.skip.slice(1));
     }
     if ('agent' in picked) break; // cannot happen: the queue was just filled
-    const outcome = await makeOne(run, p, sl, picked, format, { overBudget, budgetStop, review, autoPublish, manual, deps, now, campaign: null, slot: null, vars });
+    const outcome = await makeOne(run, p, sl, picked, format, { overBudget, budgetStop, budgetLeft, review, autoPublish, manual, deps, now, campaign: null, slot: null, vars, owner });
     if (outcome === 'stop') break;
-    if (outcome === 'made') {
-      made += 1;
+    if (outcome === 'made' || outcome === 'waiting') {
+      if (outcome === 'made') made += 1;
+      else waiting += 1;
       room.set(sl.date, (room.get(sl.date) ?? 1) - 1);
       picked.commit(state); // the idea is used only once its post exists; a failed make keeps it for next time
-      await writeState(id, state).catch(() => undefined);
+      await owner.writeState(state).catch(() => undefined);
       all = await listPackages();
     }
   }
-  return flush(made ? `Made ${made} ${made === 1 ? 'post' : 'posts'}.` : 'Nothing made (see the run).');
+  const wait = waiting ? `${waiting} ${waiting === 1 ? 'post waits' : 'posts wait'} for you.` : '';
+  return flush(made ? `Made ${made} ${made === 1 ? 'post' : 'posts'}.${wait ? ` ${wait}` : ''}` : wait || 'Nothing made (see the run).');
 }
 
 interface MakeCtx {
   overBudget: (next?: number) => boolean;
   budgetStop: () => void;
+  /** What is left of today's budget (a template post's run never spends more). */
+  budgetLeft: () => number;
+  owner: SlotOwner;
   review: boolean;
   autoPublish: Job['autoPublish'];
   manual: boolean;
@@ -316,8 +443,9 @@ interface MakeCtx {
 }
 
 /** Makes one post for one slot: backlog and budget first, then make → marks → plan → review → trusted approval. */
-async function makeOne(run: AutopilotRun, p: Pipeline, sl: PipelineSlot, picked: { idea: Idea; commit: (s: PipelineState) => void }, format: Format, c: MakeCtx): Promise<'made' | 'skipped' | 'stop'> {
-  const id = p.id;
+async function makeOne(run: AutopilotRun, p: Pipeline, sl: PipelineSlot, picked: { idea: Idea; commit: (s: PipelineState) => void }, format: Format, c: MakeCtx): Promise<'made' | 'waiting' | 'skipped' | 'stop'> {
+  if (c.owner.template) return makeWithTemplate(run, sl, picked.idea, c.owner, c);
+  const id = c.owner.id;
   const skip = (reason: string) => run.steps.push({ kind: 'skip', campaign: c.campaign, pipeline: id, reason });
   if (ATTENDED_ONLY.includes(format) && !c.manual) {
     skip(`Slot ${sl.id} (${format}) uses Codex, which runs only when you press Run now on this pipeline.`);
@@ -367,6 +495,175 @@ async function makeOne(run: AutopilotRun, p: Pipeline, sl: PipelineSlot, picked:
   if (verdict === 'budget') return 'stop';
   await maybeAutoApprove(run, job, packageId, verdict, mark, c.deps, c.now);
   return 'made';
+}
+
+/**
+ * One slot made by a Post maker template: the backlog and the budget first (the template's estimate against
+ * what is left today), then `makeFromTemplate`. A post at Proof is recorded as waiting for you (no package); an
+ * accepted one stays in Review for you: autopilot never approves a Post maker post.
+ */
+async function makeWithTemplate(run: AutopilotRun, sl: PipelineSlot, idea: Idea, owner: SlotOwner, c: MakeCtx): Promise<'made' | 'waiting' | 'skipped' | 'stop'> {
+  const tpl = owner.template!;
+  const id = owner.id;
+  const skip = (reason: string) => run.steps.push({ kind: 'skip', campaign: null, pipeline: id, reason });
+  const sw = await repeatAllowed(); // checked again here: no path makes a template post while the switch is off
+  if (!sw.enabled) {
+    skip(`Slot ${sl.id}: ${sw.reason}`);
+    return 'stop';
+  }
+  const waitingNow = await waitingInReview();
+  if (waitingNow >= BACKLOG_LIMIT) {
+    skip(`${waitingNow} autopilot posts are waiting for you in Review. Making pauses until you go through them.`);
+    run.note = run.note ?? `Paused making: ${waitingNow} posts wait in Review.`;
+    return 'stop';
+  }
+  const project = currentProject();
+  const root = rootOf(project);
+  const t = await readTemplate(root, tpl.id).catch(() => null);
+  if (!t) {
+    skip(`Slot ${sl.id}: the template no longer exists.`);
+    return 'skipped';
+  }
+  const { engineFor, makeFromTemplate, templateEstimate } = await repeatEngine();
+  let estimate: number;
+  try {
+    const { engine } = await engineFor(project, { attended: c.manual });
+    estimate = (await templateEstimate(engine, root, t, tpl.variant)).usdHigh;
+  } catch (e) {
+    skip(`Slot ${sl.id}: ${msg(e)}`);
+    return 'skipped';
+  }
+  if (c.overBudget(estimate)) {
+    c.budgetStop();
+    return 'stop';
+  }
+  const by = AUTOPILOT_BY;
+  const o = await makeFromTemplate(tpl.id, tpl.variant, idea, sl, { project, owner: id, ownerName: owner.name, budgetLeftUsd: c.budgetLeft(), autopilotRun: run.id, by, now: c.now, attended: c.manual });
+  const fmt = PM_GENERATOR; // a Post maker post (the template makes it, not a built-in format)
+  if (o.kind === 'skipped') {
+    skip(`Slot ${sl.id}: ${o.reason}`);
+    return 'skipped';
+  }
+  if (o.kind === 'failed') {
+    run.steps.push({ kind: 'make', campaign: null, pipeline: id, slot: sl.id, package: null, format: fmt, costUsd: o.spentUsd || null, error: o.reason, recipe: o.recipeId });
+    return 'skipped';
+  }
+  if (o.kind === 'waiting') {
+    run.steps.push({ kind: 'make', campaign: null, pipeline: id, slot: sl.id, package: null, format: fmt, costUsd: o.spentUsd || null, recipe: o.recipeId, waiting: o.reason });
+    return 'waiting';
+  }
+  const packageId = o.packageIds[0]!;
+  run.steps.push({ kind: 'make', campaign: null, pipeline: id, slot: sl.id, package: packageId, format: fmt, costUsd: o.spentUsd || null, recipe: o.recipeId });
+  await recordEvent({ type: 'post.made', by, campaign: null, refs: { package: packageId, slot: sl.id, run: run.id }, data: { format: PM_GENERATOR, pipeline: id, template: tpl.id, topic: idea.topic.slice(0, 200), hook: (idea.hook ?? '').slice(0, 200), date: sl.date, autopilot: true } });
+  if (c.autoPublish === 'trusted') await trustedTemplateApproval(run, { owner: id, slot: sl, packageIds: o.packageIds, verdict: o.verdict }, c.deps, c.now);
+  return 'made';
+}
+
+/**
+ * Trusted approval of the posts a template made. Autopilot never approves a Post maker post: you approve it
+ * yourself in Review, so each post stays there and the run records why. `deps` and `now` keep the shape the other
+ * approval steps use.
+ */
+export async function trustedTemplateApproval(run: AutopilotRun, o: { owner: string; slot: Pick<PipelineSlot, 'id' | 'at'>; packageIds: string[]; verdict: string }, deps: RunnerDeps, now: number): Promise<void> {
+  void deps;
+  void now;
+  for (const pkg of o.packageIds) run.steps.push({ kind: 'skip', campaign: null, pipeline: o.owner, reason: `Post ${pkg} stays in Review: ${PM_OWNER_APPROVES}` });
+}
+
+const TEMPLATE_SOURCE: Record<Template['inputs']['kind'], SourceKind | null> = { brief: 'ideas', ideas: 'ideas', 'topic-list': 'list', 'website-page': 'website', 'campaign-slot': null };
+
+/** A repeat template as the pipeline the slot loop runs (its Repeat settings are the Pipelines editors). */
+export function repeatPipeline(t: Template): Pipeline | null {
+  const legacy = legacyRepeatPipeline(t);
+  if (legacy !== undefined) return legacy;
+  const r = t.repeat;
+  const kind = TEMPLATE_SOURCE[t.inputs.kind] ?? null;
+  if (!r || !kind) return null;
+  const list = Array.isArray(t.inputs.list) ? t.inputs.list.filter((x): x is string => typeof x === 'string').slice(0, 60) : [];
+  const at = new Date(0).toISOString();
+  return {
+    id: t.migratedFrom ?? t.id,
+    name: t.name,
+    enabled: r.enabled,
+    archived: false,
+    steps: {
+      source: { kind, list, campaign: null },
+      // The format is unused: the template makes the post (fromTemplate); website-card needs no attended connector.
+      make: { format: 'website-card', template: '', captionStyle: '', fromTemplate: { id: t.id, variant: null } },
+      review: { enabled: false }, // the template's own check is the review
+      approve: { mode: r.approve },
+      schedule: { perWeek: r.perWeek, days: r.days, times: r.times, makeAheadDays: r.makeAheadDays },
+      budget: { dailyUsd: r.dailyUsd },
+    },
+    createdAt: at,
+    updatedAt: at,
+  };
+}
+
+const LEGACY_SOURCE: Record<Template['inputs']['kind'], SourceKind> = { brief: 'ideas', ideas: 'ideas', 'topic-list': 'list', 'website-page': 'website', 'campaign-slot': 'campaign' };
+
+/**
+ * A template moved from a pipeline, as that pipeline: same id, source, format, prompt template, caption
+ * style, review, approval, schedule and budget. `undefined` for a Post maker template; null when it cannot repeat.
+ */
+function legacyRepeatPipeline(t: Template): Pipeline | null | undefined {
+  const format = legacyFormatOf(t);
+  if (!format) return undefined;
+  const r = t.repeat;
+  if (!r) return null;
+  const n = t.legacy!.nodes[0];
+  const kind = LEGACY_SOURCE[t.inputs.kind] ?? 'ideas';
+  const list = Array.isArray(t.inputs.list) ? t.inputs.list.filter((x): x is string => typeof x === 'string').slice(0, 60) : [];
+  const at = new Date(0).toISOString();
+  return {
+    id: t.migratedFrom ?? t.id,
+    name: t.name,
+    enabled: r.enabled,
+    archived: false,
+    steps: {
+      source: { kind, list, campaign: kind === 'campaign' ? (t.campaignIds[0] ?? null) : null },
+      make: { format, template: n.params.template, captionStyle: n.params.captionStyle },
+      review: { enabled: t.legacy!.review },
+      approve: { mode: r.approve },
+      schedule: { perWeek: r.perWeek, days: r.days, times: r.times, makeAheadDays: r.makeAheadDays },
+      budget: { dailyUsd: r.dailyUsd },
+    },
+    createdAt: at,
+    updatedAt: at,
+  };
+}
+
+/** Proven templates whose Repeat is on, oldest first. */
+export async function repeatTemplates(): Promise<Template[]> {
+  return (await listTemplates(rootOf(currentProject())).catch(() => [] as Template[])).filter((t) => t.status === 'proven' && t.repeat?.enabled === true);
+}
+
+/**
+ * Every proven template whose Repeat is on makes its slots, after the pipelines, under the same run, rules and
+ * lock. Nothing happens while the Repeat switch is off (the default); a run that has templates with Repeat on
+ * records once why they made nothing.
+ */
+export async function runRepeatTemplates(run: AutopilotRun, todays: AutopilotRun[], deps: RunnerDeps, now: number): Promise<void> {
+  const list = await repeatTemplates();
+  if (!list.length) return;
+  const sw = await repeatAllowed();
+  if (!sw.enabled) {
+    run.steps.push({ kind: 'skip', campaign: null, reason: `${list.length === 1 ? 'A template repeats' : `${list.length} templates repeat`}, but nothing is made: ${sw.reason}` });
+    return;
+  }
+  for (const t of list) {
+    if (run.status !== 'running') break;
+    const p = repeatPipeline(t);
+    if (!p) {
+      run.steps.push({ kind: 'skip', campaign: null, pipeline: t.migratedFrom ?? t.id, reason: `${t.name} makes posts for campaign slots; Repeat makes nothing from it yet.` });
+      continue;
+    }
+    try {
+      await runOne(run, p, todays, deps, now, false, templateOwner(t));
+    } catch (e) {
+      run.steps.push({ kind: 'skip', campaign: null, pipeline: p.id, reason: `Template failed: ${msg(e)}` });
+    }
+  }
 }
 
 /** Every pipeline that is on (or only `scope.pipeline`, which runs even when it is off: you pressed its button). */

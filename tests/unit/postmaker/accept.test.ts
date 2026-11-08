@@ -2,12 +2,13 @@
 // Accept: server parts, the
 // Standard / Premium template rule and premiumStreak, every clean-accept refusal, and Posts approval unchanged.
 import './guard';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { approvePackage, GENERATOR_NOT_ALLOWED, loadPackage, PM_MOCK_STEPS, PM_RECORD_MISMATCH, PM_SWITCH_OFF, type PackageSpec } from '@/lib/studio/content';
 import { acceptProof, BELOW_PREMIUM_NOTE, countRegenerations, nextPremiumStreak, personSignOff, recomputeLineageRoot, SUPERSEDED_TEXT } from '@/lib/studio/postmaker/accept';
 import { isPostmakerError } from '@/lib/studio/postmaker/errors';
+import { PACKAGE_IDS_USED_UP } from '@/lib/studio/package-id';
 import { signoffsDep } from '@/lib/studio/postmaker/signoffs';
 import { readPins } from '@/lib/studio/postmaker/store/pins';
 import { readRecipe, writePipelineVersion, writeRecipeVersion } from '@/lib/studio/postmaker/store/recipes';
@@ -98,6 +99,23 @@ describe('clean accept', () => {
     const s = await cleanRun({ langs: ['en'] });
     await accept(s, s.run.id);
     expect(await refusal(accept(s, s.run.id))).toMatchObject({ status: 409, message: 'Already accepted as post 01.' });
+  });
+
+  it('after folder 99 the next packages are 100 and 101 (no 0100)', async () => {
+    const s = await cleanRun({ verdict: 'premium' });
+    mkdirSync(path.join(tmp.contentDir, '98'), { recursive: true });
+    mkdirSync(path.join(tmp.contentDir, '99'));
+    const r = await accept(s, s.run.id);
+    expect(r.packageIds).toEqual(['100', '101']);
+    expect(pkgJson<PackageSpec>('100', 'package.json').id).toBe('100');
+    expect((await loadPackage('101')).status).toBe('ready');
+  });
+
+  it('past 99999 a clean accept is refused with a plain reason and nothing is written', async () => {
+    const t = await cleanRun({ langs: ['en'] });
+    mkdirSync(path.join(tmp.contentDir, '99999'));
+    expect(await refusal(accept(t, t.run.id))).toMatchObject({ status: 409, message: PACKAGE_IDS_USED_UP });
+    expect(readdirSync(tmp.contentDir).filter((n) => n.startsWith('.'))).toEqual([]); // no staging folder left
   });
 });
 

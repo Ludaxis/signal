@@ -1,5 +1,5 @@
 // Server-only: Instagram post packages.
-// Packages live on your machine in <content dir>/<NN>/ with package.json.
+// Packages live on your machine in <content dir>/<id>/ with package.json (ids: package-id.ts).
 // The app approves a package (after re-verifying every file's SHA-256). Posting is either manual
 // (you record the link) or, when posting is switched on for the account, a single dispatch through
 // Instagram's API (./publish-meta.ts) or Upload-Post (./dispatch.ts). State files are written once ('wx').
@@ -11,6 +11,7 @@ import { GENERATOR_NOT_ALLOWED, contentGeneratorAllowed, featureEnabled } from '
 import { accountSettings, postingActive, currentProject } from './projects';
 import { getAccount, getMedia, instagramApiAllowed, listMedia, shortcode, type IgMedia } from './meta';
 import type { AutopilotMark } from './autopilot/types';
+import { comparePackageIds, packageIdOk } from './package-id';
 
 /** Posting limits for the current project's Instagram account, from its posting settings (accounts.json). */
 export interface Limits { open: boolean; reason: string; expiresAt: number; maxPosts: number; maxPerDay: number; dispatch: boolean; codex: boolean }
@@ -23,7 +24,6 @@ export async function currentLimits(now = Date.now()): Promise<Limits> {
   return { open: true, reason: '', expiresAt: a.ends_at ? Date.parse(a.ends_at) : Number.POSITIVE_INFINITY, maxPosts: a.max_posts, maxPerDay: a.max_per_day, dispatch: a.posting, codex: a.codex_images };
 }
 
-const ID_RE = /^\d{2}$/;
 const FILE_RE = /^[a-z0-9][a-z0-9._-]{0,80}\.(png|jpg|jpeg|mp4|txt)$/i;
 const POST_URL_RE = /^https:\/\/(www\.)?instagram\.com\/(p|reel)\/[A-Za-z0-9_-]{5,40}\/?(\?[^\s]*)?$/;
 
@@ -118,8 +118,9 @@ export function contentDir(): string {
   return currentProject().contentDir;
 }
 
+/** A package folder name: 00-99, then 100-99999 (see package-id.ts). */
 export function isPackageId(id: string): boolean {
-  return ID_RE.test(id);
+  return packageIdOk(id);
 }
 
 function pkgDir(id: string): string {
@@ -295,6 +296,8 @@ export const PM_MOCK_STEPS = 'Made with mock steps';
 export const PM_SWITCH_OFF = 'Post maker is off in Connections';
 /** `source.generator` of a Post maker package (the name an optional contentGenerators list uses). */
 export const PM_GENERATOR = 'postmaker';
+/** Why autopilot leaves a Post maker post in Review: only you approve one. */
+export const PM_OWNER_APPROVES = 'A Post maker post is approved by you, never by autopilot.';
 
 /** The fields of postmaker.json this module reads (the full shape is PostmakerMark in postmaker/types.ts). */
 interface PostmakerMarkFile {
@@ -354,7 +357,7 @@ export async function listPackages(): Promise<PackageView[]> {
     return [];
   }
   // One package that cannot be read at all never hides the others: it is listed as 'invalid'.
-  return Promise.all(names.sort().map((id) => loadPackage(id).catch((e: unknown) => unreadableView(id, e))));
+  return Promise.all(names.sort(comparePackageIds).map((id) => loadPackage(id).catch((e: unknown) => unreadableView(id, e))));
 }
 
 function unreadableView(id: string, e: unknown): PackageView {

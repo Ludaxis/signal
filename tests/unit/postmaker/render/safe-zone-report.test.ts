@@ -4,6 +4,7 @@
 // report and the flash lint (both required checks), so the @render slice cannot stop on them.
 import { describe, expect, it } from 'vitest';
 import { tmp } from '../guard';
+import { pacingLint } from '@/lib/studio/postmaker/checks/timelineLints';
 import { safeZoneReport } from '@/lib/studio/postmaker/checks/safeZone';
 import { buildPipeline } from '@/lib/studio/postmaker/graph/build';
 import { defaultExecutors } from '@/lib/studio/postmaker/executors';
@@ -87,7 +88,7 @@ describe('safe-zone report (S5, C3)', () => {
 });
 
 describe('the slice fixture passes the required compose checks (fake renderer)', () => {
-  it('fa and en: safe zones clear, no flash; the pacing notes are the known fixture/preset conflicts', async () => {
+  it('fa and en: safe zones clear, no flash, pacing lint clean (the fixture takes the template slice-30 cut)', async () => {
     const now = { t: Date.parse('2026-11-06T10:00:00.000Z') };
     const { recipe } = await createRecipe(tmp.root, { id: 'example-project', timeZone: 'Asia/Tehran' }, sliceRecipe(), { now: now.t, id: 'rc-20261106-0901' });
     const built = buildPipeline(recipe, { faces: [] });
@@ -111,6 +112,14 @@ describe('the slice fixture passes the required compose checks (fake renderer)',
       expect(v.checks.filter((c) => c.required && !c.ok)).toEqual([]);
       const t = await getJson<Timeline>(tmp.root, v.outputs.find((o) => o.port === 'timeline')!.sha256);
       expect(safeZoneReport(t, { measure }).hits).toEqual([]);
+      // Hook complete by frame 60, end card 180-270 frames, no pacing note at all
+      expect(t.durationInFrames).toBe(900);
+      expect(t.marks.hookComplete).toBeLessThanOrEqual(60);
+      const end = t.segments.find((x) => x.segment === 'endcard')!;
+      expect(end.to - end.from).toBeGreaterThanOrEqual(180);
+      expect(end.to - end.from).toBeLessThanOrEqual(270);
+      expect(pacingLint(t)).toEqual([]);
+      expect(v.checks.filter((c) => c.id.includes(':pacing:'))).toEqual([]);
     }
   }, 60_000);
 });

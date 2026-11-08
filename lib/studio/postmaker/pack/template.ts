@@ -106,6 +106,10 @@ export function parseTemplate(raw: unknown, ctx: TemplateContext = {}): PackTemp
   }
   if (t.durationSec.min > t.durationSec.max) throw err('template.invalid', 'The shortest length is longer than the longest.');
   if (t.tempo.bpmRange[0] > t.tempo.bpmRange[1]) throw err('template.invalid', 'The tempo range is upside down.');
+  // A variant's declared BPM must sit inside the template's tempo range.
+  const [lo, hi] = t.tempo.bpmRange;
+  const offTempo = (t.variants ?? []).find((v) => v.bpm !== undefined && (v.bpm < lo || v.bpm > hi));
+  if (offTempo) throw err('template.invalid', `Variant ${offTempo.id} is set to ${offTempo.bpm} BPM; this template allows ${lo} to ${hi} BPM.`);
   const required = t.segments.filter((s) => !s.optional).reduce((s, x) => s + x.minSec, 0);
   if (required > t.durationSec.min + 1e-9) throw err('template.too-short', `The segments need ${required} s; the template allows ${t.durationSec.min} s.`);
   if (ctx.packLanguages && t.languages.some((l) => !ctx.packLanguages!.includes(l))) throw err('template.invalid', 'The template uses a language the pack does not have.');
@@ -217,6 +221,19 @@ export function scaleTemplate(t: PackTemplate, o: { totalSec: number; bpm?: numb
     }
   }
   return frames(kept, secs, T, bpm, barSec);
+}
+
+/**
+ * ("template default BPM from the variant"): the BPM a variant scales at, before a script exists: the
+ * variant's own declared `bpm` when it has one, else the template's default (the middle of `bpmRange`, rounded).
+ */
+export const variantBpm = (t: Pick<PackTemplate, 'tempo'>, v?: Pick<TemplateVariant, 'bpm'> | null): number => v?.bpm ?? defaultBpm(t);
+
+/** Scales a template for one of its variants: the variant's length, its BPM (`variantBpm`) and its overrides. */
+export function scaleVariant(t: PackTemplate, variantId: string): ScaledTemplate {
+  const v = t.variants?.find((x) => x.id === variantId);
+  if (!v) throw err('template.variant-unknown', `This template has no variant ${variantId}.`, 404);
+  return scaleTemplate(t, { totalSec: v.lengthSec, bpm: variantBpm(t, v), ...(v.segmentSec ? { segmentSec: v.segmentSec } : {}) });
 }
 
 /** Every template of a loaded pack, parsed and checked against the pack (languages, cast). */

@@ -33,9 +33,9 @@ Out of date.
 
 ## The screens
 
-The Post maker tab has a home and a stepper: **Reference · Recipe · Pipeline · Proof** (a fifth item, Proven, is
-shown but stays disabled: working from proven templates comes in a later release). The URL keeps the place
-(`?tab=postmaker&r=<recipe>&s=<screen>&step=<node>`), so reload, deep links and Back work. Each screen has one primary
+The Post maker tab has a home and a stepper: **Reference · Recipe · Pipeline · Proof · Proven** (Proven opens once
+the recipe has a template). The URL keeps the place (`?tab=postmaker&r=<recipe>&s=<screen>&step=<node>`, and
+`?tab=postmaker&t=<template>` for one template), so reload, deep links and Back work. Each screen has one primary
 action.
 
 | Screen | What you do there | Primary |
@@ -45,7 +45,8 @@ action.
 | Recipe | Read and edit the beats on a timeline strip, the style and the assets needed (Have / Make / Missing) | Use this recipe |
 | Pipeline | Step cards (one per kind, language lanes inside) with status, version, cost and provider; Edit opens the step drawer, plus Regenerate, Regenerate from here, Versions, Lock and Skip | Run ‹n› steps, or Go to proof |
 | Proof | The 9:16 player with the beat strip and safe-zone overlay, the verdict, the 12 criteria, notes pinned to a time, the Persian sign-off rows | Accept, or Accept as draft |
-| Runs | Every run with its trigger, steps, cost, time and status; a row opens the run drawer | Run again |
+| Proven | One template: cover, pills (Proven, Moved, Repeats, Retired), its campaign, its variants (each with its own proof), Repeat (a drawer with the schedule, budget, approval and the skip-proof switches), Results, Duplicate, Retire | Make a post |
+| Runs | Every run with its trigger (Make it, Make a post, Campaign slot, Repeat), steps, cost, time and status; a row opens the run drawer | Run again |
 
 **Make it** runs from the reference straight to Proof unless you tick **Stop after the recipe**. Long actions answer at
 once with a run id; the screen polls every second while the run goes and every five seconds while it waits on a pause.
@@ -55,6 +56,18 @@ from a pause: Continue run after an edit or a sign-off, Raise cap or Stop at the
 **Regenerate** asks first. The dialog lists what the step keeps (fixed inputs), what later steps expect (checked by
 default; unchecking one lets that expectation break, with a warning), and the cost and the steps that will go out of
 date, before you click. **Versions** compares two versions as two synced players, or as a word diff for text.
+**Pause** on the run bar stops new steps (the ones in progress finish and keep their versions); **Continue run** goes
+on without running a step twice. One recipe beat can be regenerated on its own, and a step's media output can take a
+file you upload (`step.edit` with `replaceFile`, after `POST /api/studio/postmaker/uploads`).
+
+**The creative steps.** When the project has a pack, the default chain uses its library: the **art director** plans
+each beat's background, cast, props and stickers from approved pack assets (and records what is missing; **Make with
+Codex** makes one requested image only when you press it, only while Codex images are allowed for the account, and the
+image stays a draft until a named person approves it); the **animator** writes the acting, camera and timing as a
+MotionSpec that code checks and compiles for the cut-out characters; the **sound designer** picks the music bed (a pack
+track, your own upload through `POST /api/studio/postmaker/music`, or a mock) conformed to the script's tempo, and the
+sound effects the mix places. Each of them falls back to a deterministic plan when its agent cannot run, and their live
+agent calls need the `agents` switch. Without a pack these steps stay mocks.
 
 **Today** lists runs that need you (Proof ready, a pause, a failure) above the posts, and the nav shows their count.
 Keys: ⌘1…⌘0 move between tabs, ⌘N makes a post, ⌘[ and ⌘] move along the stepper, and `?` lists the rest.
@@ -69,6 +82,22 @@ Single-key shortcuts work only outside text fields and can be turned off.
 - **Accept as draft** is always possible at Proof. It saves the template as a draft and makes **no package**.
 - When `signal.config.json` has a `contentGenerators` list, a clean Accept also needs `postmaker` in it. Without the
   list, every generator may be approved.
+- A clean Accept proves the template (or the variant the proof was made for). Three Premium, live proofs in a row with
+  at most two regenerations each unlock **Skip proof for repeat runs** for that variant; a Standard proof, a mock, more
+  regenerations or a verdict you scored by hand resets the count, and Retire turns skip proof off.
+
+### Proven templates, Make a post and Repeat
+
+- **Make a post** forks the template: a new recipe whose steps point at the template's versions (nothing is copied),
+  with the brief as the script's input, so only the steps that depend on it run again; locked steps keep their
+  versions. It runs to Proof like Make it. From a campaign slot, the slot's brief fills it in and the slot is reserved
+  while the post is on its way.
+- **Variants** change only the declared settings (language, length, shape, hook, voice, music, dual captions), each
+  checked against what the template can make; a new variant is a draft until its own proof is accepted.
+- **Repeat** (off by default) is described in [autopilot.md](autopilot.md): it needs the `autopilot` and
+  `postmakerRepeat` switches, runs inside the daily run, and stops at Proof unless skip proof applies. Autopilot never
+  approves a Post maker post.
+- Older pipelines move into templates once, with a backup and an Undo that never deletes (see autopilot.md).
 
 ## Switches, keys and the decision point
 

@@ -20,6 +20,10 @@ import { analyseExecutor, type AnalyseDeps } from './analyse';
 import { postCopyExecutor, type PostCopyDeps } from './post-copy';
 import { scriptExecutor, type ScriptDeps } from './script';
 import type { AgentCall } from './agent';
+import { artExecutor, type ArtDeps } from './art';
+import { motionExecutor, type MotionDeps } from './motion';
+import { musicExecutor, type MusicDeps } from './music';
+import type { SfxDeps } from './sfx';
 
 export interface AgentExecutorDeps {
   /** The agent call every agent executor makes in live mode (mock mode never calls it). */
@@ -28,6 +32,14 @@ export interface AgentExecutorDeps {
   postCopy?: Omit<PostCopyDeps, 'call'>;
   /** `analyse` needs to know where the reference and the work folder are. */
   analyse?: Omit<AnalyseDeps, 'call'>;
+  /** `art` (art director): the library, rigs and template loader and the asset-request recorder. */
+  art?: Omit<ArtDeps, 'call'>;
+  /** `motion` (animator): the rigs loader; the default chain wiring is. */
+  motion?: Omit<MotionDeps, 'call'>;
+  /** `music` (sound designer): the pack policy and tracks; the default chain wiring is. */
+  music?: Omit<MusicDeps, 'call'>;
+  /** SFX cues on `mix` (sound designer): the pack `sfx` library; used only with the real render chain. */
+  sfx?: Omit<SfxDeps, 'call'>;
 }
 
 /** The real agent executors. */
@@ -36,6 +48,9 @@ export function agentExecutors(d: AgentExecutorDeps): Partial<Record<StepKind, E
     script: scriptExecutor({ ...d.script, call: d.call }),
     'post-copy': postCopyExecutor({ ...d.postCopy, call: d.call }),
     ...(d.analyse ? { analyse: analyseExecutor({ ...d.analyse, call: d.call }) } : {}),
+    ...(d.art ? { art: artExecutor({ ...d.art, call: d.call }) } : {}),
+    ...(d.motion ? { motion: motionExecutor({ ...d.motion, call: d.call }) } : {}),
+    ...(d.music ? { music: musicExecutor({ ...d.music, call: d.call }) } : {}),
   };
 }
 
@@ -64,7 +79,7 @@ export function narrationTextExecutor(deps: NarrationDeps = {}): Executor {
         status: out.ok ? 'ok' : 'needs-you',
         costUsd: 0,
         model: null,
-        // mock runs write the gate record as `mock`, which counts as unsigned.
+        // Mock runs write the gate record as `mock`, which counts as unsigned.
         signoffs: gated && i.mode === 'mock' ? [{ gate: 'fa-native-editor', nodeId: i.node.id, by: 'mock', name: 'mock', at: new Date(i.now()).toISOString(), verdict: 'pass' }] : [],
       };
     },
@@ -78,14 +93,14 @@ export function defaultExecutors(o: { fakes?: FakeConfig; narration?: NarrationD
     ...makeFakeExecutors(o.fakes),
     'narration-text': narrationTextExecutor(o.narration),
     ...(o.agents ? agentExecutors(o.agents) : {}),
-    ...(o.render ? renderChainExecutors(o.render) : {}),
+    ...(o.render ? renderChainExecutors(o.render, o.agents?.sfx ? { ...o.agents.sfx, call: o.agents.call } : undefined) : {}),
     ...(o.check ? { check: checkExecutor(o.check) } : {}),
   } as Record<StepKind, Executor>;
 }
 
 /** The render chain executors (captions, compose, mix, render) over one set of deps. */
-export function renderChainExecutors(d: Partial<RenderChainDeps>): Pick<ExecutorRegistry, 'captions' | 'compose' | 'mix' | 'render'> {
-  return { captions: captionsExecutor({ fonts: d.fonts }), compose: composeExecutor(d), mix: mixExecutor(d), render: renderExecutor(d) };
+export function renderChainExecutors(d: Partial<RenderChainDeps>, sfx?: SfxDeps): Pick<ExecutorRegistry, 'captions' | 'compose' | 'mix' | 'render'> {
+  return { captions: captionsExecutor({ fonts: d.fonts }), compose: composeExecutor(d), mix: mixExecutor(d, sfx ? { sfx } : {}), render: renderExecutor(d) };
 }
 
 export const implVersionsOf = (r: ExecutorRegistry): Partial<Record<StepKind, string>> => Object.fromEntries(Object.values(r).map((e) => [e.kind, e.implVersion]));

@@ -1,10 +1,13 @@
 // timeline.json (S5 shape): the props of the `StorySpine` composition.
 // A superset of graph/adapters.ts `TimelineDoc` (fps, durationInFrames, layers, captions, coverFrame), so the
 // contracts and the free adapters keep reading it. Everything the composition draws is precomputed here as frames;
-// the composition only evaluates curves at the current frame. Pure module: no imports outside render/.
+// the composition only evaluates curves at the current frame. Pure module: no runtime imports outside render/ (the
+// compiled motion's type comes from anim/compile.ts).
 import type { CurveId } from './curves';
 import type { PresetId, SegmentId, TransitionId } from './presets';
 import type { TypeRole } from './typeScale';
+import type { CompiledMotion } from '../anim/compile';
+import type { CharacterLibrary, CutoutRig, TempoMap } from '../anim/types';
 
 export type TimelineLang = 'fa' | 'en';
 
@@ -47,6 +50,8 @@ export interface SceneEl extends Base {
   transitionIn: TransitionId;
   /** Camera push-in / pull-back: start frame, frames, direction. */
   camera?: { at: number; frames: number; scaleTo: number };
+  /** The scene plan's background image (served path), drawn under the cast; absent = the colour field. */
+  image?: string;
 }
 
 export interface TextEl extends Base {
@@ -122,6 +127,28 @@ export interface EndCardEl extends Base {
   accent: string;
 }
 
+/** One character as StorySpine draws it: a cut-out rig (tiers A and C) or a flat still (tier B). */
+export interface TimelineCastArt {
+  charId: string;
+  tier: 'A' | 'B' | 'C';
+  rig?: CutoutRig;
+  /** The character's library (core merged with its pack overrides). */
+  library?: CharacterLibrary;
+  /** Rig file (relative to the character folder) → served path. */
+  sources?: Record<string, string>;
+  /** Tier B: the still (served path) and its size in px. */
+  still?: { src: string; w: number; h: number };
+}
+
+/** A pack or project file the render serves (named by hash, so a changed file never renders silently). */
+export interface TimelineArtFile {
+  src: string;
+  sha256: string;
+  /** The library asset it belongs to and, for a rig, the file inside the character folder. */
+  asset: string;
+  rel?: string;
+}
+
 export type TimelineElement = SceneEl | TextEl | CardEl | RevealEl | StickerEl | PhoneEl | EndCardEl;
 
 export interface AudioClip {
@@ -165,6 +192,14 @@ export interface Timeline {
   grid: { bpm: number; bf: number; beats: number[]; chantBeatsPerCard: 2 | 4 };
   events: PacingEvent[];
   marks: { hookComplete: number | null; firstHookTokenOpaque: number | null };
+  /** The compiled MotionSpec (characters, keyframe tracks, cuts, swipes); StorySpine draws its characters. */
+  motion?: CompiledMotion;
+  /** What the compiled characters are drawn with: the seed and tempo the solver runs on, and each cast member's art. */
+  characters?: { seed: number; tempo: TempoMap | null; cast: TimelineCastArt[] };
+  /** Every pack file the composition loads (backgrounds, rig parts, stills). */
+  art?: TimelineArtFile[];
+  /** (follow-up): the scene plan puts an AI-generated asset on screen (`ScenesDoc.aiGenerated`). */
+  aiAssets?: boolean;
 }
 
 /** The TimelineDoc view (for the free adapters and contracts). */

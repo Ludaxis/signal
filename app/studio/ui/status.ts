@@ -4,7 +4,8 @@
 export const STATUS_WORDS = {
   post: ['To approve', 'Approved', 'Scheduled', 'Sending', 'Posted', 'Check status', 'Failed', 'Rejected', 'Files changed'],
   campaign: ['Draft', 'Running', 'Paused', 'Ended'],
-  template: ['Draft', 'Proven', 'Repeats', 'Retired'],
+  // Moved = a template moved from a pipeline that has no Post maker proof yet; it stands where Proven would.
+  template: ['Draft', 'Proven', 'Moved', 'Repeats', 'Retired'],
   run: ['Queued', 'Running', 'Needs you', 'Done', 'Stopped', 'Failed'],
   step: ['Not run', 'Queued', 'Running', 'Done', 'Needs you', 'Out of date', 'Failed', 'Skipped', 'Off', 'Mock', 'Locked'],
   connection: ['Ready', 'Needs you', 'Off', 'Not set up'],
@@ -31,6 +32,7 @@ export const STATUS_TONE: Record<StatusWord, StatusTone> = {
   Paused: 'neutral',
   Ended: 'neutral',
   Proven: 'done',
+  Moved: 'neutral',
   Repeats: 'done',
   Retired: 'neutral',
   Queued: 'running',

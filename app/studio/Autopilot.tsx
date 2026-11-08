@@ -23,6 +23,7 @@ const FORMAT_NAMES: Record<string, string> = {
   'website-card': 'Website post',
   'higgsfield-image': 'Higgsfield image',
   'higgsfield-reel': 'Higgsfield Reel',
+  postmaker: 'Post maker post',
 };
 type Names = Record<string, string> | undefined;
 const nameOf = (f: string, names?: Names) => names?.[f] ?? FORMAT_NAMES[f] ?? f;

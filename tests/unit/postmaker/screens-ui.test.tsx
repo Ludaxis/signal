@@ -6,6 +6,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 
 import { Today } from '@/app/studio/Studio';
 import type { PostmakerHome } from '@/app/studio/postmaker/api';
+import { Home } from '@/app/studio/postmaker/Home';
 import { RunBar } from '@/app/studio/postmaker/RunBar';
 import { StepCard } from '@/app/studio/postmaker/StepCard';
 import type { RecipeViewNode, Run, StepVersion } from '@/lib/studio/postmaker/types';
@@ -49,6 +50,14 @@ describe('Run bar', () => {
     render(<RunBar run={run({ status: 'needs-you', pausedFor: 'edit' })} titleOf={(id) => id} {...h} />, studio());
     const bar = screen.getByRole('status', { name: 'Run progress' });
     expect(bar.textContent).toContain('Paused for your edit');
+    fireEvent.click(within(bar).getByRole('button', { name: 'Continue run' }));
+    expect(h.onContinue).toHaveBeenCalled();
+  });
+  it('a run the person paused reads "Paused" and Continue run resumes', () => {
+    const h = handlers();
+    render(<RunBar run={run({ status: 'needs-you', pausedFor: 'paused' })} titleOf={(id) => id} {...h} />, studio());
+    const bar = screen.getByRole('status', { name: 'Run progress' });
+    expect(bar.textContent).toContain('Paused');
     fireEvent.click(within(bar).getByRole('button', { name: 'Continue run' }));
     expect(h.onContinue).toHaveBeenCalled();
   });
@@ -170,4 +179,22 @@ describe('Today with Post maker runs', () => {
     fireEvent.click(within(list).getByRole('button', { name: 'See all runs' }));
     expect(go).toHaveBeenCalledWith('postmaker', { view: 'runs' });
   });
+});
+
+describe('Post maker home empty views', () => {
+  const empty: PostmakerHome = { recipes: [], templates: [], runs: [], connectors: [], paused: false, timeZone: 'Asia/Tehran' };
+  for (const view of ['drafts', 'proven'] as const) {
+    it(`${view}: Make a post sits inside the empty notice and is the one primary`, () => {
+      const go = vi.fn();
+      const { container } = render(<Home pid="example" data={empty} view={view} runId={null} go={go} say={() => undefined} reload={() => undefined} />, studio());
+      const notice = container.querySelector('.notice-empty')!;
+      expect(notice).toBeTruthy();
+      const inside = within(notice as HTMLElement).getByRole('button', { name: 'Make a post' });
+      expect(inside.className).toMatch(/btn-primary/);
+      expect(container.querySelectorAll('.btn-primary')).toHaveLength(1);
+      expect(container.querySelector('.pm-home-head')!.querySelector('button.btn')).toBeNull();
+      fireEvent.click(inside);
+      expect(go).toHaveBeenCalledWith({ s: 'reference' });
+    });
+  }
 });

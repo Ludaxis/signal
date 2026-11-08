@@ -25,6 +25,7 @@ import { readPackLock } from '@/lib/studio/postmaker/store/recipes';
 import { readEvents } from '@/lib/studio/postmaker/store/runs';
 import { listVersionNumbers } from '@/lib/studio/postmaker/store/versions';
 import type { PostmakerAction, Run, Scope } from '@/lib/studio/postmaker/types';
+import type { Timeline } from '@/lib/studio/postmaker/render/timeline';
 import { networkGuardLog, tmp } from './guard';
 import './connectors/env';
 import { fixtureBuilders, laneOf, SLICE_NODES, sliceExecutors, sliceFixture, sliceProject, sliceVoice, templateDeconstruct, uploadReference, waitForRun } from './slice-harness';
@@ -76,7 +77,7 @@ async function makeIt(): Promise<Slice> {
   const base = fakeRenderChain();
   const chain = { id: base.id, calls: 0, run: (t, o) => (chain.calls++, base.run(t, o)) } as RenderChain & { calls: number };
   _setServiceDeps({
-    executors: sliceExecutors({ root, render: chain, fakes: { counters: newCounters(), voiceMs: voice.fn }, renderDeps: { ffmpeg: null, workDir: (r, n) => path.join(tmp.dir, 'work', r, n.replace(/:/g, '-')) } }),
+    executors: sliceExecutors({ root, project, render: chain, fakes: { counters: newCounters(), voiceMs: voice.fn }, renderDeps: { ffmpeg: null, workDir: (r, n) => path.join(tmp.dir, 'work', r, n.replace(/:/g, '-')) } }),
     deconstruct: templateDeconstruct({ root, tools: { ffmpeg: FFMPEG, ffprobe: null, spawn: allowFfmpeg }, workDir: path.join(tmp.dir, 'analyse'), fixture }),
   });
   const act = async (a: PostmakerAction) => (await handleAction(project, actor, a)).body;
@@ -138,6 +139,29 @@ describe('make-it with mock providers reaches Proof with no other click', () => 
     const state = await engine.state(s.recipeId);
     expect(state.current['motion:fa']!.provides.beatFrames).toEqual({ b01: [0, 180], b02: [180, 312], b03: [312, 372], b04: [372, 522], b05: [522, 630], b06: [630, 702], b07: [702, 900] });
     for (const lang of ['fa', 'en']) expect(state.current[`compose:${lang}`]!.provides.totalFrames).toBe(900);
+    // The default chain ran the creative executors on the pack, not their fakes.
+    expect(state.current.art!.implVersion).toBe('art@1');
+    expect(state.current.music!.implVersion).toBe('music@1');
+    for (const lang of ['fa', 'en']) {
+      expect(state.current[`motion:${lang}`]!.implVersion).toBe('motion@2');
+      expect(state.current[`mix:${lang}`]!.implVersion).toBe('mix@4');
+    }
+    const grid = await getJson<{ source: string; bpm: number; track: { assetId: string | null } }>(s.root, state.current.music!.outputs.find((o) => o.port === 'beatGrid')!.sha256);
+    expect(grid).toMatchObject({ source: 'library', bpm: 100, track: { assetId: 'music-loop-100' } });
+    // The demo swipe runs through the pack phone frame's own UI targets.
+    const motion = await getJson<{ compiled: { swipes: { targets: { id: string }[] }[] } }>(s.root, state.current['motion:en']!.outputs.find((o) => o.port === 'motion')!.sha256);
+    expect(motion.compiled.swipes.flatMap((w) => w.targets.map((x) => x.id))).toEqual(['tile-1', 'tile-2']);
+    // Compose hands StorySpine the compiled characters, the Tier A rig and the scene backgrounds.
+    for (const lang of ['fa', 'en']) {
+      const tl = await getJson<Timeline>(s.root, state.current[`compose:${lang}`]!.outputs.find((o) => o.port === 'timeline')!.sha256);
+      const lead = tl.motion!.characters.filter((c) => c.charId === 'char-cutout');
+      expect(lead.length).toBeGreaterThan(0);
+      expect(lead.every((c) => c.loops.includes('breath') && c.loops.includes('blink'))).toBe(true);
+      expect(lead.some((c) => c.gestures.length > 0)).toBe(true);
+      expect(tl.characters!.cast.map((c) => [c.charId, c.tier, Boolean(c.rig), Boolean(c.still)])).toEqual([['char-cutout', 'A', true, false], ['char-elder', 'B', false, true]]);
+      expect(tl.elements.filter((e) => e.kind === 'scene').every((e) => e.kind === 'scene' && e.image?.startsWith('art/'))).toBe(true);
+      expect(tl.art!.every((f) => /^art\/[0-9a-f]{64}\.(png|svg)$/.test(f.src) && /^[0-9a-f]{64}$/.test(f.sha256))).toBe(true);
+    }
     // The pack was read: the pack lock names the fixture pack and its template.
     const lock = await readPackLock(s.root);
     expect(lock).toMatchObject({ packId: 'example-word-game' });

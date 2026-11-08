@@ -1,8 +1,10 @@
 // The run scheduler: walks a planned node set in dependency order with at most 3 nodes of one run at
 // once, process-wide per-connector semaphores, at most one running run per recipe and 2 per project (a further run
 // waits, `status: 'queued'`), and pause rules: pause-for-edit holds every not-yet-started descendant of an edited node
-// while the node in progress finishes; a cap or gate pause stops new starts. All shared state lives on globalThis so it
-// survives module duplication across bundles (the autopilot `locks()` pattern).
+// while the node in progress finishes; a cap or gate pause stops new starts; a person's Pause
+// stops new starts too, the nodes in progress finish, and the plan ends `pause: 'paused'` when anything is left.
+// All shared state lives on globalThis so it survives module duplication across bundles (the autopilot `locks()`
+// pattern).
 import { CONNECTOR_LIMITS, semaphoreKey } from './kinds';
 
 export const NODES_PER_RUN = 3;
@@ -134,7 +136,7 @@ export interface PlanResult {
   pausedForEdit: string[];
   /** Nodes not started because a parent failed or the run paused. */
   notStarted: string[];
-  pause: 'cap' | 'day-ceiling' | 'gate' | 'edit' | null;
+  pause: 'cap' | 'day-ceiling' | 'gate' | 'edit' | 'paused' | null;
   /** The node the cap/gate pause happened before. */
   pausedAt: string | null;
   /** Stop was called: no node started after it (nodes in progress finished). */
@@ -152,6 +154,7 @@ export class PlanExecutor {
   private started = new Set<string>();
   private stopNew = false;
   private stopCalled = false;
+  private pauseCalled = false;
   /** Edits whose write has not landed yet: the plan does not end while one is open (its hold may be lifted). */
   private openEdits = 0;
   private wake: (() => void) | null = null;
@@ -201,6 +204,16 @@ export class PlanExecutor {
 
   get stopped(): boolean {
     return this.stopCalled;
+  }
+
+  /**
+   * Pause (`run.pause`): no new node starts; the nodes in progress finish and keep their versions. The plan
+   * ends with `pause: 'paused'` when a node is left to run; Continue re-derives the plan from what is done.
+   */
+  pause(): void {
+    this.stopNew = true;
+    this.pauseCalled = true;
+    this.poke();
   }
 
   async execute(): Promise<PlanResult> {
@@ -255,6 +268,7 @@ export class PlanExecutor {
       else res.notStarted.push(id);
     }
     if (!res.pause && res.pausedForEdit.length) res.pause = 'edit';
+    if (!res.pause && !res.stopped && this.pauseCalled && res.notStarted.length) res.pause = 'paused';
     return res;
   }
 }

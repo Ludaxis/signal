@@ -45,18 +45,21 @@ export interface ChildRendererOptions {
 
 /**
  * The bundle cache key's source part: a hash of every file the bundle is built from (the render folder), so a code
- * change never renders with a stale cached bundle even when `implVersion` was not bumped.
+ * change never renders with a stale cached bundle even when `implVersion` was not bumped. The anim/ folder (the
+ * cut-out solver CutoutCharacter imports) is hashed with it.
  */
-export function renderSourceHash(dir = path.join(appDir(), 'lib/studio/postmaker/render')): string {
+export function renderSourceHash(dir = path.join(appDir(), 'lib/studio/postmaker/render'), extra: string[] = [path.join(appDir(), 'lib/studio/postmaker/anim')]): string {
   const h = createHash('sha256');
-  const walk = (d: string) => {
+  const walk = (root: string, d: string) => {
     for (const name of readdirSync(d).sort()) {
       const p = path.join(d, name);
-      if (statSync(p).isDirectory()) walk(p);
-      else if (/\.(ts|tsx)$/.test(name)) h.update(`${path.relative(dir, p)}\n`).update(readFileSync(p));
+      if (statSync(p).isDirectory()) walk(root, p);
+      else if (/\.(ts|tsx)$/.test(name)) h.update(`${path.relative(root, p)}\n`).update(readFileSync(p));
     }
   };
-  walk(dir);
+  walk(dir, dir);
+  // the cut-out character system (anim/) is bundled with the compositions, so its sources key the bundle too
+  for (const d of extra) if (existsSync(d)) walk(path.dirname(d), d);
   return h.digest('hex').slice(0, 12);
 }
 

@@ -47,12 +47,20 @@ describe('service registry', () => {
     const fake = implVersionsOf(serviceExecutors({ root: tmp.root, render: null, claudeCli: null }));
     expect(fake).toMatchObject({ script: 'script@2', 'post-copy': 'post-copy@2', check: 'check@2', compose: 'compose@1', render: 'render@1', mix: 'mix@1' });
     const real = implVersionsOf(serviceExecutors({ root: tmp.root, render: fakeRenderChain(), claudeCli: null }));
-    expect(real).toMatchObject({ captions: 'captions@2', compose: 'compose@4', mix: 'mix@3', render: 'render@3' });
+    expect(real).toMatchObject({ captions: 'captions@2', compose: 'compose@5', mix: 'mix@3', render: 'render@4' }); // Compose draws the cast and backgrounds
+  });
+
+  it('with a pack loader the default chain registers art, motion, music and the SFX mix; vendor kinds stay fakes', () => {
+    const fakes = implVersionsOf(serviceExecutors({ root: tmp.root, render: fakeRenderChain(), claudeCli: null }));
+    const pack = implVersionsOf(serviceExecutors({ root: tmp.root, render: fakeRenderChain(), claudeCli: null, loadPack: async () => null }));
+    expect(pack).toMatchObject({ art: 'art@1', motion: 'motion@2', music: 'music@1', mix: 'mix@4' });
+    for (const k of ['voice', 'lipsync', 'broll'] as const) expect(pack[k]).toBe(fakes[k]);
+    expect(fakes.motion).not.toBe('motion@2');
   });
 
   it('every port the render chain writes is declared in KINDS', () => {
     expect(KINDS.compose.outputs).toEqual(['timeline', 'preview']);
-    expect(KINDS.mix.outputs).toEqual(['mixPlan', 'master', 'loudness']);
+    expect(KINDS.mix.outputs).toEqual(['mixPlan', 'master', 'loudness', 'sfx']); // Sfx.<lang>.wav (quality)
     expect(KINDS.render.outputs).toEqual(['video', 'cover', 'log', 'measurements']);
   });
 });

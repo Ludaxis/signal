@@ -46,10 +46,12 @@ export const DEFAULT_TRUST_THRESHOLD = 5;
 /** One daily run (memory/autopilot/runs.jsonl, one line per run; last line per id wins).
  *  Steps of pipeline work carry `pipeline` (the pipeline id); campaign steps carry `campaign`. Older runs have
  *  neither on review/approve steps and no 'ideas' steps, and still read fine. */
+/** A post format in a run step: a built-in format, or `postmaker` for a post a Post maker template made. */
+export type StepFormat = Format | 'postmaker';
 export type RunStep =
   | { kind: 'plan'; campaign: string; slots: number; costUsd: number | null }
   | { kind: 'ideas'; pipeline: string; ideas: number; costUsd: number | null; error?: string }
-  | { kind: 'make'; campaign: string | null; slot: string; package: string | null; format: Format; costUsd: number | null; error?: string; pipeline?: string }
+  | { kind: 'make'; campaign: string | null; slot: string; package: string | null; format: StepFormat; costUsd: number | null; error?: string; pipeline?: string; /** A Post maker post (its recipe) */ recipe?: string; /** Why it waits for you (at Proof, a sign-off, the cap); no package yet */ waiting?: string }
   | { kind: 'review'; package: string; verdict: string | null; costUsd: number | null; error?: string; pipeline?: string }
   | { kind: 'auto-approve'; package: string; format: Format; scheduledFor: string | null; via: 'meta' | 'upload-post' | null; error?: string; pipeline?: string }
   | { kind: 'skip'; campaign: string | null; reason: string; pipeline?: string };
@@ -70,7 +72,7 @@ export interface AutopilotRun {
 
 /** GET /api/studio/autopilot?project= */
 export interface AutopilotPayload {
-  switches: { autopilot: { enabled: boolean; reason: string }; trustedPublish: { enabled: boolean; reason: string }; higgsfield: { enabled: boolean; reason: string } };
+  switches: { autopilot: { enabled: boolean; reason: string }; trustedPublish: { enabled: boolean; reason: string }; higgsfield: { enabled: boolean; reason: string }; /** Post maker Repeat in the daily run. */ repeat: { enabled: boolean; reason: string } };
   paused: { paused: boolean; reason: string };
   schedule: { time: string; timeZone: string; window: string; nextRunAt: string | null; schedulerRunning: boolean };
   campaigns: { id: string; name: string; status: string; formats: Format[]; settings: AutopilotSettings }[];

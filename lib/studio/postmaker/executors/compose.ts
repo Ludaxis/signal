@@ -2,7 +2,8 @@
 // builds timeline.json (the StorySpine props) with the layout engine and renders a preview strip at scale 0.5 (one
 // JPEG per beat plus every cut frame) for the Proof and storyboard screens. Text sizes are checked against the
 // absolute minimum; the pacing and flash lints and the safe-zone report (every 3rd frame and every cut frame,
-// C3) run on the result.
+// ) run on the result. The compiled motion, the cast art and the scene backgrounds are added from the
+// motion and art steps (compose-art.ts), so the preview and the render draw the characters acting.
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { CaptionsDoc, MotionDoc } from '../graph/adapters';
@@ -18,8 +19,9 @@ import { sha256Hex } from '../store/objects';
 import type { Lang, PreviewStrip, Recipe, StepCheck } from '../types';
 import { fontPublicFiles, lineageMock, lineMsOf, renderChainDeps, timelineFonts, workDirOf, type RenderChainDeps } from './render-chain';
 import type { ExecInput, ExecOutput, Executor } from './types';
+import { withCreativeArt } from './compose-art';
 
-/** Proposed default AI-label wording; a pack's wording replaces it (the Persian form stays proposed until the owner or a reader they name signs). */
+/** Proposed default AI-label wording; a pack's wording replaces it (the Persian form stays proposed until the native editor signs). */
 export const DEFAULT_AI_LABEL: Record<Lang, string> = { en: 'Made with AI', fa: 'ساخته‌شده با هوش مصنوعی' };
 
 const LATIN = /[A-Za-z]/;
@@ -80,7 +82,7 @@ export function faceMeasure(fonts: FontFile[]): FaceMeasure | undefined {
   return (text, sizePx, face, weight) => measuringFont(fonts.find((f) => f.role === face) ?? fonts.find((f) => f.role === 'text')!).measure(text, sizePx, weight);
 }
 
-/** Checks on a timeline: type minimum (C2, names the layer), pacing and flash lints (frames named), safe zones. */
+/** Checks on a timeline: type minimum (names the layer), pacing and flash lints (frames named), safe zones. */
 export function timelineChecks(t: Timeline, prefix: string, o: { measure?: FaceMeasure } = {}): StepCheck[] {
   const text = t.elements.filter((e): e is TextEl => e.kind === 'caption' || e.kind === 'bubble' || e.kind === 'tag');
   const type = validateTextLayers(text.map((e) => ({ id: e.id, role: e.role, lang: e.lang, sizePx: e.sizePx })));
@@ -115,14 +117,14 @@ export function composeExecutor(d: Partial<RenderChainDeps> = {}): Executor {
   const deps = renderChainDeps(d);
   return {
     kind: 'compose',
-    implVersion: 'compose@4',
+    implVersion: 'compose@5',
     deterministic: true,
     estimate: () => ({ usdLow: 0, usdHigh: 0, seconds: 20, basis: 'On this computer', verified: true }),
     async run(i: ExecInput) {
       const lang = i.lang;
       if (!lang) throw new Error('compose needs a language');
       const fonts = deps.fonts();
-      const t = composeTimeline({
+      const base = composeTimeline({
         lang,
         recipe: i.recipe,
         motion: i.byPort.motion as MotionDoc,
@@ -133,10 +135,11 @@ export function composeExecutor(d: Partial<RenderChainDeps> = {}): Executor {
         seed: i.seed,
         fonts: timelineFonts(fonts),
       });
+      const { timeline: t, publicFiles: artFiles } = await withCreativeArt(base, { motion: i.byPort.motion, scenes: i.byPort.scenes, seed: i.seed, art: deps.art, params: i.params });
       const dir = workDirOf(deps, i);
       const frames = previewFrames(t);
       const tasks = frames.map((frame) => ({ kind: 'still' as const, composition: 'StorySpine' as const, props: { timeline: t, master: null }, out: path.join(dir, `preview-${String(frame).padStart(5, '0')}.jpg`), frame, scale: 0.5, imageFormat: 'jpeg' as const }));
-      const res = tasks.length ? await deps.chain.run(tasks, { publicFiles: fontPublicFiles(fonts), workDir: dir, signal: i.signal }) : null;
+      const res = tasks.length ? await deps.chain.run(tasks, { publicFiles: [...fontPublicFiles(fonts), ...artFiles], workDir: dir, signal: i.signal }) : null;
       const previews: ExecOutput[] = tasks.map((task) => ({ port: 'preview', name: path.basename(task.out), kind: 'image', mime: 'image/jpeg', lang, data: null, bytes: readFileSync(task.out), meta: { width: 540, height: 960, frames: task.frame } }));
       // contract: the strip in the PreviewStrip shape (frames by object hash) for get_run_frames and Proof.
       const strip: PreviewStrip = { lang, fps: t.fps, width: 540, height: 960, frames: previews.map((p) => ({ frame: p.meta!.frames!, sha256: sha256Hex(p.bytes!), mime: 'image/jpeg' })) };

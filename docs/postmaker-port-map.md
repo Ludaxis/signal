@@ -73,12 +73,45 @@ Status: **port** = copied, comments cleaned; **adapt** = copied and changed to u
 Test zones: tests that need daylight saving use `Europe/Berlin`. Synthetic ids: project `fixture` / `demo`, account
 `@fixture.account`, people `owner@example.test`, `Editor A`.
 
+### Templates, Repeat and the pipeline move (third step)
+
+| Upstream | Here | Status | Notes |
+|---|---|---|---|
+| `lib/studio/package-id.ts` users (`content.ts`, `generate.ts`, `accept.ts`, `team/tools.ts`) | same | port | Five-digit package ids everywhere a package id is read, listed or made. |
+| `lib/studio/postmaker/{fork,template-rules,template-actions}.ts`, `store/templates.ts` | same | port | Make a post, variants, per-variant streak and skip proof, campaign attach, Duplicate, Retire. |
+| `lib/studio/postmaker/{repeat,repeat-state,repeat-calendar}.ts` | same | adapt | Repeat is the `postmakerRepeat` switch in `signal.config.json` (off by default; `SIGNAL_FEATURE_POSTMAKER_REPEAT` overrides it), read per call and awaited. |
+| `lib/studio/pipelines/{runner,payload,store,types}.ts`, `autopilot/{runner,steps,types,payload}.ts` | same | adapt | Repeat templates in the daily run. Autopilot never approves a Post maker post (this edition's trust rule: you approve it); a run step's format is a built-in format or `postmaker`; the autopilot payload reports the Repeat switch. |
+| `lib/studio/postmaker/migrate/{pipelines,legacy}.ts` | same | adapt | Only this edition's four formats. A pipeline whose format needs Codex at the desk is not moved (reason line; the Pipelines tab stays for it), like one that already names a template. |
+| `lib/studio/campaigns.ts` (slot `templateId`, `setSlotTemplate`, `markSlotMade`), campaigns route `slot-template` | same | port | Campaign slot templates. |
+| `app/studio/postmaker/{Proven,MakePost,Home,PostMaker,Reference,model,api}.tsx` | same | port | The Proven screen, the Repeat drawer (gated on the `autopilot` and `postmakerRepeat` switches, trusted posting on `trustedPublish`), Make a post, Move my pipelines, the four nav groups without Pipelines after the move. |
+| `app/studio/{Studio,Campaigns,Calendar}.tsx`, copy | same | adapt | The nav groups; the slot template drawer; Calendar repeat slots. |
+
+### Engine completions (third step)
+
+| Upstream | Here | Status | Notes |
+|---|---|---|---|
+| `lib/studio/postmaker/uploads.ts`, `app/api/studio/postmaker/uploads/route.ts` | same | port | Step uploads for `step.edit` `replaceFile` (the switch check is awaited). |
+| `lib/studio/postmaker/regenerate-beat.ts`, `runner.ts` (`run.pause`, Replace file), `references.ts`, `graph/{scheduler,status}.ts` | same | port | Pause and Continue, regenerate one beat, a reference read to the asked length. |
+| `lib/studio/claude-agent.ts`, `connectors/cli.ts` (vision on stdin) | same | adapt | The stdin fallback for vision runs; refused unless the runner allows vision. |
+
+### Creative steps (third step)
+
+| Upstream | Here | Status | Notes |
+|---|---|---|---|
+| `lib/studio/postmaker/anim/**`, `render/components/{CutoutCharacter,CastLayer}.tsx`, `render/compositions/CharacterTest.tsx`, `render/{cast,conform,pcm,lipsyncComposite,lipsyncPlate}.ts` | same | port | The cut-out character rig, its solver and loops, the cast layer, the music conform and the lip-sync composite. |
+| `executors/{art,art-assets,compose-art,creative-world}.ts` | same | port | The art director and "Make with Codex" (attended only; the account's Codex images setting and the Post maker switch decide). |
+| `executors/{motion,motion-world}.ts`, `anim/compile.ts` | same | port | The animator and the MotionSpec compiler. |
+| `executors/{music,sfx,sound-world,mix}.ts`, `music-upload.ts`, `app/api/studio/postmaker/music/route.ts` | same | adapt | The sound designer and your own music upload; the upload source is `owner-upload`. |
+| `executors/index.ts`, `wiring.ts`, `service.ts` | same | adapt | The art, motion, music and SFX executors are in the default chain whenever the project has a pack; without one the steps keep their mocks. |
+| Role prompts `art-director`, `animator`, `sound-designer` | `lib/studio/team/roles.ts` | adapt | Built in, like the copywriter and deconstructor; `<SIGNAL_PROMPTS_DIR>/<agent>/prompt.md` overrides one. |
+| `tests/fixtures/postmaker/make-rig.mjs`, `tests/postmaker/golden/{cutout,cast}-*.png` | same | port | The synthetic Tier A fixture character and the provisional goldens of the `@render` suites (skipped unless `SIGNAL_RENDER=1`). |
+
 ## 2. Mechanisms that differ from upstream
 
 ### 2.1 Feature switches
 
 All Post maker switches are `FEATURES` in `lib/server/signalConfig.ts`, off by default and listed in
-`signal.config.example.json`: `postmaker`, `postmakerElevenlabs`, `postmakerAzureSpeech`, `postmakerSync`,
+`signal.config.example.json`: `postmaker`, `postmakerRepeat`, `postmakerElevenlabs`, `postmakerAzureSpeech`, `postmakerSync`,
 `postmakerHedra`, `postmakerHiggsfieldVideo`, `postmakerElevenlabsMusic`, `browserAgent`. Post maker also reuses
 `agents`, `agentsApiKey`, `memory` and `higgsfield`. `SIGNAL_FEATURE_<NAME>` in the environment overrides a switch.
 The kill switch `SIGNAL_POSTMAKER_PAUSED=1` (Connections → Post maker) wins over every switch.
@@ -102,6 +135,7 @@ live result. Nothing is cached between calls.
 - Optional `"contentGenerators": [...]`: when absent, every package generator may be approved (the earlier
   behaviour). When present, only the listed generators may be approved. A Post maker package is approvable only while
   the `postmaker` switch is on, and never when a step was a mock or its lineage record does not match its files.
+  Only you approve one: autopilot (trusted mode included) leaves a Post maker post in Review and records why.
 
 ### 2.4 Time zones, prompts and paths
 
@@ -117,9 +151,7 @@ sign.
 
 ## 3. Not ported yet (later work)
 
-- Template work after the first Accept: making a post from a proven template, variants, repeat schedules, campaign
-  slot templates, the Proven screen, step uploads, your own music upload, pausing a run, and the creative steps added
-  upstream later (art direction, animation, sound design). The stepper shows Proven disabled until then.
+- A Replace file control in the step drawer (the server takes `replaceFile`; upstream has no screen for it either).
 - The end-to-end browser specs (this repository runs unit, route and SSR tests only).
 - Bundling the render workspace into the Mac app (bundled mode renders mock; see `docs/mac-app.md`).
 

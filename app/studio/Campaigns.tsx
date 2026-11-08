@@ -16,6 +16,7 @@ import { projectTimeZone } from '@/lib/studio/time';
 import { t } from './copy/en';
 import { Button, Chip, ChipRow, Drawer, Notice, Pill, useConfirm, type StatusWord } from './ui';
 import { navigateTo } from './url-state';
+import { pmApi, type MakeItAnswer } from './postmaker/api';
 
 type Status = 'draft' | 'active' | 'paused' | 'done';
 interface PostType { format: string; role: string; hooks: string[]; captionStyle: string; visualDirection: string; hashtags: string[]; bestTimes: string[]; dos: string[]; donts: string[] }
@@ -47,9 +48,10 @@ export interface Campaign {
   strategy: Strategy | null;
   proposal: Strategy | null;
 }
-export interface Slot { id: string; date: string; time: string; at: string; format: string; pillar: string; hook: string; angle: string; captionLead: string; packageId: string | null; status: 'planned' | 'made' | 'skipped'; articleUrl: string | null }
+export interface Slot { id: string; date: string; time: string; at: string; format: string; pillar: string; hook: string; angle: string; captionLead: string; packageId: string | null; status: 'planned' | 'made' | 'skipped'; articleUrl: string | null; templateId?: string | null }
 interface Plan { madeAt: string | null; slots: Slot[] }
-export interface ListPayload { campaigns: Campaign[]; plans: Record<string, Plan>; agents: { enabled: boolean; reason: string }; goals: string[]; formats: { id: string; name: string }[]; timeZone?: string }
+export interface TemplateRef { id: string; name: string; status: 'draft' | 'proven' | 'retired' }
+export interface ListPayload { campaigns: Campaign[]; plans: Record<string, Plan>; agents: { enabled: boolean; reason: string }; goals: string[]; formats: { id: string; name: string }[]; timeZone?: string; templates?: TemplateRef[] }
 
 /** What Make does per format, and how long it usually takes (seconds), for the progress view. */
 export const MAKE_STEPS: Record<string, string[]> = {
@@ -371,7 +373,54 @@ function StrategyDrawer({ c, data, busy, onClose, act }: { c: Campaign; data: Li
   );
 }
 
-type Opened = { kind: 'strategy' } | { kind: 'autopilot' } | null;
+/** Choose the Post maker template a planned slot makes its post with (retired templates are not offered). */
+function TemplateDrawer({ slot, templates, onClose, onChoose }: { slot: Slot; templates: TemplateRef[]; onClose: () => void; onChoose: (templateId: string) => Promise<boolean> }) {
+  const [chosen, setChosen] = useState<string | null>(slot.templateId ?? null);
+  const [busy, setBusy] = useState(false);
+  const usable = templates.filter((x) => x.status !== 'retired');
+  return (
+    <Drawer
+      open
+      title={t('campaigns.templates.title')}
+      onClose={onClose}
+      primary={
+        usable.length ? (
+          <Button
+            level="primary"
+            busy={busy}
+            disabled={busy || !chosen}
+            reason={t('campaigns.templates.title')}
+            onClick={() => {
+              if (!chosen) return;
+              setBusy(true);
+              void onChoose(chosen).then((ok) => {
+                setBusy(false);
+                if (ok) onClose();
+              });
+            }}
+          >
+            {t('campaigns.templates.use')}
+          </Button>
+        ) : null
+      }
+      secondary={<Button onClick={onClose}>{t('common.cancel')}</Button>}
+    >
+      {usable.length === 0 ? (
+        <Notice kind="empty" title={t('campaigns.templates.empty')} />
+      ) : (
+        <ChipRow label={t('campaigns.templates.title')}>
+          {usable.map((x) => (
+            <Chip key={x.id} selected={chosen === x.id} onClick={() => setChosen(x.id)}>
+              {x.name}
+            </Chip>
+          ))}
+        </ChipRow>
+      )}
+    </Drawer>
+  );
+}
+
+type Opened = { kind: 'strategy' } | { kind: 'autopilot' } | { kind: 'template'; slot: Slot } | null;
 
 export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: Campaign; plan: Plan; data: ListPayload; say: (t: string) => void; onChange: () => Promise<void>; openPosts: () => void }) {
   const confirmBox = useConfirm();
@@ -379,6 +428,8 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
   const [opened, setOpened] = useState<Opened>(null);
   const [err, setErr] = useState('');
   const formatNames = Object.fromEntries(data.formats.map((f) => [f.id, f.name]));
+  const templates = data.templates ?? [];
+  const templateName = (id: string | null | undefined) => (id ? templates.find((x) => x.id === id)?.name ?? null : null);
   const act = async (key: string, body: Record<string, unknown>, done: string): Promise<boolean> => {
     setBusy(key);
     setErr('');
@@ -395,6 +446,21 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
       setBusy(null);
     }
   };
+  // A slot that names a Post maker template makes its post there, with the slot's brief, and opens
+  // Proof for that template (the run follows on the Post maker screen); other slots keep the format maker.
+  const makeFromTemplate = async (s: Slot) => {
+    setBusy(s.id);
+    setErr('');
+    try {
+      const a = await pmApi.action<MakeItAnswer>(getProjectId() ?? '', { action: 'template.make-post', templateId: s.templateId!, campaignSlot: { campaignId: c.id, slotId: s.id } });
+      say(t('pm.make.started'));
+      navigateTo('postmaker', { params: { r: a.recipeId, s: 'proof' } });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
   const upcoming = plan.slots.filter((s) => s.status !== 'skipped');
   const agentsOff = !data.agents.enabled;
   const ended = c.status === 'done';
@@ -404,6 +470,7 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
     });
 
   function slotRow(s: Slot, i: number) {
+    const tpl = templateName(s.templateId);
     return (
       <Reveal key={s.id} index={i}>
         <div className={`camp-slot ${busy === s.id ? 'is-working' : ''}`} data-slot={s.id}>
@@ -417,6 +484,13 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
                 {s.hook}
               </span>
             ) : null}
+            {tpl ? (
+              <span className="xs camp-template" data-content>
+                {tpl}
+              </span>
+            ) : (
+              <span className="xs st-muted camp-template">{t('campaigns.slot.noTemplate')}</span>
+            )}
           </div>
           {s.status === 'made' ? (
             <Button dense onClick={openPosts}>
@@ -424,7 +498,12 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
             </Button>
           ) : (
             <div className="camp-slot-actions">
-              <Button dense busy={busy === s.id} disabled={!!busy} reason={t('common.busy')} onClick={() => void act(s.id, { action: 'make-post', slotId: s.id }, t('campaigns.slot.made'))}>
+              {!tpl ? (
+                <Button dense level="tertiary" disabled={!!busy} reason={t('common.busy')} onClick={() => setOpened({ kind: 'template', slot: s })}>
+                  {t('campaigns.slot.choose')}
+                </Button>
+              ) : null}
+              <Button dense busy={busy === s.id} disabled={!!busy} reason={t('common.busy')} onClick={() => void (tpl && s.templateId ? makeFromTemplate(s) : act(s.id, { action: 'make-post', slotId: s.id }, t('campaigns.slot.made')))}>
                 {t('campaigns.slot.make')}
               </Button>
               <Button dense level="tertiary" busy={busy === `k${s.id}`} disabled={!!busy} reason={t('common.busy')} onClick={() => void act(`k${s.id}`, { action: 'skip-slot', slotId: s.id }, t('campaigns.slot.skipped'))}>
@@ -433,7 +512,7 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
             </div>
           )}
         </div>
-        {busy === s.id ? <TaskProgress active title={t('campaigns.slot.making', { date: formatDateLabel(s.date) })} steps={MAKE_STEPS[s.format] ?? MAKE_STEPS.default!} expectedSeconds={MAKE_SECONDS[s.format] ?? 15} /> : null}
+        {busy === s.id && !tpl ? <TaskProgress active title={t('campaigns.slot.making', { date: formatDateLabel(s.date) })} steps={MAKE_STEPS[s.format] ?? MAKE_STEPS.default!} expectedSeconds={MAKE_SECONDS[s.format] ?? 15} /> : null}
       </Reveal>
     );
   }
@@ -517,6 +596,14 @@ export function CampaignCard({ c, plan, data, say, onChange, openPosts }: { c: C
         <Drawer open width="wide" title={t('campaigns.autopilot')} status={<Pill status={CAMPAIGN_STATUS[c.status]} />} onClose={() => setOpened(null)}>
           <AutopilotPanel campaign={{ id: c.id, name: c.name, formats: c.formats, status: c.status }} formatNames={formatNames} say={say} />
         </Drawer>
+      ) : null}
+      {opened?.kind === 'template' ? (
+        <TemplateDrawer
+          slot={opened.slot}
+          templates={templates}
+          onClose={() => setOpened(null)}
+          onChoose={(templateId) => act(`t${opened.slot.id}`, { action: 'slot-template', slotId: opened.slot.id, templateId }, t('campaigns.templates.chosen'))}
+        />
       ) : null}
     </article>
   );

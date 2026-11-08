@@ -1,0 +1,90 @@
+{
+  "captionPages": {
+    "lang": "en",
+    "pages": [
+      {
+        "lineId": "l01",
+        "beatId": "b01",
+        "text": "Grandma’s house is loud tonight.",
+        "beatOffsetMs": 0,
+        "durationMs": 2400,
+        "words": [
+          {
+            "text": "Grandma’s",
+            "latin": true,
+            "beatOffsetMs": 0,
+            "endMs": 400
+          },
+          {
+            "text": "house",
+            "latin": true,
+            "beatOffsetMs": 450,
+            "endMs": 850
+          },
+          {
+            "text": "is",
+            "latin": true,
+            "beatOffsetMs": 900,
+            "endMs": 1300
+          },
+          {
+            "text": "loud",
+            "latin": true,
+            "beatOffsetMs": 1350,
+            "endMs": 1750
+          },
+          {
+            "text": "tonight.",
+            "latin": true,
+            "beatOffsetMs": 1800,
+            "endMs": 2200
+          }
+        ],
+        "breaks": [
+          2
+        ],
+        "highlight": 0,
+        "emphasis": null,
+        "widthPx": 621
+      },
+      {
+        "lineId": "l02",
+        "beatId": "b02",
+        "text": "Your turn now.",
+        "beatOffsetMs": 0,
+        "durationMs": 1800,
+        "words": [
+          {
+            "text": "Your",
+            "latin": true,
+            "beatOffsetMs": 0,
+            "endMs": 500
+          },
+          {
+            "text": "turn",
+            "latin": true,
+            "beatOffsetMs": 550,
+            "endMs": 1050
+          },
+          {
+            "text": "now.",
+            "latin": true,
+            "beatOffsetMs": 1100,
+            "endMs": 1600
+          }
+        ],
+        "breaks": [],
+        "highlight": null,
+        "emphasis": null,
+        "widthPx": 524
+      }
+    ],
+    "sizePx": 74,
+    "maxWidthPx": 865,
+    "font": {
+      "family": "Instrument Sans",
+      "sha256": "bcf650536cae57403741af193e1e237c245f8929b936f03601279079a64fd699"
+    }
+  },
+  "checks": []
+}

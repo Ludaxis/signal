@@ -10,6 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { similarityGuard } from '@/lib/studio/lang/fa/bilingual';
+import { loadRig } from '@/lib/studio/postmaker/anim/rig/load';
+import { validateRig } from '@/lib/studio/postmaker/anim/rig/validate';
 import { buildFaLine } from '@/lib/studio/lang/fa/pron';
 import { CORE_LEXICON, loadLexicon, type LexiconFile } from '@/lib/studio/lang/fa/lexicon';
 import { licenceComplete } from '@/lib/studio/postmaker/connectors/music';
@@ -52,7 +54,9 @@ describe('the example pack', () => {
       [
         'manifest', 'lexicon:fa', 'style:fa', 'glossary', 'template:pov-story-spine', 'font:Vazirmatn', 'font:Instrument Sans',
         'voice:mock-narrator-fa', 'voice:mock-elder-fa', 'voice:mock-narrator-en', 'voice:mock-elder-en',
-        'asset:char-lead', 'asset:char-elder', 'asset:bg-living-room-night', 'asset:ui-phone-frame', 'asset:ui-app-icon', 'asset:music-loop-100', 'asset:font-vazirmatn', 'asset:font-instrument-sans',
+        'asset:char-lead', 'asset:char-elder', 'asset:char-cutout', 'asset:bg-living-room-night', 'asset:ui-phone-frame', 'asset:ui-app-icon', 'asset:music-loop-100', 'asset:font-vazirmatn', 'asset:font-instrument-sans',
+        // The synthesised SFX library, one asset per cue id
+        ...['pop', 'whoosh', 'tap', 'swipe', 'success', 'clap', 'hit', 'riser', 'confetti', 'tick'].map((c) => `asset:sfx-${c}`),
       ].sort(),
     );
     expect(Object.values(p.assetFiles).every((f) => f.sha256 !== null)).toBe(true);
@@ -68,12 +72,13 @@ describe('the example pack', () => {
     }
   });
 
-  it('two original flat characters (Tier B), one background, one phone frame with UI targets, exactly one app icon', () => {
+  it('two original flat characters (Tier B), one generated cut-out rig (Tier A), one background, one phone frame with UI targets, exactly one app icon', () => {
     const lib = pack().library;
     const chars = lib.filter((a) => a.kind === 'character');
-    expect(chars.map((a) => a.id)).toEqual(['char-lead', 'char-elder']);
-    expect(pack().manifest.rigTier).toEqual({ 'char-lead': 'B', 'char-elder': 'B' });
-    for (const c of chars) expect(c.file).toBe(`characters/${c.id}/flat.png`);
+    expect(chars.map((a) => a.id)).toEqual(['char-lead', 'char-elder', 'char-cutout']);
+    expect(pack().manifest.rigTier).toEqual({ 'char-lead': 'B', 'char-elder': 'B', 'char-cutout': 'A' });
+    for (const c of chars.filter((a) => pack().manifest.rigTier[a.id] === 'B')) expect(c.file).toBe(`characters/${c.id}/flat.png`);
+    expect(chars.find((a) => a.id === 'char-cutout')!.file).toBe('characters/char-cutout/rig.json');
     expect(lib.filter((a) => a.kind === 'background')).toHaveLength(1);
     expect(lib.filter((a) => a.tags.includes('app-icon'))).toHaveLength(1);
     const phone = lib.find((a) => a.tags.includes('phone-frame'))!;
@@ -81,6 +86,15 @@ describe('the example pack', () => {
     expect(ui.schema).toBe('signal.pack-ui/1');
     expect(new Set(ui.targets.map((t) => t.id)).size).toBe(ui.targets.length);
     for (const t of ui.targets) expect(t.x + t.w <= phone.dims!.w && t.y + t.h <= phone.dims!.h, t.id).toBe(true);
+  });
+
+  it('the Tier A rig loads through the pack (resolver, tier, part files) and passes validateRig', async () => {
+    const lib = mergeLibraries(packEntries(pack()), []);
+    const r = await loadRig(pack(), lib, 'char-cutout', { final: true, use: 'organic', now: Date.parse('2026-11-07T00:00:00Z') });
+    expect(r.tier).toBe('A');
+    expect(r.rig.views).toEqual(['front', 'three-quarter-L']);
+    expect(validateRig(r.rig).ok).toBe(true);
+    expect(r.rigSha256).toBe(pack().library.find((a) => a.id === 'char-cutout')!.sha256);
   });
 
   it('fonts: Vazirmatn and one Latin OFL face, pinned, each with its OFL licence beside it', () => {

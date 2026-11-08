@@ -77,6 +77,7 @@ export function demoAutopilotPayload(now = Date.now()): AutopilotPayload {
       autopilot: { enabled: true, reason: '' },
       trustedPublish: { enabled: false, reason: 'Publishing without your approval needs the feature switch first.' },
       higgsfield: { enabled: false, reason: 'Higgsfield images are not approved for this account.' },
+      repeat: { enabled: false, reason: 'Repeat is off. Turn it on in Connections.' },
     },
     paused: { paused: false, reason: '' },
     schedule: { time: '08:00', timeZone: TIMEZONE, window: '08:00–09:00', nextRunAt: at(tomorrow, '08:00'), schedulerRunning: true },

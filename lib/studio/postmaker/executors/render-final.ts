@@ -15,6 +15,7 @@ import { renderMeasurements } from '../checks/renderMeasurements';
 import { DEFAULT_AI_LABEL, faceMeasure } from './compose';
 import { fontPublicFiles, lineageMock, mediaRefs, renderChainDeps, spawnOf, timelineFonts, workDirOf, type RenderChainDeps } from './render-chain';
 import type { Executor } from './types';
+import { timelineArtFiles } from './compose-art';
 
 /** A TimelineDoc rebuilt by the free `compose.rebuild` adapter, upgraded to a drawable timeline (cuts and captions). */
 export function upgradeTimeline(doc: TimelineDoc, lang: TimelineLang, fonts: Timeline['fonts'], mock: boolean): Timeline {
@@ -52,7 +53,7 @@ export function renderExecutor(dIn: Partial<RenderChainDeps> = {}): Executor {
   const d = renderChainDeps(dIn);
   return {
     kind: 'render',
-    implVersion: 'render@3',
+    implVersion: 'render@4',
     deterministic: true,
     estimate: (e) => ({ usdLow: 0, usdHigh: 0, seconds: Math.ceil(((e.byPort.timeline as { durationInFrames?: number } | null)?.durationInFrames ?? 900) / 15), basis: 'On this computer', verified: true }),
     async run(i) {
@@ -73,13 +74,14 @@ export function renderExecutor(dIn: Partial<RenderChainDeps> = {}): Executor {
       const video = path.join(dir, `video.${lang}.mp4`);
       const cover = path.join(dir, `cover.${lang}.png`);
       const props = { timeline, master };
+      const artFiles = await timelineArtFiles(timeline, d.art, i.params);
       const s = Date.now();
       const res = await d.chain.run(
         [
           { kind: 'media', composition: 'StorySpine', props, out: video, codec: 'h264', crf: 18, muted: !master },
           { kind: 'still', composition: 'StorySpine', props, out: cover, frame: timeline.coverFrame, imageFormat: 'png' },
         ],
-        { publicFiles: [...fontPublicFiles(fonts), ...(master ? [{ from: masterFile, to: master }] : [])], workDir: dir, signal: i.signal },
+        { publicFiles: [...fontPublicFiles(fonts), ...artFiles, ...(master ? [{ from: masterFile, to: master }] : [])], workDir: dir, signal: i.signal },
       );
       const wallMs = Date.now() - s;
       const frames = d.chain.id === 'fake' ? null : await countFrames(d, video);

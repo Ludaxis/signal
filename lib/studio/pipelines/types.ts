@@ -22,6 +22,11 @@ export interface PipelineMake {
   template: string;
   /** A short caption style hint passed to the ideas agent. */
   captionStyle: string;
+  /**
+   * (`PipelineMake.template`; named `fromTemplate` because `template` is the prompt above): when set, each
+   * slot is made by a Post maker template (`makeFromTemplate`) instead of the post generator. Absent = the format.
+   */
+  fromTemplate?: { id: string; variant: string | null } | null;
 }
 export interface PipelineReview { enabled: boolean }
 /** 'ask' = every post waits in Review; 'trusted' = formats that earned trust may publish (autopilot rules, never weaker). */
@@ -87,8 +92,25 @@ export interface PipelineRow extends Pipeline {
   status: { text: string; problems: { text: string; why: string }[] };
   last: { at: string; status: AutopilotRun['status']; made: number; problems: number; note: string | null } | null;
 }
+/** A template with Repeat settings, as the Pipelines and Calendar screens list pipelines (upcoming slots). */
+export interface RepeatRow {
+  templateId: string;
+  name: string;
+  /** Repeat is on for the template and the daily run may make it (the Repeat switch is on). */
+  enabled: boolean;
+  /** Why it makes nothing now (empty when it does). */
+  reason: string;
+  next: PipelineSlot[]; // upcoming slots inside make-ahead; packageId = the post, or null (not made or waiting at Proof)
+  nextAt: string | null; // first upcoming slot nothing was started for
+  /** Slots a post was started for that has no package yet (waiting at Proof or for a sign-off). */
+  waiting: string[];
+  spendToday: number;
+}
+
 export interface PipelinesPayload {
   pipelines: PipelineRow[];
+  /** Templates with Repeat settings (on or off), listed like pipelines. */
+  repeats: RepeatRow[];
   formats: { id: Format; name: string }[];
   campaigns: { id: string; name: string; status: string; autopilot: boolean }[]; // autopilot: the campaign's own switch (a campaign-source pipeline needs it on)
   switches: { autopilot: { enabled: boolean; reason: string }; trustedPublish: { enabled: boolean; reason: string }; higgsfield: { enabled: boolean; reason: string } };

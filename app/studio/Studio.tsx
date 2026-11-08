@@ -1,9 +1,10 @@
 'use client';
 // Signal Content Studio: Today, Post maker (behind its switch), Campaigns, Pipelines, Calendar, Posts (with the Gallery that replaced Library), Results,
-// Comments, Brand, Memory and Connections for the selected project. Everything shown here is real: posts on disk,
+// Comments, Brand, Memory and Connections for the selected project. The nav has four groups; Pipelines leaves it
+// once Post maker has taken every pipeline. Everything shown here is real: posts on disk,
 // approvals and plans. No sample data. Today: one Needs you list, Next up, Latest.
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Calendar } from './Calendar';
 import { CurrentProjectLabel, ProjectSwitcher, useProjectId } from './Projects';
 import { Brand } from './Brand';
@@ -26,7 +27,7 @@ import { navigateTo, useStudioView, useUrlReady, type View } from './url-state';
 import { PostMaker } from './postmaker/PostMaker';
 import { pmApi, type PostmakerHome } from './postmaker/api';
 import { useKeys } from './postmaker/keys';
-import { atProof, langName, runWord, runsNeedingYou } from './postmaker/model';
+import { atProof, langName, navGroups, pipelinesInNav, runWord, runsNeedingYou } from './postmaker/model';
 import { useOnChanged } from './sync';
 
 const TITLES: Record<View, string> = {
@@ -160,7 +161,8 @@ function usePostmakerNeeds(on: boolean, pid: string | null) {
     const id = setTimeout(() => void load(), 0);
     return () => clearTimeout(id);
   }, [load]);
-  useOnChanged(['content'], load, on ? 30_000 : 0);
+  // A move of pipelines (or a pipeline added or removed) changes the nav, so 'pipelines' reloads it too.
+  useOnChanged(['content', 'pipelines'], load, on ? 30_000 : 0);
   return on && home ? { home, reload: load } : null;
 }
 
@@ -240,6 +242,15 @@ export function Studio({ postmaker = false }: { postmaker?: boolean }) {
   const makePost = openMake;
   const pm = usePostmakerNeeds(postmaker, pid);
   const pmBadge = pm ? runsNeedingYou(pm.home.runs).length : 0;
+  // With Post maker on, Pipelines leaves the nav once no live pipeline is left (all
+  // moved, keeps it for pipelines that use a template); then 10 items in 4 groups. Until Post maker answers, and
+  // with its switch off, the tab stays (release 1).
+  const showPipelines = !postmaker || !pm || pipelinesInNav(pm.home.migration);
+  const groups = navGroups({ postmaker, pipelines: showPipelines });
+  // ?tab=pipelines once the tab is gone lands on Post maker › Proven, replacing the entry so Back still works.
+  useEffect(() => {
+    if (ready && view === 'pipelines' && !showPipelines) navigate('postmaker', { replace: true, params: { view: 'proven' } });
+  }, [ready, view, showPipelines, navigate]);
   const reloadPm = pm?.reload;
   useEffect(() => {
     if (!ready || view !== 'today' || !reloadPm) return;
@@ -247,7 +258,7 @@ export function Studio({ postmaker = false }: { postmaker?: boolean }) {
     return () => clearTimeout(id);
   }, [ready, view, reloadPm]);
   // Global keys: ⌘1…⌘0 go to the nav items in order; ⌘N makes a post (Post maker › Reference when it is on).
-  const order: View[] = ['today', ...(postmaker ? (['postmaker'] as View[]) : []), 'campaigns', 'pipelines', 'calendar', 'posts', 'results', 'comments', 'brand', 'memory', 'connections'];
+  const order: View[] = groups.flatMap((g) => g.items);
   const navKeys: Record<string, () => void> = Object.fromEntries(order.slice(0, 10).map((v, i) => [`⌘${(i + 1) % 10}`, () => navigate(v)]));
   useKeys({ ...navKeys, '⌘N': () => (postmaker ? navigateTo('postmaker', { params: { s: 'reference' } }) : openMake()) }, ready);
 
@@ -278,17 +289,23 @@ export function Studio({ postmaker = false }: { postmaker?: boolean }) {
         </div>
         <ProjectSwitcher />
         <nav aria-label={t('shell.nav')} className="st-stack st-nav-list">
-          {nav('today')}
-          {postmaker ? nav('postmaker', <CountBadge count={pmBadge} label={t('pm.badge', { count: pmBadge })} />) : null}
-          {nav('campaigns')}
-          {nav('pipelines')}
-          {nav('calendar')}
-          {nav('posts', <CountBadge count={badge} label={t('shell.postsBadge', { count: badge })} />)}
-          {nav('results')}
-          {nav('comments')}
-          {nav('brand')}
-          {nav('memory')}
-          {nav('connections')}
+          {/*four groups; the labels are not focusable and add no words to the main view. */}
+          {groups.map((g) => (
+            <div key={g.group} role="group" aria-label={t(`shell.group.${g.group}`)} className="st-stack st-nav-group" data-group={g.group}>
+              <span className="st-nav-label" aria-hidden="true">
+                {t(`shell.group.${g.group}`)}
+              </span>
+              {g.items.map((v) =>
+                v === 'postmaker' ? (
+                  <Fragment key={v}>{nav('postmaker', <CountBadge count={pmBadge} label={t('pm.badge', { count: pmBadge })} />)}</Fragment>
+                ) : v === 'posts' ? (
+                  <Fragment key={v}>{nav('posts', <CountBadge count={badge} label={t('shell.postsBadge', { count: badge })} />)}</Fragment>
+                ) : (
+                  <Fragment key={v}>{nav(v)}</Fragment>
+                ),
+              )}
+            </div>
+          ))}
         </nav>
         <button type="button" className="st-btn st-btn-ghost st-btn-sm st-signout" onClick={() => void logout()}>
           {t('shell.signOut')}

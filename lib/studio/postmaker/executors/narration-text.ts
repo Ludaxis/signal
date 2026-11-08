@@ -5,27 +5,19 @@
 // Mock mode writes gate records with reviewer "mock", which counts as unsigned.
 // No network, no vendor call, no agent call of its own: `proposePronMarks` is injected.
 // Shapes shared with the rest of the Post maker (Lang, run mode, the pack voice profile, step checks) come from
-// ../types; only the narration-specific line and check shapes are defined here.
+// ../types; since so do the line, check and projection shapes; only the shapes that depend on
+// the Persian library (FaNarrationLine, the input and output of this step) are defined here.
 
 import { buildFaLine, pendingDecisions, runLanguageAgentPass, type FaLineText, type PronError, type PronPatch } from '@/lib/studio/lang/fa/pron';
 import { CORE_LEXICON, loadLexicon, type LexiconFile } from '@/lib/studio/lang/fa/lexicon';
 import { mockSignoff } from '@/lib/studio/lang/fa/review';
 import { project, type VoiceProfile as FaProjectionProfile } from '@/lib/studio/lang/fa/project';
-import type { NormalizeOptions, Register } from '@/lib/studio/lang/fa/normalize';
+import type { NormalizeOptions } from '@/lib/studio/lang/fa/normalize';
 import type { LintContext } from '@/lib/studio/lang/fa/lint';
 import { PostmakerError } from '../errors';
-import type { Lang, Provenance, StepCheck, VoiceProfile } from '../types';
+import type { EnNarrationLine, FaRegister, Lang, NarrationCheck, NarrationLine, NarrationScriptLine, Provenance, StepCheck, VoiceProfile } from '../types';
 
-export type { Lang };
-
-export interface NarrationScriptLine {
-  id: string;
-  beatId: string;
-  speaker: string;
-  langs: Lang[];
-  fa?: { display: string; register?: Register; allowDiacritics?: number[] } | null;
-  en?: { display: string; register?: 'casual' | 'neutral' | 'formal' } | null;
-}
+export type { EnNarrationLine, Lang, NarrationCheck, NarrationLine, NarrationScriptLine };
 
 export interface NarrationTextInput {
   lang: Lang;
@@ -40,29 +32,11 @@ export interface NarrationTextInput {
   now?: string;
 }
 
-export interface NarrationCheck {
-  lineId: string;
-  ruleId: string;
-  severity: 'error' | 'warning';
-  message: string;
-  span?: [number, number];
-  suggestion?: string;
-}
-
 export interface FaNarrationLine extends FaLineText {
   id: string;
   beatId: string;
   speaker: string;
-  register: Register;
-}
-
-export interface EnNarrationLine {
-  id: string;
-  beatId: string;
-  speaker: string;
-  display: string;
-  tts: string;
-  register: 'casual' | 'neutral' | 'formal';
+  register: FaRegister;
 }
 
 export interface NarrationTextOutput {
@@ -142,7 +116,7 @@ export function projectionProfileOf(voice: VoiceProfile): FaProjectionProfile {
 }
 
 /** `NarrationLine` view of a fa line for one voice: spoken = tts, offsets = [spokenStart, spokenEnd, displayStart, displayEnd]. */
-export function toNarrationLine(line: FaNarrationLine, voice: VoiceProfile) {
+export function toNarrationLine(line: FaNarrationLine, voice: VoiceProfile): NarrationLine {
   const p = project(line, projectionProfileOf(voice));
   const offsets: [number, number, number, number][] = p.offsets
     .filter((o) => o.span >= 0)

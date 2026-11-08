@@ -15,6 +15,7 @@ import { loudnessCheck, type LoudnessMeasure } from './loudness';
 import { pacingLint, type PacingTimeline } from './pacing';
 import { safeZoneReport, type LayoutFrame, type Reserve } from './safeZoneReport';
 import { c5Ceiling, type CharacterPresence } from './tierCeiling';
+import { holdLint, idleLint, type CharacterTrack, type MoveTrack } from '../anim/lint';
 
 export const CHECK_IDS = ['loudness', 'safe-zones', 'caption-match', 'ai-label', 'fonts', 'frame-count'] as const satisfies readonly CheckId[];
 
@@ -36,6 +37,10 @@ export interface CheckSubject {
   luminance: number[] | null;
   characters: { list: CharacterPresence[]; characterLed?: boolean } | null;
   lipsync: LipsyncLine[] | null;
+  /** The compiled characters of the `motion` step (absolute frames) for the idle and hold lint. */
+  motion?: { characters: (CharacterTrack & MoveTrack)[]; clipFrames?: Record<string, Record<string, number>> } | null;
+  /** The mix's audio checks (narration over the bed, the SFX cues) for the row; absent = not measured. */
+  audio?: { narrationBed: { ok: boolean; text: string } | null; sfx: { ok: boolean; text: string; dropped: string | null } | null } | null;
   /** The narration-text step's language lint (error count and rule ids), from its version checks. */
   langLint: { errors: number; ruleIds: string[] } | null;
   /** Current sign-off records (storage, through `deps.signoffs`) and the current version hashes by node. */
@@ -177,9 +182,46 @@ export function runDeterministic(s: CheckSubject): DeterministicReport {
     }
   } else if (s.medium === 'video') cap('C12', 4, t('check.notMeasured'), { kind: 'report', ref: 'flash:luminance', value: 'not measured' });
 
-  if (s.characters && s.frames.video) {
-    const c = c5Ceiling(s.characters.list, s.frames.video, { characterLed: s.characters.characterLed });
+  // audio craft beyond loudness: narration over the bed and the SFX cue list, from the mix
+  if (s.audio?.narrationBed) {
+    const ev: RubricEvidence = { kind: 'measure', ref: 'mix:narration-bed', value: s.audio.narrationBed.text.slice(0, 140) };
+    cite('C9', ev);
+    if (!s.audio.narrationBed.ok) cap('C9', 3, s.audio.narrationBed.text, ev);
+  }
+  if (s.audio?.sfx) {
+    const ev: RubricEvidence = { kind: 'report', ref: 'mix:sfx', value: (s.audio.sfx.dropped ?? s.audio.sfx.text).slice(0, 140) };
+    cite('C9', ev);
+    if (!s.audio.sfx.ok || s.audio.sfx.dropped) cap('C9', 3, s.audio.sfx.dropped ?? s.audio.sfx.text, ev);
+  }
+
+  if (s.characters && (s.frames.video ?? s.frames.timeline)) {
+    const total = (s.frames.video ?? s.frames.timeline)!;
+    const c = c5Ceiling(s.characters.list, total, { characterLed: s.characters.characterLed });
+    cite('C5', { kind: 'report', ref: 'rig:tiers', value: `${s.characters.list.map((x) => `${x.id} ${x.tier} ${Math.round((x.onScreenFrames / total) * 100)} %`).join('; ') || 'no character'}; ceiling ${c.max}` });
     if (c.max < 5) cap('C5', c.max, c.text!, { kind: 'report', ref: `rig:${c.limitedBy}`, value: `ceiling ${c.max}` });
+  }
+
+  // motion lint (quality bar acceptance 3): every character on screen over 60 frames breathes and
+  // blinks; 8 still frames between two moves. Each finding names the character.
+  if (s.motion) {
+    const flat = (s.characters?.list ?? []).filter((c) => c.tier === 'B').map((c) => c.id);
+    const before = findings.length;
+    for (const v of idleLint(s.motion.characters, { flat })) {
+      const why = t('check.motion.idle', { character: v.charId, frame: v.frame });
+      findings.push({ id: `c5.idle.${v.charId}.${v.loop}`, frame: v.frame, text: why });
+      cap('C5', 2, why, { kind: 'report', ref: `motion:idles:${v.charId}`, value: `${v.loop} missing from frame ${v.frame}` });
+    }
+    const byChar = new Map<string, (CharacterTrack & MoveTrack)[]>();
+    for (const c of s.motion.characters) byChar.set(c.charId, [...(byChar.get(c.charId) ?? []), c]);
+    for (const [charId, list] of byChar) {
+      const clips = s.motion.clipFrames?.[charId];
+      for (const v of holdLint(list, clips ? (g) => clips[g] ?? 1 : undefined)) {
+        const why = t('check.motion.hold', { character: v.charId, frame: v.frame, gap: v.gap });
+        findings.push({ id: `c5.hold.${v.charId}`, frame: v.frame, text: why });
+        cap('C5', 3, why, { kind: 'measure', ref: `motion:holds:${v.charId}`, value: `${v.gap} frames at ${v.frame}` });
+      }
+    }
+    if (findings.length === before) cite('C5', { kind: 'report', ref: 'motion:c5-lint', value: `idles and holds clean: ${byChar.size} characters, ${s.motion.characters.length} appearances` });
   }
 
   if (s.lipsync) {

@@ -1,6 +1,6 @@
 'use client';
 // Post maker: the tab behind the `postmaker`
-// feature switch. URL state (`?tab=postmaker&r=<recipe>&s=reference|recipe|pipeline|proof&step=<node>`,
+// feature switch. URL state per (`?tab=postmaker&r=<recipe>&s=reference|recipe|pipeline|proof&step=<node>`,
 // `&view=drafts|proven|runs[&run=<run>]`), the stepper (Reference · Recipe · Pipeline · Proof · Proven) with the Run bar
 // under it, and the six screens. The server keeps working when you leave; coming back reads the live state.
 // Long actions answer with a run id at once; this polls the run every second while it goes, then every 5 s while it
@@ -17,13 +17,15 @@ import { setSingleKeys, useKeys, useSingleKeys } from './keys';
 import { atProof, pmLocation, pmParams, SCREENS, type PmLocation, type Screen } from './model';
 import { Pipeline } from './Pipeline';
 import { Proof } from './Proof';
+import { Proven } from './Proven';
 import { Recipe } from './Recipe';
 import { Reference } from './Reference';
 import { RunBar, runBarShown } from './RunBar';
 import type { StepTab } from './StepDrawer';
 
 export interface PostMakerProps {
-  say: (text: string) => void;
+  /** The Studio toast; `onUndo` adds its Undo button (the move of pipelines). */
+  say: (text: string, opts?: { onUndo?: () => void }) => void;
   openConnections: (service: string | null) => void;
 }
 
@@ -164,6 +166,11 @@ export function PostMaker({ say, openConnections }: PostMakerProps) {
       .catch(() => undefined);
     void loadRecipe();
   };
+  // Make a post and Run proof (template.make-post) answer like Make it: follow the run to Proof.
+  const onTemplateMade = (a: MakeItAnswer) => {
+    say(t('pm.make.started'));
+    onMade(a, false);
+  };
   const onMade = (a: MakeItAnswer, stop: boolean) => {
     if (stop || !a.runId) return go({ r: a.recipeId, s: 'recipe' });
     setRun(null);
@@ -187,7 +194,7 @@ export function PostMaker({ say, openConnections }: PostMakerProps) {
   const hasProof = !!view && (view.proof.length > 0 || !!view.nodes.find((n) => n.id === 'check')?.current);
   const screen: Screen | null = r ? (loc.s ?? (view ? 'pipeline' : 'recipe')) : loc.s === 'reference' ? 'reference' : null;
   const reach = (s: Screen | 'proven'): string | null => {
-    if (s === 'proven') return t('pm.stepper.provenLater');
+    if (s === 'proven') return view?.template ? null : t('pm.stepper.provenLater');
     if (s === 'reference') return null;
     if (!r) return t('pm.stepper.needsRecipe');
     if (s === 'recipe') return null;
@@ -214,7 +221,7 @@ export function PostMaker({ say, openConnections }: PostMakerProps) {
           const done = !current && !why && s !== 'proven' && SCREENS.indexOf(s as Screen) < SCREENS.indexOf(screen);
           return (
             <li key={s} className={`pm-stepper-item ${done ? 'is-done' : ''}`}>
-              <button type="button" className="pm-stepper-btn" aria-current={current ? 'step' : undefined} disabled={!!why && !current} title={why ?? undefined} data-done={done || undefined} onClick={() => go({ r, s: s as Screen })}>
+              <button type="button" className="pm-stepper-btn" aria-current={current ? 'step' : undefined} disabled={!!why && !current} title={why ?? undefined} data-done={done || undefined} onClick={() => (s === 'proven' ? view?.template && go({ t: view.template.id }) : go({ r, s: s as Screen }))}>
                 {t(`pm.screen.${s}`)}
               </button>
             </li>
@@ -237,8 +244,10 @@ export function PostMaker({ say, openConnections }: PostMakerProps) {
     ) : null;
 
   let body: ReactNode = null;
-  if (!r && screen !== 'reference') {
-    body = homeError && !home ? <Notice kind="error" title={t('pm.couldNotLoad')} details={homeError} onRetry={() => void loadHome()} /> : home ? <Home pid={pid} data={home} view={loc.view} runId={loc.run} go={go} say={say} reload={() => void loadHome()} /> : <Notice kind="loading" title={t('pm.loading')} />;
+  if (!r && loc.t) {
+    body = homeError && !home ? <Notice kind="error" title={t('pm.proven.couldNotLoad')} details={homeError} onRetry={() => void loadHome()} /> : home ? <Proven key={loc.t} pid={pid} data={home} templateId={loc.t} go={go} say={say} reload={() => void loadHome()} onMade={onTemplateMade} /> : <Notice kind="loading" title={t('pm.proven.loading')} />;
+  } else if (!r && screen !== 'reference') {
+    body = homeError && !home ? <Notice kind="error" title={t('pm.couldNotLoad')} details={homeError} onRetry={() => void loadHome()} /> : home ? <Home pid={pid} data={home} view={loc.view} runId={loc.run} go={go} say={say} reload={() => void loadHome()} onMade={onTemplateMade} /> : <Notice kind="loading" title={t('pm.loading')} />;
   } else if (!r) {
     body = <Reference key="new" pid={pid} recipe={null} reference={null} onMade={onMade} say={say} />;
   } else if (error && !view && !only) {

@@ -28,8 +28,25 @@ export function codexExecArgs(work: string, task: string): string[] {
   return ['exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--ephemeral', '--ignore-user-config', '-C', work, '-o', path.join(work, 'last-message.txt'), task];
 }
 
+/** Image options per request (follow-up): the aspect named to Codex and whether the PNG keeps an alpha channel. */
+export interface CodexImageOptions {
+  /** A cut-out (sticker, prop, phone frame): transparent background, alpha kept; otherwise an opaque full-bleed picture. */
+  alpha?: boolean;
+}
+
+/** The aspect words for a size: 4:5, 9:16, 1:1, 16:9 by name, else the pixel size. */
+export function aspectWords(width: number, height: number): string {
+  const r = width / height;
+  const near = (a: number, b: number) => Math.abs(r - a / b) < 0.01;
+  if (near(1, 1)) return 'square 1:1';
+  if (near(4, 5)) return 'portrait 4:5';
+  if (near(9, 16)) return 'portrait 9:16';
+  if (near(16, 9)) return 'landscape 16:9';
+  return `${width}×${height} px (${r < 1 ? 'portrait' : 'landscape'})`;
+}
+
 /** The task text: fixed instructions around the brief, which is marked as data only. Exported for tests. */
-export function codexTask(brief: string): string {
+export function codexTask(brief: string, o: { width?: number; height?: number } & CodexImageOptions = {}): string {
   const clean = brief.replace(/<\/?\s*image_brief\s*>/gi, ' ').trim();
   return [
     '$imagegen',
@@ -39,7 +56,7 @@ export function codexTask(brief: string): string {
     clean,
     '</image_brief>',
     '',
-    'Save exactly one final image as ./output.png in the current folder (PNG, portrait 4:5).',
+    `Save exactly one final image as ./output.png in the current folder (PNG, ${aspectWords(o.width ?? 1080, o.height ?? 1350)}${o.alpha ? ', the subject alone on a fully transparent background with an alpha channel, no backdrop or shadow plate' : ''}).`,
     'Do not create other files, run other commands, browse the web, or change anything outside this folder.',
     'When done, reply with only the word DONE.',
   ].join('\n');
@@ -83,8 +100,11 @@ async function findPngs(dir: string, depth = 0): Promise<string[]> {
   return found;
 }
 
-/** Asks Codex to generate one image with $imagegen and returns it normalised to width x height. */
-export async function codexImage(prompt: string, width: number, height: number): Promise<CodexImage> {
+/**
+ * Asks Codex to generate one image with $imagegen and returns it normalised to width x height: an opaque picture is
+ * cropped to cover the size; a cut-out (`alpha`) is fitted inside it and keeps its transparency.
+ */
+export async function codexImage(prompt: string, width: number, height: number, o: CodexImageOptions = {}): Promise<CodexImage> {
   const allowed = await codexImagesAllowed();
   if (!allowed.enabled) throw new ContentError(403, allowed.reason);
   const bin = await cliBin('codex');
@@ -97,7 +117,7 @@ export async function codexImage(prompt: string, width: number, height: number):
     } catch {
       throw new ContentError(503, 'The Codex CLI was not found. Install it and sign in (`codex login`), or set its path in Connections.');
     }
-    const task = codexTask(prompt);
+    const task = codexTask(prompt, { width, height, alpha: o.alpha });
     const r = await run(bin, codexExecArgs(work, task), work, CODEX_TIMEOUT_MS);
     const pngs = (await findPngs(work)).filter((p) => !p.endsWith('last-message.txt'));
     const preferred = pngs.find((p) => path.basename(p) === 'output.png') ?? pngs[0];
@@ -108,7 +128,9 @@ export async function codexImage(prompt: string, width: number, height: number):
     const src = await fs.readFile(/* turbopackIgnore: true */ preferred);
     const meta = await sharp(src).metadata();
     if (!meta.width || !meta.height || meta.width < 600 || meta.height < 600) throw new ContentError(502, 'Codex returned an image that is too small.');
-    const png = await sharp(src).resize({ width, height, fit: 'cover', position: 'attention' }).removeAlpha().png().toBuffer();
+    const png = o.alpha
+      ? await sharp(src).ensureAlpha().resize({ width, height, fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer()
+      : await sharp(src).resize({ width, height, fit: 'cover', position: 'attention' }).removeAlpha().png().toBuffer();
     return { png, prompt: task, cliVersion, seconds: Math.round((Date.now() - started) / 1000) };
   } finally {
     await fs.rm(/* turbopackIgnore: true */ work, { recursive: true, force: true }); // our own temp workspace only

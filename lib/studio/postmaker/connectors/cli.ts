@@ -7,13 +7,15 @@
 //   built-in tool denied, no session on disk), the prompt on stdin, the role budget as --max-budget-usd on API-key
 //   billing. Vision mode widens the envelope (Read inside the temp cwd, which then holds only the contact
 //   sheets and the timeline the request hands over) and needs a security review first: refused unless the registry
-//   is built with the explicit `allowVision: true` (nothing in the app does that yet).
+//   is built with the explicit `allowVision: true` (nothing in the app does that yet). The fallback
+//   `visionTransport: 'stdin'` sends the images as base64 blocks of one stream-json message on stdin instead
+//   (no file in the cwd, no tool at all); the same `allowVision` switch refuses it until the review.
 // - agent-sdk: one role run through team/runtime.ts runRole() (API key only; no free check, so never tested).
 // - codex: image generation through codex.ts codexImage(), attended only (a button press in an open app).
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CLI_DENIED_TOOLS, CLI_VISION_TOOLS, agentBilling, cliEnv, parseStreamLine, placeVisionFiles, type Billing, type VisionFile } from '../../claude-agent';
+import { CLI_DENIED_TOOLS, CLI_VISION_TOOLS, agentBilling, cliEnv, parseStreamLine, placeVisionFiles, visionStdin, type Billing, type VisionFile, type VisionTransport } from '../../claude-agent';
 import { codexImage } from '../../codex';
 import { runRole, type RoleTask, type RunDeps } from '../../team/runtime';
 import type { Role } from '../../memory/types';
@@ -55,6 +57,8 @@ export interface CliDeps {
   codexImage?: typeof codexImage;
   /** run vision requests (default false: refused until the security review signs the envelope). */
   allowVision?: boolean;
+  /** Files in the temp cwd for Read (default) or, the fallback, base64 blocks on stdin. */
+  visionTransport?: VisionTransport;
   /** How long a status() probe answer is reused (default PROBE_TTL_MS). */
   probeTtlMs?: number;
   now?: () => number;
@@ -84,11 +88,13 @@ export function cachedCliInfo(info: (cli: 'claude' | 'codex') => Promise<CliInfo
 
 /** `claude -p` arguments for a Post maker step: no tools at all, bounded turns, the budget on API-key billing.
  *  `vision: true` names Read as the only tool (and allows it); every other denial stays, the web included. */
-export function claudeCliArgs(o: { maxTurns: number; budgetUsd: number; billing: Billing; model?: string; vision?: boolean }): string[] {
+export function claudeCliArgs(o: { maxTurns: number; budgetUsd: number; billing: Billing; model?: string; vision?: boolean; visionTransport?: VisionTransport }): string[] {
   const turns = Math.max(1, Math.min(30, Math.round(o.maxTurns)));
-  const vision = o.vision === true;
+  // Stdin fallback: the images travel in the message; no tool at all, Read stays denied.
+  const stdin = o.vision === true && o.visionTransport === 'stdin';
+  const vision = o.vision === true && !stdin;
   const denied = [...CLI_DENIED_TOOLS.filter((t) => !vision || !(CLI_VISION_TOOLS as readonly string[]).includes(t)), 'WebSearch', 'WebFetch'];
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', String(turns), '--tools', vision ? CLI_VISION_TOOLS.join(',') : '', '--disallowedTools', denied.join(',')];
+  const args = ['-p', ...(stdin ? ['--input-format', 'stream-json'] : []), '--output-format', 'stream-json', '--verbose', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands', '--max-turns', String(turns), '--tools', vision ? CLI_VISION_TOOLS.join(',') : '', '--disallowedTools', denied.join(',')];
   if (vision) args.push('--allowedTools', CLI_VISION_TOOLS.join(','));
   if (o.billing === 'api-key') args.push('--max-budget-usd', Math.max(0.01, o.budgetUsd).toFixed(2));
   const model = (o.model ?? '').replace(/[^a-z0-9.\-]/gi, '');
@@ -159,19 +165,24 @@ export function makeCliConnectors(deps: CliDeps = {}) {
       if (r.vision && !deps.allowVision) throw new PostmakerError(403, 'forbidden', 'Vision mode needs its security review first.');
       if (!r.vision && r.files?.length) throw new PostmakerError(400, 'validation', 'Files go only with a vision run.');
       const b = await billing();
-      const args = claudeCliArgs({ maxTurns: r.maxTurns, budgetUsd: r.budgetUsd, billing: b, model: r.model, vision: r.vision === true });
+      const viaStdin = r.vision === true && deps.visionTransport === 'stdin';
+      const args = claudeCliArgs({ maxTurns: r.maxTurns, budgetUsd: r.budgetUsd, billing: b, model: r.model, vision: r.vision === true, ...(viaStdin ? { visionTransport: 'stdin' as const } : {}) });
       const spawn = ctx.deps.spawn ?? (await import('node:child_process')).spawn;
       const cwd = await fs.mkdtemp(path.join(/* turbopackIgnore: true */ os.tmpdir(), 'signal-pm-cli-'));
       const state: { chars: number; model?: string } = { chars: 0 };
       let result: { result?: string; is_error?: boolean; total_cost_usd?: number } | undefined;
       try {
-        if (r.vision) await placeVisionFiles(cwd, r.files ?? []).catch((e: Error) => {
-          throw new PostmakerError(400, 'validation', e.message);
-        });
+        let stdin = r.prompt;
+        try {
+          if (viaStdin) stdin = visionStdin(r.prompt, r.files ?? []);
+          else if (r.vision) await placeVisionFiles(cwd, r.files ?? []);
+        } catch (e) {
+          throw new PostmakerError(400, 'validation', (e as Error).message);
+        }
         const out = await runCli(spawn, await bin('claude'), args, {
           cwd,
           env: cliEnv(b, env()) as NodeJS.ProcessEnv,
-          stdin: r.prompt,
+          stdin,
           signal: ctx.signal,
           timeoutMs: 8 * 60_000,
           onLine: (line) => {

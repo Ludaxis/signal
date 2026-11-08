@@ -8,14 +8,21 @@ import { PostmakerError } from '../errors';
 import { packRefReason } from '../pack/load';
 import { readHead } from '../store/heads';
 import { hashJson } from '../store/objects';
-import { readPackLock, readPipeline } from '../store/recipes';
+import { readPackLock, readPipeline, readRecipe } from '../store/recipes';
 import { readVersion } from '../store/versions';
-import type { HumanGate, PackLock, Pipeline, PipelineNode, SignOff, StepHead, StepKind, StepStatus, StepVersion } from '../types';
+import type { HumanGate, PackLock, Pipeline, PipelineNode, Recipe, SignOff, StepHead, StepKind, StepStatus, StepVersion } from '../types';
 import { topoOrder } from './validate';
 
 export const REASON_IMPL = 'Signal updated this step';
 export const REASON_SETTINGS = 'Settings changed';
 export const REASON_MISSING = 'Missing input';
+export const REASON_RECIPE = 'The recipe changed';
+
+/** The step kinds that read the recipe's beats directly (every other step reads them through `script`). */
+export const RECIPE_READERS: ReadonlySet<StepKind> = new Set<StepKind>(['script']);
+
+/** The hash of the recipe's beats a recipe-reading step records (`StepVersion.recipe.beats`). */
+export const recipeBeatsHash = (r: Pick<Recipe, 'beats'>): string => hashJson(r.beats);
 export const changedReason = (nodeId: string) => `${nodeId} changed`;
 
 export interface GraphState {
@@ -32,6 +39,8 @@ export interface GraphState {
   connectorOff?: (node: PipelineNode) => boolean;
   /** Sign-off records kept outside the version files; merged with each version's own records. */
   signoffs?: SignOff[];
+  /** `recipeBeatsHash` of the recipe now; null or absent = not compared. */
+  recipeBeats?: string | null;
 }
 
 export interface GateState {
@@ -84,6 +93,7 @@ export function directReasons(node: PipelineNode, v: StepVersion, s: GraphState)
   }
   for (const rec of v.inputs) if (!parents.includes(rec.nodeId)) reasons.push(changedReason(rec.nodeId)); // an input was removed
   if (hashJson(node.params ?? {}) !== hashJson(v.params ?? {})) reasons.push(REASON_SETTINGS);
+  if (v.recipe && s.recipeBeats && v.recipe.beats !== s.recipeBeats) reasons.push(REASON_RECIPE);
   for (const ref of v.packRefs) {
     const now = s.packLock?.entries[ref.ref];
     if (now !== ref.sha256) reasons.push(packRefReason(ref.ref));
@@ -140,7 +150,8 @@ export async function loadGraphState(root: string, recipeId: string, o: Omit<Gra
     current[n.id] = h.current === null ? null : await readVersion(root, recipeId, n.id, h.current);
   }
   const packLock = o.packLock !== undefined ? o.packLock : await readPackLock(root);
-  return { ...o, pipeline, heads, current, packLock };
+  const recipeBeats = o.recipeBeats !== undefined ? o.recipeBeats : await readRecipe(root, recipeId).then((r) => (r ? recipeBeatsHash(r) : null), () => null);
+  return { ...o, pipeline, heads, current, packLock, recipeBeats };
 }
 
 // ---- accept ------------------------------------------------------------------------------------------------------

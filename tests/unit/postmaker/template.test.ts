@@ -8,12 +8,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isPostmakerError } from '@/lib/studio/postmaker/errors';
-import { defaultBpm, parseTemplate, scaleTemplate, type PackTemplate, type ScaledTemplate } from '@/lib/studio/postmaker/pack/template';
+import { defaultBpm, parseTemplate, scaleTemplate, scaleVariant, variantBpm, type PackTemplate, type ScaledTemplate } from '@/lib/studio/postmaker/pack/template';
 import { segmentBounds } from '@/lib/studio/postmaker/render/presets';
 
 const FILE = path.resolve(__dirname, '../../fixtures/postmaker/pack-example/templates/pov-story-spine.json');
 const raw = () => JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, unknown> & { segments: Record<string, unknown>[] };
-const tpl = (): PackTemplate => parseTemplate(raw(), { fileId: 'pov-story-spine', packLanguages: ['fa', 'en'], characterIds: ['char-lead', 'char-elder'] });
+const tpl = (): PackTemplate => parseTemplate(raw(), { fileId: 'pov-story-spine', packLanguages: ['fa', 'en'], characterIds: ['char-lead', 'char-elder', 'char-cutout'] });
 const variant = (id: string) => tpl().variants!.find((v) => v.id === id)!;
 
 const code = (fn: () => unknown, c: string) => {
@@ -56,6 +56,18 @@ describe('template file', () => {
     code(() => parseTemplate(raw(), { characterIds: ['char-lead'] }), 'template.cast-unknown');
     code(() => parseTemplate({ ...raw(), durationSec: { min: 20, max: 90 } }), 'template.too-short');
     code(() => parseTemplate({ ...raw(), segments: [...raw().segments].reverse() }), 'template.invalid');
+  });
+
+  it('refuses a variant whose declared BPM is outside the template tempo range', () => {
+    const r = raw() as unknown as { tempo: { bpmRange: [number, number] }; variants: { id: string; bpm?: number }[] };
+    const [lo, hi] = r.tempo.bpmRange;
+    for (const bpm of [lo - 1, hi + 1]) {
+      const bad = { ...r, variants: r.variants.map((v, i) => (i === 0 ? { ...v, bpm } : v)) };
+      expect(() => parseTemplate(bad)).toThrow(new RegExp(`Variant ${r.variants[0]!.id} is set to ${bpm} BPM; this template allows ${lo} to ${hi} BPM`));
+      code(() => parseTemplate(bad), 'template.invalid');
+    }
+    const edge = { ...r, variants: r.variants.map((v, i) => (i === 0 ? { ...v, bpm: lo } : i === 1 ? { ...v, bpm: hi } : v)) };
+    expect(parseTemplate(edge).variants![0]!.bpm).toBe(lo);
   });
 });
 
@@ -120,5 +132,26 @@ describe('scaling and', () => {
     const t = tpl();
     expect(code(() => scaleTemplate(t, { totalSec: 30 }), 'template.cannot-scale')).toMatch(/hook/);
     code(() => scaleTemplate(t, { totalSec: 95, bpm: 100 }), 'template.cannot-scale');
+  });
+});
+
+describe('the variant BPM in the scaling rule', () => {
+  it('a variant scales at its declared BPM; a variant without one at the template default; an unknown variant is 404', () => {
+    const t = tpl();
+    for (const v of t.variants!) {
+      const s = scaleVariant(t, v.id);
+      expect(s.bpm, v.id).toBe(v.bpm);
+      expect(s).toEqual(scaleTemplate(t, { totalSec: v.lengthSec, bpm: v.bpm, segmentSec: v.segmentSec }));
+    }
+    // without overrides the BPM moves the bars: 85 s at the variant's 100 BPM vs the default 109
+    const plain = { ...t, variants: [{ id: 'at-100', label: 'At 100', lengthSec: 85, bpm: 100 }, { id: 'no-bpm', label: 'Default', lengthSec: 85 }] };
+    const at100 = scaleVariant(plain, 'at-100');
+    expect(at100).toEqual(scaleTemplate(plain, { totalSec: 85, bpm: 100 }));
+    expect(at100.barSec).toBe(2.4);
+    const def = scaleVariant(plain, 'no-bpm');
+    expect(def.bpm).toBe(defaultBpm(t));
+    expect(variantBpm(t, null)).toBe(defaultBpm(t));
+    expect(def.barSec).not.toBe(at100.barSec);
+    code(() => scaleVariant(t, 'missing'), 'template.variant-unknown');
   });
 });

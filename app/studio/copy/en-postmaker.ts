@@ -1,6 +1,7 @@
 // Post maker screens. Words from the status dictionary and the glossary; "Accept" is the Post maker word.
 // Text budgets:
-// Home 40, Reference 45, Recipe 40, Pipeline 50 (+ ≤ 18 per step card), Proof 45, Runs 30.
+// Home 40, Reference 45, Recipe 40, Pipeline 50 (+ ≤ 18 per step card), Proof 45, Proven 50 (+ ≤ 40 per template
+// card), Runs 30.
 // The screens show only while the `postmaker` feature is on (Connections → Features, or "postmaker": true in
 // signal.config.json).
 export const enPostmaker = {
@@ -20,7 +21,7 @@ export const enPostmaker = {
   'pm.stepper.needsRecipe': 'Make the recipe first',
   'pm.stepper.needsPipeline': 'Use the recipe first',
   'pm.stepper.needsRun': 'Run the pipeline first',
-  'pm.stepper.provenLater': 'Comes with proven templates in the next release',
+  'pm.stepper.provenLater': 'Accept a proof first',
 
   // Home (40)
   'pm.home.views': 'Post maker views',
@@ -30,9 +31,31 @@ export const enPostmaker = {
   'pm.home.make': 'Make a post',
   'pm.home.noDrafts': 'No drafts yet.',
   'pm.home.noTemplates': 'No templates yet.',
+  'pm.home.retiredFilter': 'Retired ({n})',
+  'pm.home.allRetired': 'Every template is retired.',
   'pm.home.open': 'Open',
   'pm.home.draftName': 'Draft · {langs} · {length}',
   'pm.home.at': 'At {screen}',
+
+  // Move my pipelines. Row, dialog (≤ 30 words with
+  // its buttons), toasts (≤ 8 words). The dialog says: moved pipelines pause until Repeat is on; a backup
+  // is kept and Undo restores it exactly; pipelines that make posts from a template stay as pipelines.
+  'pm.move.line': 'Repeating posts now come from Proven.',
+  'pm.move.open': 'Move my pipelines ({n})',
+  'pm.move.title': 'Move your pipelines to Proven?',
+  'pm.move.pause': 'They pause until Repeat is on.',
+  'pm.move.backup': 'A backup is kept. Undo restores it exactly.',
+  'pm.move.kept': 'Pipelines using a template stay as pipelines.',
+  'pm.move.confirm': 'Move pipelines',
+  'pm.move.moving': 'Moving your pipelines',
+  'pm.move.couldNot': 'The pipelines could not move.',
+  'pm.move.done': '{n, plural, one {Moved # pipeline. Backup kept.} other {Moved # pipelines. Backup kept.}}',
+  'pm.move.nothing': 'Nothing to move.',
+  'pm.move.undo': 'Undo the move',
+  'pm.move.undoTitle': 'Undo the move?',
+  'pm.move.undoBody': 'Moved templates are set aside. Your pipelines come back.',
+  'pm.move.undone': 'Move undone. Pipelines are back.',
+  'pm.move.movedOnly': 'It makes posts on its schedule only.',
 
   // Reference (45)
   'pm.ref.drop': 'Drop a video or image',
@@ -147,6 +170,13 @@ export const enPostmaker = {
   'pm.step.signed': 'Signed by {name}.',
   'pm.step.nameFirst': 'Type your full name first.',
   'pm.step.locked': 'Unlock to edit',
+  'pm.step.missing': 'Missing asset · Make with Codex',
+  'pm.step.missingKind.background': 'Background',
+  'pm.step.missingKind.prop': 'Prop',
+  'pm.step.missingKind.sticker': 'Sticker',
+  'pm.step.missingKind.ui': 'Phone frame',
+  'pm.step.makeCodex': 'Make with Codex',
+  'pm.step.assetMade': 'Made. Approve it before the final render.',
 
   // Regenerate dialog
   'pm.regen.title': 'Regenerate {step}?',
@@ -193,6 +223,7 @@ export const enPostmaker = {
   'pm.pause.day-ceiling': 'Needs you · day limit reached',
   'pm.pause.gate': 'Needs you · waiting for a sign-off',
   'pm.pause.edit': 'Paused for your edit',
+  'pm.pause.paused': 'Paused',
   'pm.pause.attended': 'Needs you: press Run',
 
   // Proof (45)
@@ -277,6 +308,117 @@ export const enPostmaker = {
   'pm.trigger.campaign-slot': 'Campaign slot',
   'pm.trigger.repeat': 'Repeat',
   'pm.trigger.run-again': 'Run again',
+
+  // Template cards on Home › Proven (≤ 40 words each)
+  'pm.tcard.open': 'Open {name}',
+  'pm.tcard.steps': '{n, plural, one {# step} other {# steps}}',
+  'pm.tcard.cover': 'Cover of {name}',
+  'pm.tcard.make': 'Make a post',
+
+  // Proven (50)
+  'pm.proven.region': 'Template',
+  'pm.proven.loading': 'Loading the template',
+  'pm.proven.couldNotLoad': 'The template could not load.',
+  'pm.proven.gone': 'This template is not here any more.',
+  'pm.proven.lastRun': 'last run {when}',
+  'pm.proven.campaign': 'Campaign',
+  'pm.proven.noCampaign': 'None',
+  'pm.proven.unknownCampaign': 'Campaign no longer here',
+  'pm.proven.detach': 'Detach',
+  'pm.proven.attached': 'Attached to the campaign.',
+  'pm.proven.detached': 'Detached from the campaign.',
+  'pm.proven.variants': 'Variants ({count})',
+  'pm.proven.original': 'Original',
+  'pm.proven.runProof': 'Run proof',
+  'pm.proven.addVariant': 'Add variant',
+  'pm.proven.repeat': 'Repeat',
+  'pm.proven.repeatOff': 'Off',
+  'pm.proven.repeatOn': '{n} a week',
+  'pm.proven.setUp': 'Set up',
+  'pm.proven.results': 'Results',
+  'pm.proven.resultsNone': 'No posts yet',
+  'pm.proven.resultsLine': '{posts, plural, one {# post} other {# posts}} · {views} avg views',
+  'pm.proven.openResults': 'Open Results',
+  'pm.proven.openPipeline': 'Open pipeline',
+  'pm.proven.duplicate': 'Duplicate',
+  'pm.proven.duplicated': 'Copy made. It starts as a draft.',
+  'pm.proven.retire': 'Retire',
+  'pm.proven.retireTitle': 'Retire {name}?',
+  'pm.proven.retireBody': 'It stops repeating. Its posts and runs stay.',
+  'pm.proven.retireConfirm': 'Retire template',
+  'pm.proven.retired': 'Retired. Its posts and runs stay.',
+  'pm.proven.isRetired': 'This template is retired.',
+  'pm.proven.make': 'Make a post',
+
+  // Make a post dialog
+  'pm.make.title': 'Make a post from {name}?',
+  'pm.make.proofTitle': 'Run a proof of {name}?',
+  'pm.make.body': 'It stops at Proof for you to check.',
+  'pm.make.topic': 'Topic or brief',
+  'pm.make.needsTopic': 'Give the post a topic.',
+  'pm.make.forSlot': 'For {campaign} · {when}',
+  'pm.make.cap': 'Cap',
+  'pm.make.capLabel': 'Most this run may spend, in dollars',
+  'pm.make.confirm': 'Make a post',
+  'pm.make.proofConfirm': 'Run proof',
+  'pm.make.started': 'Making the post.',
+
+  // Add variant drawer
+  'pm.variant.title': 'Add variant',
+  'pm.variant.name': 'Name',
+  'pm.variant.language': 'Language',
+  'pm.variant.length': 'Length',
+  'pm.variant.shape': 'Shape',
+  'pm.variant.hook': 'Hook text',
+  'pm.variant.needsName': 'Name the variant.',
+  'pm.variant.needsChange': 'Choose at least one change.',
+  'pm.variant.save': 'Add variant',
+  'pm.variant.added': 'Variant added. Run its proof next.',
+  'pm.variant.couldNotSave': 'The variant could not be saved.',
+
+  // Repeat drawer (the Pipelines editors moved here)
+  'pm.repeat.title': 'Repeat',
+  'pm.repeat.switch': 'Repeat this template',
+  'pm.repeat.needsProven': 'Prove this template first.',
+  'pm.repeat.needsApproval': 'Turn on Autopilot and Repeat in Connections first.',
+  'pm.repeat.gate': 'Repeat is off in Connections.',
+  'pm.repeat.gateWhy': 'Until you turn on Autopilot and Repeat, nothing is made by itself.',
+  'pm.repeat.perWeek': 'Posts a week',
+  'pm.repeat.days': 'Days',
+  'pm.repeat.times': 'Times (24 h)',
+  'pm.repeat.time': 'Time {n}',
+  'pm.repeat.addTime': 'Add time',
+  'pm.repeat.removeTime': 'Remove {time}',
+  'pm.repeat.makeAhead': 'Make ahead, in days',
+  'pm.repeat.budget': 'Daily budget, in dollars',
+  'pm.repeat.approve': 'Approval',
+  'pm.repeat.ask': 'Ask me',
+  'pm.repeat.trusted': 'Post by itself after 5 approvals in a row',
+  'pm.repeat.trustedOff': 'Turn on trusted posting in Connections first.',
+  'pm.repeat.skip': 'Skip proof for repeat runs',
+  'pm.repeat.skipLocked': 'Needs 3 Premium proofs in a row',
+  'pm.repeat.err.perWeek': 'Use {min} to {max}.',
+  'pm.repeat.err.days': 'Choose at least one day.',
+  'pm.repeat.err.times': 'Use HH:MM, for example 18:00.',
+  'pm.repeat.err.makeAheadDays': 'Use {min} to {max} days.',
+  'pm.repeat.err.dailyUsd': 'Use $0.50 to $20.',
+  'pm.repeat.err.dailyUsdMoved': 'Use $0 to $20.',
+  'pm.repeat.fixFields': 'Fix the marked fields.',
+  'pm.repeat.save': 'Save',
+  'pm.repeat.saved': 'Repeat settings saved.',
+  'pm.repeat.couldNotSave': 'Repeat settings could not be saved.',
+  'pm.day.0': 'Mon',
+  'pm.day.1': 'Tue',
+  'pm.day.2': 'Wed',
+  'pm.day.3': 'Thu',
+  'pm.day.4': 'Fri',
+  'pm.day.5': 'Sat',
+  'pm.day.6': 'Sun',
+
+  // Reference: campaign selector
+  'pm.ref.campaign': 'Campaign',
+  'pm.ref.noCampaign': 'None',
+
 
   // Today › Needs you
   'pm.today.proofReady': 'Proof ready',
